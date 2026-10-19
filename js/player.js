@@ -27,12 +27,13 @@
   let heartbeatInFlight = false;
   let heartbeatQueued = false;
   let syncStartTimer = null;
+  let transitionTimer = null;
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
 
   if (!key) { root.innerHTML = '<div class="player-message">플레이어 키가 없습니다.</div>'; return; }
 
   function playlistSignature(s) {
-    return `${s?.mode||''}|${s?.media_server_url||''}|${s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.file_modified_at||''}:${v.file_path||v.url||''}`).join(',')}`;
+    return `${s?.mode||''}|${s?.media_server_url||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.file_modified_at||''}:${v.file_path||v.url||''}`).join(',')}`;
   }
   function stateSignature(s) {
     const r=s?.room||{};
@@ -70,7 +71,7 @@
 
       state=data;
       if(!emergencyPlaying)lastError=null;
-      saveState(); scheduleExpiry(); cacheEmergency().catch(()=>{});
+      saveState(); scheduleExpiry(); scheduleTransition(); cacheEmergency().catch(()=>{});
       if(playlistChanged){ lastPlaylistSig=newPlaylistSig; index=0; cycleFailures=0; emergencyPlaying=false; renderFull(); }
       else if(stateChanged){ applyLiveControls(); renderBarsOnly(); }
       lastStateSig=newStateSig;
@@ -102,6 +103,7 @@
     root.innerHTML=`<video id="screenVideo" class="player-video" playsinline preload="auto"></video>${bars()}<button id="unmute" class="player-unmute hidden">화면을 눌러 소리 켜기</button>`;
     const el=qs('#screenVideo');
     el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
+    el.muted=Boolean(state.room.force_mute);
     el.addEventListener('ended',()=>{cycleFailures=0;queueHeartbeat(true);next();});
     el.addEventListener('error',()=>handleMediaFailure(v));
     el.addEventListener('playing',()=>{lastError=null;cycleFailures=0;queueHeartbeat(true);});
@@ -114,7 +116,7 @@
   }
   async function startWithBroadcastSync(el){
     if(state?.room?.paused)return;
-    const effective=state?.mode==='broadcast'&&state?.broadcast_effective_at?new Date(state.broadcast_effective_at).getTime():0;
+    const effective=state?.sync_effective_at?new Date(state.sync_effective_at).getTime():0;
     if(!effective){await play(el);return;}
     const delay=effective-serverNow();
     if(delay>40){syncStartTimer=setTimeout(()=>{if(el.isConnected&&!state?.room?.paused)play(el);},delay);return;}
@@ -128,6 +130,7 @@
     const el=qs('#screenVideo'); if(!el||!state)return;
     const vol=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
     if(Math.abs(el.volume-vol)>0.01)el.volume=vol;
+    if(state.room.force_mute&&!el.muted)el.muted=true;
     if(state.room.paused){ if(!el.paused)el.pause(); }
     else if(el.paused&&!el.ended)play(el);
     queueHeartbeat(true);
@@ -139,7 +142,7 @@
       try{await el.play();qs('#unmute')?.classList.remove('hidden');}catch(e){lastError='자동재생 차단';queueHeartbeat(true);}
     }
   }
-  function enableSound(){ const el=qs('#screenVideo'); if(el){el.muted=false;play(el);} qs('#unmute')?.classList.add('hidden'); document.documentElement.requestFullscreen?.().catch(()=>{}); }
+  function enableSound(){ const el=qs('#screenVideo'); if(el&&!state?.room?.force_mute){el.muted=false;play(el);} qs('#unmute')?.classList.add('hidden'); document.documentElement.requestFullscreen?.().catch(()=>{}); }
   function next(){ const list=state?.playlist||[]; if(!list.length)return; index=(index+1)%list.length; renderFull(); }
 
   async function cacheEmergency(){
@@ -169,7 +172,7 @@
       clearEmergencyObjectUrl(); emergencyObjectUrl=URL.createObjectURL(blob); emergencyPlaying=true;
       const ev=state?.emergency_video;
       root.innerHTML=`<video id="screenVideo" class="player-video" playsinline autoplay loop></video>${bars()}<div class="player-emergency-badge">비상 재생</div><button id="unmute" class="player-unmute hidden">화면을 눌러 소리 켜기</button>`;
-      const el=qs('#screenVideo');el.src=emergencyObjectUrl;el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
+      const el=qs('#screenVideo');el.src=emergencyObjectUrl;el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));el.muted=Boolean(state.room.force_mute);
       el.addEventListener('playing',()=>queueHeartbeat(true));el.addEventListener('error',()=>{lastError='비상영상 재생 실패';queueHeartbeat(true);});
       await play(el); root.onclick=enableSound; lastError='미디어 서버 장애 · 비상영상 재생 중'; queueHeartbeat(true); scheduleRecovery();
       return true;
@@ -202,7 +205,8 @@
 
   function updateClock(){const el=qs('#clock');if(el)el.textContent=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});}
   setInterval(updateClock,1000);
-  function scheduleExpiry(){clearTimeout(expireTimer);if(!state?.session_expires_at)return;const ms=new Date(state.session_expires_at).getTime()-serverNow();if(ms>0)expireTimer=setTimeout(fetchState,ms+1500);}
+  function scheduleExpiry(){clearTimeout(expireTimer);if(!state?.session_expires_at)return;const ms=new Date(state.session_expires_at).getTime()-serverNow();if(ms>0)expireTimer=setTimeout(fetchState,ms+1200);}
+  function scheduleTransition(){clearTimeout(transitionTimer);if(!state?.next_transition_at)return;const ms=new Date(state.next_transition_at).getTime()-serverNow();if(ms>0)transitionTimer=setTimeout(fetchState,ms+500);}
 
   function playbackState(){
     const el=qs('#screenVideo');
@@ -230,7 +234,7 @@
       online:navigator.onLine,
       error:lastError,
       source:emergencyPlaying?'local-emergency-cache':'local-media-server',
-      app_version:'2.5',
+      app_version:'2.6',
       reported_at:new Date().toISOString()
     };
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}
