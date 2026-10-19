@@ -23,7 +23,15 @@
   }
 
   const cachedPinSession = readPinSession();
-  const isValidSupabaseUrl = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(String(cfg.supabaseUrl || '').trim());
+  const normalizedSupabaseUrl = String(cfg.supabaseUrl || '').trim().replace(/\/+$/, '');
+  const isValidSupabaseUrl = (() => {
+    try {
+      const u = new URL(normalizedSupabaseUrl);
+      return u.protocol === 'https:' && /^[a-z0-9-]+\.supabase\.co$/i.test(u.hostname) && (u.pathname === '/' || u.pathname === '');
+    } catch {
+      return false;
+    }
+  })();
   const hasSupabaseKey = !!String(cfg.supabaseAnonKey || '').trim()
     && !/YOUR_SUPABASE|PASTE_SUPABASE|YOUR_PROJECT/i.test(String(cfg.supabaseAnonKey || ''));
   const configReady = isValidSupabaseUrl && hasSupabaseKey;
@@ -38,7 +46,7 @@
     configError = 'js/config.js에 Supabase anon/public key를 입력하세요.';
   } else {
     try {
-      db = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+      db = window.supabase.createClient(normalizedSupabaseUrl, String(cfg.supabaseAnonKey || '').trim(), {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
         global: { headers: cachedPinSession?.token ? { 'x-signage-session': cachedPinSession.token } : {} },
         realtime: { params: { eventsPerSecond: 10 } }
