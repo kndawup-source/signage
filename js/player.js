@@ -230,7 +230,7 @@
       online:navigator.onLine,
       error:lastError,
       source:emergencyPlaying?'local-emergency-cache':'local-media-server',
-      app_version:'2.4',
+      app_version:'2.5',
       reported_at:new Date().toISOString()
     };
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}

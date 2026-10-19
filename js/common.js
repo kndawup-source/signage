@@ -2,8 +2,30 @@
   'use strict';
 
   const cfg = window.CLINIC_SIGNAGE_CONFIG || {};
+  const PIN_SESSION_KEY = 'clinic_signage_pin_session_v1';
+  const CLIENT_ID_KEY = 'clinic_signage_pin_client_v1';
+
+  function readPinSession() {
+    try {
+      const raw = localStorage.getItem(PIN_SESSION_KEY);
+      if (!raw) return null;
+      const value = JSON.parse(raw);
+      if (!value?.token || !value?.role || !value?.expires_at) return null;
+      if (Date.now() >= new Date(value.expires_at).getTime()) {
+        localStorage.removeItem(PIN_SESSION_KEY);
+        return null;
+      }
+      return value;
+    } catch {
+      localStorage.removeItem(PIN_SESSION_KEY);
+      return null;
+    }
+  }
+
+  const cachedPinSession = readPinSession();
   const db = window.supabase?.createClient ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { headers: cachedPinSession?.token ? { 'x-signage-session': cachedPinSession.token } : {} },
     realtime: { params: { eventsPerSecond: 10 } }
   }) : null;
 
@@ -24,9 +46,58 @@
   const isOnline = (room) => room?.last_seen_at && Date.now() - new Date(room.last_seen_at).getTime() < (cfg.onlineThresholdMs || 90000);
 
   function toast(message, type = 'info') { let box=qs('#toast'); if(!box){box=document.createElement('div');box.id='toast';box.className='toast';document.body.appendChild(box);} box.className=`toast show ${type}`;box.textContent=message;clearTimeout(box._timer);box._timer=setTimeout(()=>{box.className='toast';},2600); }
-  async function getSession(){ if(!db)return null; const {data,error}=await db.auth.getSession(); if(error)throw error; return data.session; }
-  async function requireAuth(requiredRole){ const session=await getSession(); if(!session){const next=encodeURIComponent(location.pathname+location.search);location.replace(`/?next=${next}`);throw new Error('AUTH_REQUIRED');} const {data,error}=await db.from('members').select('role').eq('user_id',session.user.id).maybeSingle(); if(error||!data){await db.auth.signOut();location.replace('/');throw error||new Error('등록되지 않은 계정입니다.');} if(requiredRole&&data.role!==requiredRole){location.replace(data.role==='admin'?'/admin.html':'/staff.html');throw new Error('ROLE_MISMATCH');} return {session,role:data.role}; }
-  async function signOut(){ if(db)await db.auth.signOut(); location.replace('/'); }
 
-  window.Signage=Object.freeze({cfg,db,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getSession,requireAuth,signOut});
+  function getClientId() {
+    let id = localStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      localStorage.setItem(CLIENT_ID_KEY, id);
+    }
+    return id;
+  }
+
+  function storePinSession(session) {
+    if (!session?.token || !session?.role || !session?.expires_at) throw new Error('INVALID_PIN_SESSION');
+    localStorage.setItem(PIN_SESSION_KEY, JSON.stringify({ token: session.token, role: session.role, expires_at: session.expires_at }));
+  }
+
+  function clearPinSession() { localStorage.removeItem(PIN_SESSION_KEY); }
+
+  async function getSession() {
+    if (!db || !readPinSession()) return null;
+    const { data, error } = await db.rpc('pin_session_info');
+    if (error || !data?.valid) {
+      clearPinSession();
+      return null;
+    }
+    return { role: data.role, expires_at: data.expires_at };
+  }
+
+  async function requireAuth(requiredRole) {
+    const session = await getSession();
+    if (!session) {
+      const next=encodeURIComponent(location.pathname+location.search);
+      location.replace(`/?next=${next}`);
+      throw new Error('AUTH_REQUIRED');
+    }
+    if (requiredRole && session.role !== requiredRole) {
+      location.replace(session.role === 'admin' ? '/admin.html' : '/staff.html');
+      throw new Error('ROLE_MISMATCH');
+    }
+    if (!window.__SIGNAGE_PIN_SESSION_WATCH__) {
+      window.__SIGNAGE_PIN_SESSION_WATCH__ = setInterval(async () => {
+        const live = await getSession().catch(() => null);
+        if (!live) location.replace('/');
+      }, 60000);
+    }
+    return { session, role: session.role };
+  }
+
+  async function signOut() {
+    try { if (db && readPinSession()) await db.rpc('pin_logout'); } catch {}
+    clearPinSession();
+    location.replace('/');
+  }
+
+  window.Signage=Object.freeze({cfg,db,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,storePinSession,clearPinSession,getSession,requireAuth,signOut});
 })();

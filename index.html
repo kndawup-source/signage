@@ -11,10 +11,9 @@
     <section class="auth-panel">
       <div class="eyebrow">CLINIC SIGNAGE</div>
       <h1>중앙 영상 제어</h1>
-      <p class="muted">관리자 또는 직원 계정으로 로그인하세요.</p>
+      <p class="muted">PIN 번호를 입력하세요.</p>
       <form id="loginForm" class="stack-lg">
-        <label class="field"><span>이메일</span><input id="email" type="email" autocomplete="username" required></label>
-        <label class="field"><span>비밀번호</span><input id="password" type="password" autocomplete="current-password" required></label>
+        <label class="field pin-field"><span>PIN</span><input id="pin" type="password" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" minlength="4" maxlength="6" placeholder="••••••" required></label>
         <button class="btn primary block" type="submit">로그인</button>
         <p id="loginError" class="error hidden"></p>
       </form>

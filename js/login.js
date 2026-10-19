@@ -2,27 +2,60 @@
   'use strict';
   const { db, qs } = Signage;
   const safeNext=(value)=>{if(!value||!value.startsWith('/')||value.startsWith('//'))return null;try{const u=new URL(value,location.origin);return u.origin===location.origin?u.pathname+u.search+u.hash:null;}catch{return null;}};
-  if(!db){const err=qs('#loginError');err.textContent='Supabase 설정 또는 로컬 라이브러리를 확인하세요.';err.classList.remove('hidden');qs('#loginForm button').disabled=true;return;}
+  const err = qs('#loginError');
+  const form = qs('#loginForm');
+  const pinInput = qs('#pin');
+  const btn = form.querySelector('button');
+
+  if(!db){err.textContent='Supabase 설정 또는 로컬 라이브러리를 확인하세요.';err.classList.remove('hidden');btn.disabled=true;return;}
+
   const existing = await Signage.getSession().catch(() => null);
-  if (existing) {
-    const { data } = await db.from('members').select('role').eq('user_id', existing.user.id).maybeSingle();
-    if (data?.role) location.replace(data.role === 'admin' ? '/admin.html' : '/staff.html');
+  if (existing?.role) {
+    location.replace(existing.role === 'admin' ? '/admin.html' : '/staff.html');
+    return;
   }
-  qs('#loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const err = qs('#loginError');
+
+  pinInput.addEventListener('input', () => {
+    pinInput.value = pinInput.value.replace(/\D/g,'').slice(0,6);
     err.classList.add('hidden');
-    const btn = e.currentTarget.querySelector('button');
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.classList.add('hidden');
+    const pin = pinInput.value.replace(/\D/g,'');
+    if (pin.length < 4 || pin.length > 6) {
+      err.textContent = 'PIN은 숫자 4~6자리로 입력하세요.';
+      err.classList.remove('hidden');
+      return;
+    }
     btn.disabled = true;
-    const { data, error } = await db.auth.signInWithPassword({ email: qs('#email').value.trim(), password: qs('#password').value });
-    if (error) {
-      err.textContent = '로그인 정보를 확인하세요.'; err.classList.remove('hidden'); btn.disabled = false; return;
+    pinInput.disabled = true;
+    try {
+      const { data, error } = await db.rpc('pin_login', { p_pin: pin, p_client_id: Signage.getClientId() });
+      if (error) throw error;
+      if (!data?.ok) {
+        if (data?.error === 'locked') {
+          const sec = Math.max(1, Number(data.retry_after_sec || 0));
+          err.textContent = `로그인이 잠겼습니다. 약 ${Math.ceil(sec/60)}분 후 다시 시도하세요.`;
+        } else {
+          err.textContent = 'PIN 번호를 확인하세요.';
+        }
+        err.classList.remove('hidden');
+        pinInput.value = '';
+        pinInput.focus();
+        return;
+      }
+      Signage.storePinSession(data);
+      const next = safeNext(new URLSearchParams(location.search).get('next'));
+      const defaultPage = data.role === 'admin' ? '/admin.html' : '/staff.html';
+      location.replace(next || defaultPage);
+    } catch (e2) {
+      err.textContent = '로그인할 수 없습니다. 네트워크와 설정을 확인하세요.';
+      err.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      pinInput.disabled = false;
     }
-    const { data: member } = await db.from('members').select('role').eq('user_id', data.user.id).maybeSingle();
-    if (!member) {
-      await db.auth.signOut(); err.textContent = '등록되지 않은 계정입니다.'; err.classList.remove('hidden'); btn.disabled = false; return;
-    }
-    const next = safeNext(new URLSearchParams(location.search).get('next'));
-    location.replace(next || (member.role === 'admin' ? '/admin.html' : '/staff.html'));
   });
 })();

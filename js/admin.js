@@ -11,7 +11,6 @@
   let tab='dashboard';
   let state={rooms:[],videos:[],tags:[],broadcast:null,settings:{media_server_url:'',emergency_video_id:null,disk_warning_gb:20}};
   let serverHealth=null;
-  let roomRealtimeChannel=null;
   let loadSeq=0;
   const MAX_EMERGENCY_BYTES=250*1024*1024;
 
@@ -195,11 +194,24 @@
     qs('#adminRoot').innerHTML=`<div class="page-head"><div><div class="eyebrow">SYSTEM</div><h1>설정</h1></div></div>
       <section class="panel narrow-panel"><h2>내부 영상 서버</h2><p class="muted">서버 PC에서 media-server.js가 실행 중인 주소입니다.</p><label class="field"><span>서버 주소</span><input id="mediaServerUrl" placeholder="http://12F-MSO0:8080" value="${esc(state.settings.media_server_url||'')}"></label><label class="field"><span>디스크 경고 기준(GB)</span><input id="diskWarningGb" type="number" min="1" max="1000" value="${Number(state.settings.disk_warning_gb||20)}"></label><div class="inline top-gap"><button id="testServer" class="btn">연결 테스트</button><button id="saveServer" class="btn primary">저장</button></div><div id="serverResult" class="server-result"></div></section>
       <section class="panel narrow-panel"><h2>비상 로컬 영상</h2><p class="muted">평상시 각 환자 화면이 이 영상 1개를 로컬 캐시합니다. 내부 영상 서버 장애 시 자동 재생하고 서버 복구 후 정상 송출로 돌아옵니다.</p><label class="field"><span>비상 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${activeVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><p class="muted">권장: 짧은 H.264 MP4, 약 50~200MB. 250MB를 넘는 파일은 비상영상으로 지정할 수 없습니다.</p><button id="saveEmergency" class="btn primary">비상영상 저장</button></section>
+      <section class="panel narrow-panel"><h2>PIN 관리</h2><p class="muted">PIN 원문은 저장하지 않습니다. 변경하면 해당 권한으로 로그인된 기존 세션이 모두 종료됩니다.</p><div class="grid-2"><label class="field"><span>새 관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••"></label><label class="field"><span>새 스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••"></label></div><div class="inline top-gap"><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></section>
       <section class="panel narrow-panel"><h2>영상 폴더</h2><p>서버 PC 자체에 영상이 있다면 로컬 경로 사용을 권장합니다.</p><pre>C:\\Users\\Public\\Videos</pre><p class="muted">다른 PC에서는 \\12F-MSO0\Users\Public\Videos 로 파일을 복사할 수 있습니다.</p></section>`;
-    qs('#testServer').addEventListener('click',testServer);qs('#saveServer').addEventListener('click',saveServer);qs('#saveEmergency').addEventListener('click',saveEmergency);
+    qs('#testServer').addEventListener('click',testServer);qs('#saveServer').addEventListener('click',saveServer);qs('#saveEmergency').addEventListener('click',saveEmergency);qs('#changeAdminPin').addEventListener('click',()=>changePin('admin'));qs('#changeStaffPin').addEventListener('click',()=>changePin('staff'));qsa('#newAdminPin,#newStaffPin').forEach((i)=>i.addEventListener('input',()=>{i.value=i.value.replace(/\D/g,'').slice(0,6);}));
   }
   async function testServer(){const u=qs('#mediaServerUrl').value.trim().replace(/\/+$/,'');const out=qs('#serverResult');out.textContent='확인 중…';try{const r=await fetch(`${u}/health`,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);const j=await r.json();serverHealth=j;out.innerHTML=`<span class="ok">연결됨</span> · ${esc(j.host||'')} · 영상 ${Number(j.files||0)}개${j.free_bytes!=null?` · 여유 ${formatBytes(j.free_bytes)}`:''}${j.active_streams!=null?` · 현재 스트림 ${Number(j.active_streams)}`:''} · APP ${esc(j.app_version||'확인불가')} · Supabase JS ${esc(j.supabase_version||'확인불가')}`;}catch(e){serverHealth=false;out.innerHTML=`<span class="error">연결 실패</span> · ${esc(e.message||e)}`;}}
   async function saveServer(){const url=qs('#mediaServerUrl').value.trim().replace(/\/+$/,'');if(!/^https?:\/\//i.test(url))return toast('http:// 또는 https:// 로 시작하는 주소를 입력하세요.','error');const disk=Math.max(1,Math.min(1000,Number(qs('#diskWarningGb').value)||20));const {error}=await db.from('app_settings').update({media_server_url:url,disk_warning_gb:disk,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('서버 설정 저장 완료');await load();checkServerHealth();}}
+  async function changePin(role){
+    const input=qs(role==='admin'?'#newAdminPin':'#newStaffPin');
+    const pin=input.value.replace(/\D/g,'');
+    if(role==='admin'&&pin.length!==6)return toast('관리자 PIN은 숫자 6자리로 입력하세요.','error');
+    if(role==='staff'&&(pin.length<4||pin.length>6))return toast('스텝 PIN은 숫자 4~6자리로 입력하세요.','error');
+    if(!confirm(`${role==='admin'?'관리자':'스텝'} PIN을 변경할까요? 기존 ${role==='admin'?'관리자':'스텝'} 로그인 세션은 모두 종료됩니다.`))return;
+    const {error}=await db.rpc('admin_change_pin',{p_role:role,p_pin:pin});
+    if(error)return toast(error.message,'error');
+    input.value='';
+    if(role==='admin'){Signage.clearPinSession();location.replace('/');return;}
+    toast('스텝 PIN 변경 완료');
+  }
   async function saveEmergency(){
     const id=qs('#emergencyVideo').value||null;
     if(id){const video=state.videos.find((v)=>v.id===id);if(Number(video?.size_bytes||0)>MAX_EMERGENCY_BYTES)return toast('비상영상은 250MB 이하로 선택하세요.','error');}
@@ -225,12 +237,20 @@
 
   try{await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
 
-  roomRealtimeChannel=db.channel('admin-live-v2-4')
-    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms'},(payload)=>mergeRealtimeRoom(payload.new))
-    .on('postgres_changes',{event:'*',schema:'public',table:'broadcast'},()=>load())
-    .subscribe();
+
+  let liveRefreshBusy=false;
+  async function refreshLiveRooms(){
+    if(liveRefreshBusy)return;
+    liveRefreshBusy=true;
+    try{
+      const {data,error}=await db.from('rooms').select('id,last_seen_at,player_status,paused,reload_nonce');
+      if(error)throw error;
+      (data||[]).forEach((next)=>mergeRealtimeRoom(next));
+    }catch{}finally{liveRefreshBusy=false;}
+  }
+  refreshLiveRooms();
+  setInterval(refreshLiveRooms,5000);
   checkServerHealth();
   setInterval(checkServerHealth,30000);
   setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintAlerts();const stat=qs('#onlineStat');if(stat)stat.innerHTML=`온라인 <b>${state.rooms.filter(isOnline).length}</b> / ${state.rooms.length}`;}},5000);
-  window.addEventListener('beforeunload',()=>{if(roomRealtimeChannel)db.removeChannel(roomRealtimeChannel);});
 })();

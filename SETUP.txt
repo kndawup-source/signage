@@ -1,16 +1,25 @@
-CLINIC SIGNAGE v2.4 · 30개 진료실 최종 운영형
+CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 
 [구조]
-- Supabase: 로그인 / 제어 / 환자 맞춤 조건 / 송출 명령 / 플레이어 상태
+- Supabase: PIN 인증 / 제어 / 환자 맞춤 조건 / 송출 명령 / 플레이어 상태
 - 내부 서버 PC: 실제 영상 파일 + 정적 HTML/CSS/JS + HTTP Range 스트리밍
 - 환자 화면: 내부 서버 영상을 전체화면 재생
 - Supabase Storage에는 영상 파일을 저장하지 않음
 
-1. Supabase
+1. Supabase + PIN 설정
 - Supabase SQL Editor에서 supabase/schema.sql 전체 실행
-- v2/v2.1/v2.2 위에 그대로 실행 가능한 마이그레이션형
-- Authentication > Users에서 관리자/직원 계정 생성
-- members에 user_id + role(admin/staff) 등록
+- 기존 v2.x 데이터는 유지되는 마이그레이션형
+- 이메일/비밀번호 계정은 더 이상 로그인에 사용하지 않음
+- schema.sql 실행 직후 SQL Editor에서 아래 명령을 1회 실행
+  select public.configure_signage_pins('123456','4321');
+- 첫 번째 값: 관리자 PIN, 정확히 숫자 6자리
+- 두 번째 값: 스텝 PIN, 숫자 4~6자리
+- 위 예시 번호를 그대로 사용하지 말고 실제 사용할 번호로 반드시 변경
+- PIN은 원문으로 저장되지 않고 pgcrypto bcrypt 해시로 저장
+- 초기 설정 후에는 관리자 > 설정 > PIN 관리에서 관리자/스텝 PIN을 변경할 수 있음
+- SQL Editor의 configure_signage_pins(...)를 다시 실행해도 둘 다 변경 가능하며 기존 로그인 세션은 모두 종료됨
+- 로그인 5회 연속 실패 시 해당 기기에서 5분 잠금
+- 로그인 세션 유효시간 12시간, 로그아웃 시 서버 세션도 즉시 폐기
 
 2. 웹 설정
 - js/config.js에 Supabase URL / anon key 입력
@@ -27,7 +36,7 @@ CLINIC SIGNAGE v2.4 · 30개 진료실 최종 운영형
 - 서버 PC는 유선 Gigabit LAN + SSD 권장
 
 4. Supabase JS 고정
-- v2.4은 @supabase/supabase-js 2.118.0으로 고정
+- v2.5는 @supabase/supabase-js 2.118.0으로 고정
 - 서버 최초 온라인 실행 때 server/cache/supabase.js로 1회 저장
 - 이후 인터넷 장애 시에도 내부 서버가 로컬 파일 제공
 
@@ -107,3 +116,12 @@ CLINIC SIGNAGE v2.4 · 30개 진료실 최종 운영형
 - 비활성 전체송출 후보 선택은 플레이어 refresh 생략
 - 정적 서버는 HTML/CSS/JS만 허용하여 설정/키 파일 노출 방지
 - 로그인 next는 동일 origin 내부 경로만 허용
+
+16. v2.5 PIN 로그인
+- 로그인 화면에는 이메일/비밀번호가 없고 PIN 입력만 표시
+- PIN 값에 따라 ADMIN / STAFF 권한 자동 판별 후 해당 화면으로 이동
+- PIN 원문은 js/config.js, HTML, localStorage에 저장하지 않음
+- 브라우저에는 12시간짜리 임의 세션 토큰만 저장
+- RLS는 Supabase Auth 이메일 계정이 아니라 PIN 세션 헤더를 검증
+- 관리자 실시간 상태 화면은 보안을 위해 테이블 Realtime 구독 대신 5초 경량 상태 갱신 사용
+- 전체/개별 송출 명령은 기존 realtime.send 경로를 그대로 사용하므로 플레이어 전환 속도에는 영향 없음
