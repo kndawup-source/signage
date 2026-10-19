@@ -1,6 +1,6 @@
 window.CLINIC_SIGNAGE_CONFIG = Object.freeze({
   // Shared Supabase project used by Clinic Signage.
-  supabaseUrl: 'https://imumpyumchvctrpmfngr.supabase.co',
+  supabaseUrl: 'https://xtzchrpwgjvalvallfre.supabase.co',
 
   // Paste the project's public anon / publishable key here once, then commit/push.
   // This is a browser-side public key; never put the service_role key here.

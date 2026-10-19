@@ -1,6 +1,4 @@
 Supabase configuration is already set in js/config.js.
-Project URL and anon/public key are configured.
-Do not replace the anon key with a service_role key.
-Supabase configuration is already set in js/config.js.
-Project URL and anon/public key are configured.
+Project URL: https://xtzchrpwgjvalvallfre.supabase.co
+Anon/public key is configured.
 Do not replace the anon key with a service_role key.
