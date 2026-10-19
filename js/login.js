@@ -7,7 +7,7 @@
   const pinInput = qs('#pin');
   const btn = form.querySelector('button');
 
-  if(!db){err.textContent=configError || 'Supabase 설정을 확인하세요.';err.classList.remove('hidden');btn.disabled=true;console.error('[Clinic Signage] config', {supabaseUrl: Signage.cfg?.supabaseUrl || '', hasAnonKey: !!Signage.cfg?.supabaseAnonKey});return;}
+  if(!db){err.textContent=configError || 'Supabase 설정을 확인하세요.';err.classList.remove('hidden');btn.disabled=true;console.error('[Clinic Signage] config', {supabaseUrl: Signage.cfg?.supabaseUrl || '', hasAnonKey: !!Signage.cfg?.supabaseAnonKey, version: '2.5.8'});return;}
 
   const existing = await Signage.getSession().catch(() => null);
   if (existing?.role) {

@@ -1,7 +1,23 @@
 (function () {
   'use strict';
 
-  const cfg = window.CLINIC_SIGNAGE_CONFIG || {};
+  const DEFAULT_CONFIG = Object.freeze({
+    supabaseUrl: 'https://xtzchrpwgjvalvallfre.supabase.co',
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0emNocnB3Z2p2YWx2YWxsZnJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNzcwMTEsImV4cCI6MjEwNzk1MzAxMX0.FDD6cycD3kd0K1IBLp0P-4Jn7x3izEwGz6Q3trBsNqE',
+    pollMs: 30000,
+    heartbeatMs: 10000,
+    onlineThresholdMs: 35000
+  });
+  const suppliedConfig = window.CLINIC_SIGNAGE_CONFIG && typeof window.CLINIC_SIGNAGE_CONFIG === 'object'
+    ? window.CLINIC_SIGNAGE_CONFIG
+    : {};
+  const cfg = Object.freeze({
+    ...DEFAULT_CONFIG,
+    ...suppliedConfig,
+    supabaseUrl: String(suppliedConfig.supabaseUrl || DEFAULT_CONFIG.supabaseUrl).trim(),
+    supabaseAnonKey: String(suppliedConfig.supabaseAnonKey || DEFAULT_CONFIG.supabaseAnonKey).trim()
+  });
+  window.CLINIC_SIGNAGE_CONFIG = cfg;
   const PIN_SESSION_KEY = 'clinic_signage_pin_session_v1';
   const CLIENT_ID_KEY = 'clinic_signage_pin_client_v1';
 
