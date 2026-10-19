@@ -36,7 +36,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 서버 PC는 유선 Gigabit LAN + SSD 권장
 
 4. Supabase JS 고정
-- v2.5는 @supabase/supabase-js 2.118.0으로 고정
+- v2.5.2는 @supabase/supabase-js 2.118.0으로 고정
 - 서버 최초 온라인 실행 때 server/cache/supabase.js로 1회 저장
 - 이후 인터넷 장애 시에도 내부 서버가 로컬 파일 제공
 
@@ -125,3 +125,9 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - RLS는 Supabase Auth 이메일 계정이 아니라 PIN 세션 헤더를 검증
 - 관리자 실시간 상태 화면은 보안을 위해 테이블 Realtime 구독 대신 5초 경량 상태 갱신 사용
 - 전체/개별 송출 명령은 기존 realtime.send 경로를 그대로 사용하므로 플레이어 전환 속도에는 영향 없음
+
+
+[Supabase JS 로딩]
+- Vercel/HTTPS: jsDelivr의 @supabase/supabase-js 2.118.0 고정 버전을 직접 사용합니다.
+- 내부 미디어 서버/HTTP: /vendor/supabase.js 로컬 캐시를 사용합니다.
+- 따라서 Vercel에는 vendor/supabase.js 파일이 없어도 정상입니다.

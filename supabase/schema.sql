@@ -1,10 +1,11 @@
 -- =====================================================================
--- Clinic Signage v2.5 · PIN 전용 로그인 + 30실 중앙제어 + 환자 맞춤 + 장애복구
+-- Clinic Signage v2.5.1 · PIN 전용 로그인 + 30실 중앙제어 + 환자 맞춤 + 장애복구
 -- 기존 v2/v2.1 위에 그대로 실행 가능한 마이그레이션형 기준본.
 -- 영상 파일 자체는 Supabase Storage에 저장하지 않는다.
 -- =====================================================================
 
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.members (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -44,7 +45,7 @@ returns text language sql stable security definer set search_path=public as $$
 $$;
 
 create or replace function public.pin_session_role()
-returns text language sql stable security definer set search_path=public as $$
+returns text language sql stable security definer set search_path=public,extensions as $$
   select a.role
   from public.pin_sessions s
   join public.pin_accounts a on a.id=s.account_id and a.enabled
@@ -64,7 +65,7 @@ $$;
 
 -- SQL Editor에서만 실행: select public.configure_signage_pins('관리자6자리','스텝4~6자리');
 create or replace function public.configure_signage_pins(p_admin_pin text,p_staff_pin text)
-returns void language plpgsql security definer set search_path=public as $$
+returns void language plpgsql security definer set search_path=public,extensions as $$
 begin
   if p_admin_pin !~ '^[0-9]{6}$' then raise exception 'admin PIN must be exactly 6 digits'; end if;
   if p_staff_pin !~ '^[0-9]{4,6}$' then raise exception 'staff PIN must be 4 to 6 digits'; end if;
@@ -84,7 +85,7 @@ end $$;
 revoke all on function public.configure_signage_pins(text,text) from public,anon,authenticated;
 
 create or replace function public.pin_login(p_pin text,p_client_id text)
-returns jsonb language plpgsql security definer set search_path=public as $$
+returns jsonb language plpgsql security definer set search_path=public,extensions as $$
 declare
   v_client text:=left(trim(coalesce(p_client_id,'')),100);
   v_fail int:=0; v_locked timestamptz; v_account public.pin_accounts; v_token text; v_exp timestamptz;
@@ -127,7 +128,7 @@ begin
 end $$;
 
 create or replace function public.pin_session_info()
-returns jsonb language plpgsql stable security definer set search_path=public as $$
+returns jsonb language plpgsql stable security definer set search_path=public,extensions as $$
 declare v_role text; v_exp timestamptz;
 begin
   select a.role,s.expires_at into v_role,v_exp
@@ -139,7 +140,7 @@ begin
 end $$;
 
 create or replace function public.pin_logout()
-returns void language plpgsql security definer set search_path=public as $$
+returns void language plpgsql security definer set search_path=public,extensions as $$
 begin
   delete from public.pin_sessions where token_hash=digest(coalesce(public.pin_request_token(),''),'sha256');
 end $$;
