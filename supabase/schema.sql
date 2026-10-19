@@ -212,6 +212,20 @@ create table if not exists public.rooms (
 alter table public.rooms add column if not exists session_age_group text;
 alter table public.rooms add column if not exists session_gender text;
 alter table public.rooms add column if not exists session_treatment text;
+
+-- v2.6.2 canonical treatment rename: veneer -> minish.
+-- Keep this idempotent so the full schema can be safely re-run on existing installs.
+update public.videos
+set target_treatment = coalesce((
+  select array_agg(distinct case when x='veneer' then 'minish' else x end order by case when x='veneer' then 'minish' else x end)
+  from unnest(target_treatment) as x
+),'{}'::text[])
+where 'veneer'=any(target_treatment);
+
+update public.rooms
+set session_treatment = case when session_treatment='veneer' then 'minish' else session_treatment end,
+    session_tags = array_replace(coalesce(session_tags,'{}'::text[]),'veneer','minish')
+where session_treatment='veneer' or 'veneer'=any(coalesce(session_tags,'{}'::text[]));
 alter table public.rooms add column if not exists manual_active boolean not null default false;
 alter table public.rooms add column if not exists manual_video_ids uuid[] not null default '{}';
 alter table public.rooms add column if not exists manual_updated_at timestamptz;
@@ -307,8 +321,8 @@ begin
   update public.rooms set
     session_age_group=nullif(trim(coalesce(p_age_group,'')),''),
     session_gender=nullif(trim(coalesce(p_gender,'')),''),
-    session_treatment=trim(p_treatment),
-    session_tags=array_remove(array[p_age_group,p_gender,p_treatment]::text[],null),
+    session_treatment=case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end,
+    session_tags=array_remove(array[p_age_group,p_gender,case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end]::text[],null),
     session_started_at=now()
   where id=p_room;
 end $$;
@@ -759,13 +773,15 @@ begin
   update public.rooms set
     session_age_group=nullif(trim(coalesce(p_age_group,'')),''),
     session_gender=nullif(trim(coalesce(p_gender,'')),''),
-    session_treatment=trim(p_treatment),
-    session_tags=array_remove(array[p_age_group,p_gender,p_treatment]::text[],null),
+    session_treatment=case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end,
+    session_tags=array_remove(array[p_age_group,p_gender,case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end]::text[],null),
     session_started_at=clock_timestamp()
   where id=p_room;
 end $$;
 revoke all on function public.start_patient_session(uuid,text,text,text) from public;
 grant execute on function public.start_patient_session(uuid,text,text,text) to anon,authenticated;
+
+drop function if exists public.staff_room_list();
 
 create or replace function public.staff_room_list()
 returns table(

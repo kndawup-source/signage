@@ -10,7 +10,7 @@
     {id:'40-50-f',label:'40~50 여성',age:'40-50',gender:'female'},{id:'40-50-m',label:'40~50 남성',age:'40-50',gender:'male'},
     {id:'60+-f',label:'60+ 여성',age:'60+',gender:'female'},{id:'60+-m',label:'60+ 남성',age:'60+',gender:'male'}
   ];
-  const TREATMENTS=[['implant','임플란트'],['veneer','라미네이트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
+  const TREATMENTS=[['implant','임플란트'],['minish','미니쉬'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const ROOM_MODE_LABEL={treatment:'진료실',consultation:'상담실',waiting:'대기실',other:'기타'};
   const requestedRoomId=new URLSearchParams(location.search).get('room');
   let rooms=[],broadcast=null,selectedRoom=null,selectedAudience=AUDIENCES[0],busy=false,loadSeq=0;

@@ -6,7 +6,7 @@
 
   const AGE_OPTIONS=[['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['female','여성'],['male','남성']];
-  const TREATMENT_OPTIONS=[['implant','임플란트'],['veneer','라미네이트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
+  const TREATMENT_OPTIONS=[['implant','임플란트'],['minish','미니쉬'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const GROUP_KINDS=[['floor','층'],['consultation','상담실'],['waiting','대기실'],['vip','VIP'],['other','기타']];
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
