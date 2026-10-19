@@ -23,11 +23,31 @@
   }
 
   const cachedPinSession = readPinSession();
-  const db = window.supabase?.createClient ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { headers: cachedPinSession?.token ? { 'x-signage-session': cachedPinSession.token } : {} },
-    realtime: { params: { eventsPerSecond: 10 } }
-  }) : null;
+  const isValidSupabaseUrl = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(String(cfg.supabaseUrl || '').trim());
+  const hasSupabaseKey = !!String(cfg.supabaseAnonKey || '').trim()
+    && !/YOUR_SUPABASE|PASTE_SUPABASE|YOUR_PROJECT/i.test(String(cfg.supabaseAnonKey || ''));
+  const configReady = isValidSupabaseUrl && hasSupabaseKey;
+  let db = null;
+  let configError = '';
+
+  if (!window.supabase?.createClient) {
+    configError = 'Supabase 라이브러리를 불러오지 못했습니다.';
+  } else if (!isValidSupabaseUrl) {
+    configError = 'js/config.js의 Supabase URL을 확인하세요.';
+  } else if (!hasSupabaseKey) {
+    configError = 'js/config.js에 Supabase anon/public key를 입력하세요.';
+  } else {
+    try {
+      db = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        global: { headers: cachedPinSession?.token ? { 'x-signage-session': cachedPinSession.token } : {} },
+        realtime: { params: { eventsPerSecond: 10 } }
+      });
+    } catch (error) {
+      console.error('[Clinic Signage] Supabase client init failed:', error);
+      configError = 'Supabase 설정값이 올바르지 않습니다.';
+    }
+  }
 
   const qs = (s, root = document) => root.querySelector(s);
   const qsa = (s, root = document) => [...root.querySelectorAll(s)];
@@ -99,5 +119,5 @@
     location.replace('/');
   }
 
-  window.Signage=Object.freeze({cfg,db,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,storePinSession,clearPinSession,getSession,requireAuth,signOut});
+  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,storePinSession,clearPinSession,getSession,requireAuth,signOut});
 })();

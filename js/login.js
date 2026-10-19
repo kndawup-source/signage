@@ -1,13 +1,13 @@
 (async function () {
   'use strict';
-  const { db, qs } = Signage;
+  const { db, qs, configError } = Signage;
   const safeNext=(value)=>{if(!value||!value.startsWith('/')||value.startsWith('//'))return null;try{const u=new URL(value,location.origin);return u.origin===location.origin?u.pathname+u.search+u.hash:null;}catch{return null;}};
   const err = qs('#loginError');
   const form = qs('#loginForm');
   const pinInput = qs('#pin');
   const btn = form.querySelector('button');
 
-  if(!db){err.textContent='Supabase 설정 또는 로컬 라이브러리를 확인하세요.';err.classList.remove('hidden');btn.disabled=true;return;}
+  if(!db){err.textContent=configError || 'Supabase 설정을 확인하세요.';err.classList.remove('hidden');btn.disabled=true;return;}
 
   const existing = await Signage.getSession().catch(() => null);
   if (existing?.role) {
