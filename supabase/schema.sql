@@ -1,0 +1,504 @@
+-- =====================================================================
+-- Clinic Signage v2.4 · 30실 중앙제어 + 환자 맞춤 + 장애복구 + QA 리팩토링
+-- 기존 v2/v2.1 위에 그대로 실행 가능한 마이그레이션형 기준본.
+-- 영상 파일 자체는 Supabase Storage에 저장하지 않는다.
+-- =====================================================================
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.members (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'staff' check (role in ('admin','staff')),
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.is_member()
+returns boolean language sql stable security definer set search_path=public as $$
+  select exists(select 1 from public.members where user_id=auth.uid());
+$$;
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path=public as $$
+  select exists(select 1 from public.members where user_id=auth.uid() and role='admin');
+$$;
+
+create table if not exists public.tags (
+  name text primary key,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+insert into public.tags(name,sort_order) values('기본',0) on conflict(name) do nothing;
+
+create table if not exists public.videos (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  storage_path text unique,
+  url text,
+  size_bytes bigint,
+  duration_sec numeric,
+  tags text[] not null default '{}',
+  sort_order int not null default 0,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.videos alter column storage_path drop not null;
+alter table public.videos alter column url drop not null;
+alter table public.videos add column if not exists source text;
+alter table public.videos add column if not exists file_path text;
+alter table public.videos add column if not exists available boolean not null default true;
+alter table public.videos add column if not exists file_modified_at timestamptz;
+alter table public.videos add column if not exists target_age text[] not null default '{}';
+alter table public.videos add column if not exists target_gender text[] not null default '{}';
+alter table public.videos add column if not exists target_treatment text[] not null default '{}';
+update public.videos set source='legacy' where source is null and url is not null;
+update public.videos set source='local' where source is null;
+alter table public.videos alter column source set default 'local';
+alter table public.videos alter column source set not null;
+create index if not exists videos_tags_idx on public.videos using gin(tags);
+create index if not exists videos_target_age_idx on public.videos using gin(target_age);
+create index if not exists videos_target_gender_idx on public.videos using gin(target_gender);
+create index if not exists videos_target_treatment_idx on public.videos using gin(target_treatment);
+create unique index if not exists videos_local_file_path_uidx on public.videos(file_path) where source='local' and file_path is not null;
+
+create table if not exists public.rooms (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  sort_order int not null default 0,
+  player_key uuid not null unique default gen_random_uuid(),
+  default_tags text[] not null default '{기본}',
+  session_tags text[] not null default '{}',
+  session_started_at timestamptz,
+  session_timeout_min int not null default 60 check(session_timeout_min>=0),
+  volume int not null default 80 check(volume between 0 and 100),
+  paused boolean not null default false,
+  overlay_text text,
+  reload_nonce int not null default 0,
+  last_seen_at timestamptz,
+  player_status jsonb,
+  created_at timestamptz not null default now()
+);
+alter table public.rooms add column if not exists session_age_group text;
+alter table public.rooms add column if not exists session_gender text;
+alter table public.rooms add column if not exists session_treatment text;
+alter table public.rooms add column if not exists manual_active boolean not null default false;
+alter table public.rooms add column if not exists manual_video_ids uuid[] not null default '{}';
+alter table public.rooms add column if not exists manual_updated_at timestamptz;
+alter table public.rooms add column if not exists heartbeat_rejected_count int not null default 0;
+create index if not exists rooms_sort_idx on public.rooms(sort_order,created_at);
+create index if not exists rooms_last_seen_idx on public.rooms(last_seen_at desc);
+
+create table if not exists public.broadcast (
+  id int primary key default 1 check(id=1),
+  active boolean not null default false,
+  video_ids uuid[] not null default '{}',
+  notice_text text,
+  updated_at timestamptz not null default now()
+);
+alter table public.broadcast add column if not exists effective_at timestamptz;
+alter table public.broadcast add column if not exists revision bigint not null default 0;
+insert into public.broadcast(id) values(1) on conflict(id) do nothing;
+
+create table if not exists public.app_settings (
+  id int primary key default 1 check(id=1),
+  media_server_url text not null default '',
+  emergency_video_id uuid,
+  disk_warning_gb int not null default 20,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_settings add column if not exists emergency_video_id uuid;
+alter table public.app_settings add column if not exists disk_warning_gb int not null default 20;
+insert into public.app_settings(id) values(1) on conflict(id) do nothing;
+
+-- RLS -------------------------------------------------------------------
+alter table public.members enable row level security;
+alter table public.tags enable row level security;
+alter table public.videos enable row level security;
+alter table public.rooms enable row level security;
+alter table public.broadcast enable row level security;
+alter table public.app_settings enable row level security;
+
+drop policy if exists members_select on public.members;
+create policy members_select on public.members for select to authenticated using(user_id=auth.uid() or public.is_admin());
+drop policy if exists members_admin on public.members;
+create policy members_admin on public.members for all to authenticated using(public.is_admin()) with check(public.is_admin());
+
+drop policy if exists tags_select on public.tags;
+create policy tags_select on public.tags for select to authenticated using(public.is_member());
+drop policy if exists tags_admin on public.tags;
+create policy tags_admin on public.tags for all to authenticated using(public.is_admin()) with check(public.is_admin());
+
+drop policy if exists videos_select on public.videos;
+create policy videos_select on public.videos for select to authenticated using(public.is_member());
+drop policy if exists videos_admin on public.videos;
+create policy videos_admin on public.videos for all to authenticated using(public.is_admin()) with check(public.is_admin());
+
+-- player_key는 bearer credential. 직원에게 rooms 원본 SELECT를 주지 않는다.
+drop policy if exists rooms_select on public.rooms;
+drop policy if exists rooms_admin on public.rooms;
+drop policy if exists rooms_admin_select on public.rooms;
+create policy rooms_admin_select on public.rooms for select to authenticated using(public.is_admin());
+create policy rooms_admin on public.rooms for all to authenticated using(public.is_admin()) with check(public.is_admin());
+
+drop policy if exists broadcast_select on public.broadcast;
+create policy broadcast_select on public.broadcast for select to authenticated using(public.is_member());
+drop policy if exists broadcast_admin on public.broadcast;
+create policy broadcast_admin on public.broadcast for update to authenticated using(public.is_admin()) with check(public.is_admin());
+
+drop policy if exists settings_select on public.app_settings;
+create policy settings_select on public.app_settings for select to authenticated using(public.is_member());
+drop policy if exists settings_admin on public.app_settings;
+create policy settings_admin on public.app_settings for update to authenticated using(public.is_admin()) with check(public.is_admin());
+
+-- 직원 RPC ---------------------------------------------------------------
+-- v2.1 호환용 자유 태그 세션
+create or replace function public.start_session(p_room uuid,p_tags text[])
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  update public.rooms set
+    session_tags=coalesce(p_tags,'{}'),session_started_at=now(),
+    session_age_group=null,session_gender=null,session_treatment=null
+  where id=p_room;
+end $$;
+
+-- v2.2: 스텝은 대상(선택) + 진료유형(필수)만 지정
+create or replace function public.start_patient_session(p_room uuid,p_age_group text,p_gender text,p_treatment text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  if nullif(trim(coalesce(p_treatment,'')),'') is null then raise exception 'treatment required'; end if;
+  update public.rooms set
+    session_age_group=nullif(trim(coalesce(p_age_group,'')),''),
+    session_gender=nullif(trim(coalesce(p_gender,'')),''),
+    session_treatment=trim(p_treatment),
+    session_tags=array_remove(array[p_age_group,p_gender,p_treatment]::text[],null),
+    session_started_at=now()
+  where id=p_room;
+end $$;
+
+create or replace function public.end_session(p_room uuid)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  update public.rooms set
+    session_tags='{}',session_started_at=null,
+    session_age_group=null,session_gender=null,session_treatment=null
+  where id=p_room;
+end $$;
+
+create or replace function public.staff_room_list()
+returns table(
+  id uuid,name text,sort_order int,default_tags text[],session_tags text[],
+  session_started_at timestamptz,session_timeout_min int,session_expires_at timestamptz,
+  session_age_group text,session_gender text,session_treatment text,last_seen_at timestamptz
+) language plpgsql stable security definer set search_path=public as $$
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  return query
+  select r.id,r.name,r.sort_order,r.default_tags,r.session_tags,r.session_started_at,r.session_timeout_min,
+    case when r.session_started_at is not null and r.session_timeout_min>0 then r.session_started_at+make_interval(mins=>r.session_timeout_min) else null end,
+    r.session_age_group,r.session_gender,r.session_treatment,r.last_seen_at
+  from public.rooms r order by r.sort_order,r.created_at;
+end $$;
+
+revoke all on function public.start_session(uuid,text[]) from public,anon;
+revoke all on function public.start_patient_session(uuid,text,text,text) from public,anon;
+revoke all on function public.end_session(uuid) from public,anon;
+revoke all on function public.staff_room_list() from public,anon;
+grant execute on function public.start_session(uuid,text[]) to authenticated;
+grant execute on function public.start_patient_session(uuid,text,text,text) to authenticated;
+grant execute on function public.end_session(uuid) to authenticated;
+grant execute on function public.staff_room_list() to authenticated;
+
+-- 관리자 원자적 작업 -----------------------------------------------------
+create or replace function public.send_refresh_all_rooms()
+returns void language plpgsql security definer set search_path=public as $$
+declare k uuid;
+begin
+  for k in select player_key from public.rooms loop
+    perform realtime.send(jsonb_build_object('at',now()),'refresh','room:'||k::text,false);
+  end loop;
+end $$;
+revoke all on function public.send_refresh_all_rooms() from public,anon,authenticated;
+
+create or replace function public.admin_reorder_videos(p_ids uuid[])
+returns void language plpgsql security definer set search_path=public as $$
+declare i int;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if p_ids is null then return; end if;
+  for i in 1..coalesce(array_length(p_ids,1),0) loop update public.videos set sort_order=i*10 where id=p_ids[i]; end loop;
+end $$;
+
+create or replace function public.admin_reorder_rooms(p_ids uuid[])
+returns void language plpgsql security definer set search_path=public as $$
+declare i int;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if p_ids is null then return; end if;
+  for i in 1..coalesce(array_length(p_ids,1),0) loop update public.rooms set sort_order=i*10 where id=p_ids[i]; end loop;
+end $$;
+
+create or replace function public.admin_delete_tag(p_name text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if p_name='기본' then raise exception '기본 태그는 삭제할 수 없습니다'; end if;
+  update public.videos set tags=array_remove(tags,p_name) where p_name=any(tags);
+  update public.rooms set default_tags=array_remove(default_tags,p_name) where p_name=any(default_tags);
+  update public.rooms set session_tags=array_remove(session_tags,p_name) where p_name=any(session_tags);
+  delete from public.tags where name=p_name;
+end $$;
+
+create or replace function public.admin_set_room_manual(p_room uuid,p_video_ids uuid[],p_active boolean)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_ids uuid[];
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if coalesce(p_active,false) then
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[])
+    into v_ids
+    from public.videos v
+    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else
+    v_ids:='{}'::uuid[];
+  end if;
+  update public.rooms set
+    manual_video_ids=v_ids,
+    manual_active=coalesce(array_length(v_ids,1),0)>0,
+    manual_updated_at=now()
+  where id=p_room;
+end $$;
+
+create or replace function public.admin_set_broadcast(p_active boolean,p_video_ids uuid[],p_notice text default null,p_delay_ms int default 3000)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_ids uuid[];
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if coalesce(p_active,false) then
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[])
+    into v_ids
+    from public.videos v
+    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else
+    v_ids:=coalesce(p_video_ids,'{}'::uuid[]);
+  end if;
+  update public.broadcast set
+    active=coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0,
+    video_ids=v_ids,
+    notice_text=nullif(trim(coalesce(p_notice,'')),''),
+    effective_at=case when coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0 then clock_timestamp() + make_interval(secs=>greatest(0,least(coalesce(p_delay_ms,3000),10000))/1000.0) else null end,
+    revision=revision+1,
+    updated_at=clock_timestamp()
+  where id=1;
+end $$;
+
+create or replace function public.admin_sync_local_videos(p_files jsonb)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_max int;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if jsonb_typeof(coalesce(p_files,'[]'::jsonb))<>'array' then raise exception 'invalid files'; end if;
+  perform set_config('clinic_signage.suppress_refresh','on',true);
+
+  with incoming as (
+    select
+      trim(both '/' from replace(coalesce(item->>'path',''),'\','/')) as file_path,
+      case when coalesce(item->>'size','') ~ '^[0-9]+$' then (item->>'size')::bigint end as size_bytes,
+      case when coalesce(item->>'modified_at','')<>'' then (item->>'modified_at')::timestamptz end as modified_at
+    from jsonb_array_elements(coalesce(p_files,'[]'::jsonb)) item
+  ), valid as (
+    select distinct on (file_path) file_path,size_bytes,modified_at
+    from incoming
+    where file_path<>'' and file_path !~ '(^|/)\.\.(/|$)'
+    order by file_path
+  )
+  update public.videos v set
+    available=exists(select 1 from valid i where i.file_path=v.file_path),
+    size_bytes=coalesce((select i.size_bytes from valid i where i.file_path=v.file_path),v.size_bytes),
+    file_modified_at=coalesce((select i.modified_at from valid i where i.file_path=v.file_path),v.file_modified_at)
+  where v.source='local';
+
+  select coalesce(max(sort_order),0) into v_max from public.videos;
+  with incoming as (
+    select
+      trim(both '/' from replace(coalesce(item->>'path',''),'\','/')) as file_path,
+      case when coalesce(item->>'size','') ~ '^[0-9]+$' then (item->>'size')::bigint end as size_bytes,
+      case when coalesce(item->>'modified_at','')<>'' then (item->>'modified_at')::timestamptz end as modified_at
+    from jsonb_array_elements(coalesce(p_files,'[]'::jsonb)) item
+  ), valid as (
+    select distinct on (file_path) file_path,size_bytes,modified_at
+    from incoming
+    where file_path<>'' and file_path !~ '(^|/)\.\.(/|$)'
+    order by file_path
+  ), missing as (
+    select i.*,row_number() over(order by i.file_path) rn
+    from valid i
+    where not exists(select 1 from public.videos v where v.source='local' and v.file_path=i.file_path)
+  )
+  insert into public.videos(title,source,file_path,size_bytes,file_modified_at,available,active,sort_order,tags,target_age,target_gender,target_treatment)
+  select regexp_replace(regexp_replace(file_path,'^.*/',''),'\.[^.]+$',''),'local',file_path,size_bytes,modified_at,true,true,v_max+rn*10,'{}','{}','{}','{}'
+  from missing;
+
+  perform public.send_refresh_all_rooms();
+end $$;
+
+revoke all on function public.admin_reorder_videos(uuid[]) from public,anon;
+revoke all on function public.admin_reorder_rooms(uuid[]) from public,anon;
+revoke all on function public.admin_delete_tag(text) from public,anon;
+revoke all on function public.admin_set_room_manual(uuid,uuid[],boolean) from public,anon;
+revoke all on function public.admin_set_broadcast(boolean,uuid[],text,int) from public,anon;
+revoke all on function public.admin_sync_local_videos(jsonb) from public,anon;
+grant execute on function public.admin_reorder_videos(uuid[]) to authenticated;
+grant execute on function public.admin_reorder_rooms(uuid[]) to authenticated;
+grant execute on function public.admin_delete_tag(text) to authenticated;
+grant execute on function public.admin_set_room_manual(uuid,uuid[],boolean) to authenticated;
+grant execute on function public.admin_set_broadcast(boolean,uuid[],text,int) to authenticated;
+grant execute on function public.admin_sync_local_videos(jsonb) to authenticated;
+
+-- 플레이어 상태 ----------------------------------------------------------
+create or replace function public.player_get_state(p_key uuid)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  r public.rooms;b public.broadcast;s public.app_settings;
+  v_mode text;v_expires timestamptz;v_playlist jsonb:='[]'::jsonb;v_emergency jsonb;
+begin
+  select * into r from public.rooms where player_key=p_key;
+  if not found then return null; end if;
+  select * into b from public.broadcast where id=1;
+  select * into s from public.app_settings where id=1;
+  if r.session_started_at is not null and r.session_timeout_min>0 then v_expires:=r.session_started_at+make_interval(mins=>r.session_timeout_min); end if;
+
+  if b.active and coalesce(array_length(b.video_ids,1),0)>0 then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(b.video_ids,v.id)),'[]'::jsonb)
+    into v_playlist from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast'; end if;
+  end if;
+
+  if v_mode is null and r.manual_active and coalesce(array_length(r.manual_video_ids,1),0)>0 then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb)
+    into v_playlist from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='manual'; end if;
+  end if;
+
+  if v_mode is null and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>now()) then
+    with candidates as (
+      select v.*,
+        (case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end
+         + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end
+         + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) as score
+      from public.videos v
+      where v.active and (v.source<>'local' or v.available)
+        and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment))
+        and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age)))
+        and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))
+    ), best as (select max(score) as score from candidates)
+    select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb)
+    into v_playlist from candidates c cross join best where c.score=best.score;
+    if jsonb_array_length(v_playlist)>0 then v_mode:='patient'; end if;
+  end if;
+
+  if v_mode is null and r.session_treatment is null and coalesce(array_length(r.session_tags,1),0)>0 and r.session_started_at is not null and (v_expires is null or v_expires>now()) then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb)
+    into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.session_tags;
+    if jsonb_array_length(v_playlist)>0 then v_mode:='session'; end if;
+  end if;
+
+  if v_mode is null then
+    v_mode:='default';v_expires:=null;
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb)
+    into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags;
+  end if;
+
+  if s.emergency_video_id is not null then
+    select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at)
+    into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available);
+  end if;
+
+  return jsonb_build_object(
+    'room',jsonb_build_object('id',r.id,'name',r.name,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),
+    'mode',v_mode,
+    'session_expires_at',case when v_mode in ('patient','session') then v_expires end,
+    'notice_text',case when v_mode='broadcast' then b.notice_text else null end,
+    'playlist',v_playlist,
+    'emergency_video',v_emergency,
+    'broadcast_effective_at',case when v_mode='broadcast' then b.effective_at end,
+    'broadcast_revision',b.revision,
+    'media_server_url',coalesce(s.media_server_url,''),
+    'server_time',clock_timestamp()
+  );
+end $$;
+
+create or replace function public.player_heartbeat(p_key uuid,p_status jsonb)
+returns void language plpgsql security definer set search_path=public as $$
+declare clean jsonb; v_room uuid;
+begin
+  select id into v_room from public.rooms where player_key=p_key;
+  if v_room is null then return; end if;
+  if p_status is null or jsonb_typeof(p_status)<>'object' or pg_column_size(p_status)>4096 then
+    update public.rooms set heartbeat_rejected_count=heartbeat_rejected_count+1 where id=v_room;
+    return;
+  end if;
+  clean=jsonb_build_object(
+    'video_id',case when jsonb_typeof(p_status->'video_id')='string' then left(p_status->>'video_id',64) else null end,
+    'title',left(coalesce(p_status->>'title',''),160),
+    'mode',left(coalesce(p_status->>'mode',''),32),
+    'playback_state',left(coalesce(p_status->>'playback_state',''),32),
+    'current_time',case when jsonb_typeof(p_status->'current_time')='number' then greatest(0,least((p_status->>'current_time')::numeric,86400)) else 0 end,
+    'duration',case when jsonb_typeof(p_status->'duration')='number' then greatest(0,least((p_status->>'duration')::numeric,86400)) else 0 end,
+    'muted',case when jsonb_typeof(p_status->'muted')='boolean' then (p_status->>'muted')::boolean else false end,
+    'volume',case when jsonb_typeof(p_status->'volume')='number' then greatest(0,least((p_status->>'volume')::int,100)) else 0 end,
+    'online',case when jsonb_typeof(p_status->'online')='boolean' then (p_status->>'online')::boolean else false end,
+    'error',left(coalesce(p_status->>'error',''),300),
+    'source',left(coalesce(p_status->>'source',''),64),
+    'app_version',left(coalesce(p_status->>'app_version',''),24),
+    'reported_at',left(coalesce(p_status->>'reported_at',''),48)
+  );
+  update public.rooms set last_seen_at=clock_timestamp(),player_status=clean where id=v_room;
+end $$;
+revoke all on function public.player_get_state(uuid) from public;
+revoke all on function public.player_heartbeat(uuid,jsonb) from public;
+grant execute on function public.player_get_state(uuid) to anon,authenticated;
+grant execute on function public.player_heartbeat(uuid,jsonb) to anon,authenticated;
+
+-- Realtime refresh -------------------------------------------------------
+create or replace function public.notify_room_change()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if row(new.name,new.default_tags,new.session_tags,new.session_started_at,new.session_timeout_min,new.session_age_group,new.session_gender,new.session_treatment,new.manual_active,new.manual_video_ids,new.volume,new.paused,new.overlay_text,new.reload_nonce)
+    is distinct from row(old.name,old.default_tags,old.session_tags,old.session_started_at,old.session_timeout_min,old.session_age_group,old.session_gender,old.session_treatment,old.manual_active,old.manual_video_ids,old.volume,old.paused,old.overlay_text,old.reload_nonce) then
+    perform realtime.send(jsonb_build_object('at',now()),'refresh','room:'||new.player_key::text,false);
+  end if;
+  return new;
+end $$;
+
+create or replace function public.notify_all_rooms()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if coalesce(current_setting('clinic_signage.suppress_refresh',true),'')='on' then return null; end if;
+  perform public.send_refresh_all_rooms();
+  return null;
+end $$;
+
+create or replace function public.notify_broadcast_change()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if old.active or new.active then perform public.send_refresh_all_rooms(); end if;
+  return new;
+end $$;
+
+drop trigger if exists rooms_notify on public.rooms;
+create trigger rooms_notify after update on public.rooms for each row execute function public.notify_room_change();
+drop trigger if exists videos_notify on public.videos;
+create trigger videos_notify after insert or update or delete on public.videos for each statement execute function public.notify_all_rooms();
+drop trigger if exists broadcast_notify on public.broadcast;
+create trigger broadcast_notify after update on public.broadcast for each row execute function public.notify_broadcast_change();
+drop trigger if exists settings_notify on public.app_settings;
+create trigger settings_notify after update on public.app_settings for each statement execute function public.notify_all_rooms();
+
+do $$ begin
+  begin alter publication supabase_realtime add table public.rooms; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.broadcast; exception when duplicate_object then null; end;
+end $$;
+
+-- 기존 storage.videos 버킷은 자동 삭제하지 않는다.
+-- 전환 확인 후 Supabase Dashboard에서 기존 영상 파일을 직접 정리하면 된다.

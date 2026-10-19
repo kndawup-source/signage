@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Clinic Signage</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="auth-page">
+  <main class="auth-wrap">
+    <section class="auth-panel">
+      <div class="eyebrow">CLINIC SIGNAGE</div>
+      <h1>중앙 영상 제어</h1>
+      <p class="muted">관리자 또는 직원 계정으로 로그인하세요.</p>
+      <form id="loginForm" class="stack-lg">
+        <label class="field"><span>이메일</span><input id="email" type="email" autocomplete="username" required></label>
+        <label class="field"><span>비밀번호</span><input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="btn primary block" type="submit">로그인</button>
+        <p id="loginError" class="error hidden"></p>
+      </form>
+    </section>
+  </main>
+  <script src="/vendor/supabase.js"></script>
+  <script src="/js/config.js"></script><script src="/js/common.js"></script><script src="/js/login.js"></script>
+</body>
+</html>
