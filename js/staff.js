@@ -7,12 +7,17 @@
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  let state={patients:[],rooms:[],broadcast:{active:false}}, busy=false, timer=null;
+  let state={patients:[],rooms:[],playlists:[],videos:[],broadcast:{active:false}}, busy=false, timer=null;
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
   const genderLabel=(v)=>GENDER_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
   const roomById=(id)=>state.rooms.find(r=>r.id===id)||null;
+  const playlistById=(id)=>state.playlists.find(p=>p.id===id)||null;
+  const roomTypeLabel=(v)=>({treatment:'진료실',consultation:'상담실',waiting:'대기실',lobby:'로비',vip:'VIP',other:'기타'})[v]||'공간';
+  const isPatientRoom=(r)=>['treatment','consultation'].includes(r.room_mode);
+  const playlistOptions=(selected='')=>`<option value="">플레이리스트 선택</option>${state.playlists.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}${p.kind==='patient'?' · 맞춤':''}</option>`).join('')}`;
+  const videoOptions=()=>`<option value="">영상 선택</option>${state.videos.filter(v=>v.active!==false).map(v=>`<option value="${v.id}">${esc(v.title)}</option>`).join('')}`;
   const activePatients=()=>state.patients.filter(p=>['waiting','assigned','in_progress'].includes(p.status));
   const elapsedMinutes=(start,end=Date.now())=>start?Math.max(0,Math.floor((new Date(end).getTime()-new Date(start).getTime())/60000)):0;
   const waitText=(p)=>`${elapsedMinutes(p.waiting_started_at||p.created_at,p.assigned_at||Date.now())}분 대기`;
@@ -28,7 +33,7 @@
   async function load(){
     const {data,error}=await db.rpc('staff_reception_state');
     if(error)throw error;
-    state={patients:data?.patients||[],rooms:data?.rooms||[],broadcast:data?.broadcast||{active:false}};
+    state={patients:data?.patients||[],rooms:data?.rooms||[],playlists:data?.playlists||[],videos:data?.videos||[],broadcast:data?.broadcast||{active:false}};
     render();
   }
 
@@ -42,7 +47,7 @@
     const custom=state.rooms.filter(r=>r.session_treatment).length;
     qs('#staffRoot').innerHTML=`
       ${state.broadcast?.active?'<div class="broadcast-strip">전체 송출 중 · 맞춤 설정은 저장되며 전체 송출 종료 후 자동 적용됩니다.</div>':''}
-      <div class="reception-head reception-head-board"><div><span class="eyebrow">RECEPTION</span><h1>진료실 현황</h1><p>기본 영상은 자동 재생됩니다. 필요한 진료실만 맞춤 영상으로 바꾸세요.</p></div></div>
+      <div class="reception-head reception-head-board"><div><span class="eyebrow">RECEPTION</span><h1>공간 현황</h1><p>각 공간의 플레이리스트를 바꾸거나 영상 1개를 추가할 수 있습니다.</p></div></div>
       <div class="reception-summary reception-summary-board">
         <div class="is-primary"><span>온라인</span><b>${online}/${state.rooms.length}</b></div>
         <div><span>맞춤 송출</span><b>${custom}</b></div>
@@ -52,7 +57,7 @@
       </div>
 
       <section class="reception-rooms reception-rooms-first">
-        <div class="reception-section-head"><div><span class="eyebrow">ROOM STATUS</span><h2>진료실</h2></div><b>${online}/${state.rooms.length} 온라인</b></div>
+        <div class="reception-section-head"><div><span class="eyebrow">SPACE STATUS</span><h2>공간</h2></div><b>${online}/${state.rooms.length} 온라인</b></div>
         <div class="reception-room-grid reception-room-grid-control">${state.rooms.map(roomCard).join('')}</div>
       </section>
 
@@ -83,13 +88,18 @@
     const p=patientForRoom(r.id), quick=isQuickSession(r), current=r.player_status?.title||'대기 중', next=r.player_status?.next_title||'';
     const activeTreatment=p?.treatment||r.session_treatment||'';
     const audience=[p?.age_group||r.session_age_group,p?.gender||r.session_gender].filter(Boolean).map((v,i)=>i===0?ageLabel(v):genderLabel(v)).filter(x=>x!=='전체').join(' · ');
+    const manual=!!r.manual_active&&Array.isArray(r.manual_video_ids)&&r.manual_video_ids.length>0;
+    const defaultPlaylist=playlistById(r.default_playlist_id);
     return `<article class="reception-room-card reception-control-card ${p?'occupied':''} ${quick?'quick-custom':''} ${!isOnline(r)?'offline':''}" data-room-card="${r.id}">
-      <div class="room-card-head"><span><i class="dot ${isOnline(r)?'on':''}"></i><b>${esc(r.name)}</b></span><em>${esc(roomModeText(r))}</em></div>
-      <div class="room-state-main"><span>현재 상태</span><b>${activeTreatment?esc(treatmentLabel(activeTreatment)):'기본 플레이리스트'}</b>${audience?`<small>${esc(audience)}</small>`:''}</div>
+      <div class="room-card-head"><span><i class="dot ${isOnline(r)?'on':''}"></i><b>${esc(r.group_name?`${r.group_name} · ${r.name}`:r.name)}</b></span><em>${esc(roomTypeLabel(r.room_mode))}</em></div>
+      <div class="room-state-main"><span>송출 상태</span><b>${manual?'개별 영상':activeTreatment?esc(treatmentLabel(activeTreatment)):esc(defaultPlaylist?.name||'기본 플레이리스트')}</b>${audience?`<small>${esc(audience)}</small>`:''}</div>
       <div class="room-playing"><span>지금 재생</span><b>${esc(current)}</b>${next?`<small>다음 · ${esc(next)}</small>`:''}</div>
+      <div class="staff-output-controls">
+        <div class="staff-output-row"><span>플레이리스트</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">변경</button></div>
+        <div class="staff-output-row"><span>영상 추가</span><select data-staff-video="${r.id}">${videoOptions()}</select><button class="btn" data-staff-video-add="${r.id}">추가</button>${manual?`<button class="btn" data-staff-manual-clear="${r.id}">기본으로</button>`:''}</div>
+      </div>
       ${p?`<div class="room-patient compact"><b>${esc(p.label||`대기 ${p.queue_no}`)}</b><span>${esc(waitText(p))}</span></div>`:''}
-      <div class="room-card-actions">${!p?`<button class="btn primary" data-open-quick="${r.id}">${quick?'맞춤 변경':'맞춤 설정'}</button>${quick?`<button class="btn" data-quick-clear="${r.id}">기본으로</button>`:''}`:'<span class="room-managed-note">환자 관리에서 변경</span>'}</div>
-      ${!p?quickPanel(r):''}
+      ${isPatientRoom(r)?`<div class="room-card-actions">${!p?`<button class="btn" data-open-quick="${r.id}">${quick?'맞춤 변경':'환자 맞춤'}</button>${quick?`<button class="btn" data-quick-clear="${r.id}">맞춤 해제</button>`:''}`:'<span class="room-managed-note">환자 관리에서 변경</span>'}</div>${!p?quickPanel(r):''}`:''}
     </article>`;
   }
 
@@ -115,6 +125,9 @@
   }
 
   function bind(){
+    qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
+    qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));
+    qsa('[data-staff-manual-clear]').forEach(b=>b.addEventListener('click',()=>clearRoomManual(b.dataset.staffManualClear)));
     qsa('[data-open-quick]').forEach(b=>b.addEventListener('click',()=>qs(`[data-quick-panel="${b.dataset.openQuick}"]`)?.classList.remove('hidden')));
     qsa('[data-close-quick]').forEach(b=>b.addEventListener('click',()=>qs(`[data-quick-panel="${b.dataset.closeQuick}"]`)?.classList.add('hidden')));
     qsa('[data-quick-treatment]').forEach(b=>b.addEventListener('click',()=>quickSet(b.dataset.room,b.dataset.quickTreatment)));
@@ -127,6 +140,21 @@
     qsa('[data-complete]').forEach(b=>b.addEventListener('click',()=>action('staff_complete_patient',b.dataset.complete,'환자 영상을 종료했습니다.')));
     qsa('[data-unassign]').forEach(b=>b.addEventListener('click',()=>action('staff_unassign_patient',b.dataset.unassign,'배정을 해제했습니다.')));
     qsa('[data-cancel]').forEach(b=>b.addEventListener('click',()=>{if(confirm('이 환자 대기를 취소할까요?'))action('staff_cancel_patient',b.dataset.cancel,'취소했습니다.');}));
+  }
+
+  async function setRoomPlaylist(room){
+    if(busy)return; const playlist=qs(`[data-staff-playlist="${room}"]`)?.value; if(!playlist)return toast('플레이리스트를 선택하세요.','error');
+    busy=true; const {error}=await db.rpc('staff_set_room_playlist',{p_room:room,p_playlist:playlist}); busy=false;
+    if(error)return toast(error.message,'error'); toast('공간 플레이리스트를 변경했습니다.'); await load();
+  }
+  async function addRoomVideo(room){
+    if(busy)return; const video=qs(`[data-staff-video="${room}"]`)?.value; if(!video)return toast('추가할 영상을 선택하세요.','error');
+    busy=true; const {error}=await db.rpc('staff_add_room_video',{p_room:room,p_video:video}); busy=false;
+    if(error)return toast(error.message,'error'); toast('이 공간에 영상 1개를 추가했습니다.'); await load();
+  }
+  async function clearRoomManual(room){
+    if(busy)return; busy=true; const {error}=await db.rpc('staff_clear_room_manual',{p_room:room}); busy=false;
+    if(error)return toast(error.message,'error'); toast('선택한 기본 플레이리스트로 돌아갑니다.'); await load();
   }
 
   async function quickSet(room,treatment){

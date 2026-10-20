@@ -144,3 +144,19 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 .playback-room-section{margin-top:18px}.playback-room-section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.playback-room-section-head b{font-size:13px}.playback-room-section-head span{color:var(--muted);font-size:10px}
 .operating-hours-card{grid-column:span 2}.operating-day-list{display:grid;gap:10px;margin:16px 0 18px}.operating-day-row{display:grid;grid-template-columns:110px minmax(220px,1fr) 42px;align-items:center;gap:14px;padding:12px 0;border-top:1px solid var(--line)}.operating-day-row:first-child{border-top:0}.operating-day-row>.toggle{font-weight:750}.operating-day-row>b{font-size:11px;text-align:right;color:var(--muted)}.operating-time-fields{display:grid;grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr);align-items:center;gap:7px}.operating-time-fields span{text-align:center;color:var(--muted)}.operating-time-fields.is-disabled{opacity:.35}
 @media(max-width:760px){.stats-period-grid{grid-template-columns:1fr}.operating-hours-card{grid-column:auto}.operating-day-row{grid-template-columns:1fr auto}.operating-time-fields{grid-column:1/-1}.playback-summary-card{grid-template-columns:1fr auto;padding:18px}.playback-detail-body{padding:0 18px 18px}}
+
+/* v2.18 per-space output controls */
+.room-output-editor{display:grid;gap:12px}
+.room-output-row{display:grid;grid-template-columns:92px minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.room-output-label{font-size:11px;font-weight:800;color:var(--muted,#858b94);letter-spacing:-.01em}
+.room-output-note{font-size:11px;line-height:1.5;color:var(--muted,#858b94);padding:0 2px}
+.staff-output-controls{display:grid;gap:9px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line,#e7e9ed)}
+.staff-output-row{display:grid;grid-template-columns:82px minmax(0,1fr) auto auto;gap:7px;align-items:center}
+.staff-output-row>span{font-size:11px;font-weight:800;color:var(--muted,#858b94)}
+.staff-output-row select{min-width:0;width:100%}
+.staff-output-row .btn{white-space:nowrap}
+@media(max-width:720px){
+  .room-output-row,.staff-output-row{grid-template-columns:1fr auto}
+  .room-output-label,.staff-output-row>span{grid-column:1/-1}
+  .room-output-row select,.staff-output-row select{grid-column:1/2}
+}
