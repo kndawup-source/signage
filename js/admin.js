@@ -11,7 +11,7 @@
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
 
-  let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false;
+  let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false;
   let state={rooms:[],videos:[],playlists:[],playlistItems:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null};
 
   qsa('.nav-btn').forEach((b)=>b.addEventListener('click',()=>{tab=b.dataset.tab;qsa('.nav-btn').forEach((x)=>x.classList.toggle('active',x===b));render();}));
@@ -92,7 +92,7 @@
     if(storageHealth===false)alerts.push({type:'danger',text:'영상 저장소 설정을 확인하세요.'});
     const offline=state.rooms.filter(r=>!isOnline(r)); if(offline.length)alerts.push({type:'warn',text:`오프라인 ${offline.length}곳: ${offline.slice(0,6).map(r=>r.name).join(', ')}${offline.length>6?' 외':''}`});
     const errors=state.rooms.filter(r=>r.player_status?.error); if(errors.length)alerts.push({type:'warn',text:`재생 오류 ${errors.length}곳: ${errors.slice(0,4).map(r=>r.name).join(', ')}${errors.length>4?' 외':''}`});
-    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.16'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
+    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.16.1'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
     return alerts;
   }
   function alertsHtml(){return `<div id="opsAlerts" class="ops-alerts">${operationalAlerts().map(x=>`<div class="ops-alert ${x.type}">${esc(x.text)}</div>`).join('')}</div>`;}
@@ -103,7 +103,7 @@
     const d=state.playbackToday;if(!d)return '';
     const overall=d.overall||{},rooms=d.rooms||[],rate=Number(overall.rate||0),remaining=Math.max(0,Number(overall.planned_seconds||0)-Number(overall.playing_seconds||0));
     const roomRows=rooms.map(r=>{const rr=Math.max(0,Math.min(100,Number(r.rate||0)));const miss=Math.max(0,Number(r.planned_seconds||0)-Number(r.playing_seconds||0));return `<div class="playback-room-row"><div class="playback-room-name"><b>${esc(r.name)}</b><span>${esc(r.group_name||'')}</span></div><div class="playback-room-bar"><i style="width:${rr}%"></i></div><b class="playback-rate">${rr.toFixed(1)}%</b><span class="playback-room-meta">재생 ${hms(r.playing_seconds)} · 중단 ${hms(miss)}${Number(r.error_count||0)?` · 오류 ${r.error_count}`:''}</span></div>`;}).join('');
-    return `<section class="playback-analytics"><div class="playback-analytics-head"><div><span class="eyebrow">TODAY</span><h2>오늘 재생 현황</h2><p>${String(d.operating_start||'09:00').slice(0,5)}–${String(d.operating_end||'20:00').slice(0,5)} 기준</p></div><div class="playback-big-rate"><b>${rate.toFixed(1)}%</b><span>전체 재생률</span></div></div><div class="playback-overall-bar"><i style="width:${Math.max(0,Math.min(100,rate))}%"></i></div><div class="playback-summary"><span>재생 <b>${hms(overall.playing_seconds)}</b></span><span>중단 <b>${hms(remaining)}</b></span><span>오류 <b>${overall.error_count||0}</b></span><span>재연결 <b>${overall.reconnect_count||0}</b></span></div><details class="playback-room-details" open><summary>진료실별 재생률 <span>${rooms.length}곳</span></summary><div class="playback-room-list">${roomRows}</div></details></section>`;
+    return `<section class="playback-analytics"><div class="playback-analytics-head"><div><span class="eyebrow">TODAY</span><h2>오늘 재생 현황</h2><p>${String(d.operating_start||'09:00').slice(0,5)}–${String(d.operating_end||'20:00').slice(0,5)} 기준</p></div><div class="playback-big-rate"><b>${rate.toFixed(1)}%</b><span>전체 재생률</span></div></div><div class="playback-overall-bar"><i style="width:${Math.max(0,Math.min(100,rate))}%"></i></div><div class="playback-summary"><span>재생 <b>${hms(overall.playing_seconds)}</b></span><span>중단 <b>${hms(remaining)}</b></span><span>오류 <b>${overall.error_count||0}</b></span><span>재연결 <b>${overall.reconnect_count||0}</b></span></div><details class="playback-room-details"><summary>진료실별 재생률 <span>${rooms.length}곳</span></summary><div class="playback-room-list">${roomRows}</div></details></section>`;
   }
   function renderDashboard(){
     const videos=activeVideos(),selected=state.broadcast?.video_ids||[],online=state.rooms.filter(isOnline).length;
@@ -284,8 +284,24 @@
 
   function groupAdminRow(g){return `<div class="group-admin-row"><input data-group-name="${g.id}" value="${esc(g.name)}"><select data-group-kind="${g.id}">${GROUP_KINDS.map(([v,l])=>`<option value="${v}" ${g.kind===v?'selected':''}>${l}</option>`).join('')}</select><span class="muted">${state.rooms.filter(r=>r.group_id===g.id).length}곳</span><button class="btn small danger-outline" data-delete-group="${g.id}">삭제</button></div>`;}
   function roomAdminRow(r){return `<details class="panel room-admin room-admin-compact"><summary><span class="room-admin-name"><span class="dot ${isOnline(r)?'on':''}"></span><b>${esc(r.name)}</b><em>${esc(groupById(r.group_id)?.name||'미분류')} · ${esc(roomModeLabel(r.room_mode))}</em></span><span class="status-text">${isOnline(r)?'온라인':'오프라인'}</span></summary><div class="room-admin-body"><div class="inline"><div class="order"><button data-move-room="${r.id}" data-dir="-1">↑</button><button data-move-room="${r.id}" data-dir="1">↓</button></div><input class="title-input grow" data-room-name="${r.id}" value="${esc(r.name)}"></div><div class="grid-2"><label class="field"><span>그룹</span><select data-room-group="${r.id}"><option value="">미분류</option>${state.groups.map(g=>`<option value="${g.id}" ${r.group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select></label><label class="field"><span>공간 유형</span><select data-room-mode="${r.id}">${ROOM_MODES.map(([v,l])=>`<option value="${v}" ${r.room_mode===v?'selected':''}>${l}</option>`).join('')}</select></label><label class="field"><span>기본 플레이리스트</span><select data-room-playlist="${r.id}"><option value="">자동 선택</option>${state.playlists.filter(p=>p.kind==='default'&&p.active).map(p=>`<option value="${p.id}" ${r.default_playlist_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label class="field"><span>맞춤 자동 종료(분)</span><input data-timeout="${r.id}" type="number" min="0" value="${r.session_timeout_min}"></label><label class="toggle room-mute-toggle"><input data-force-mute="${r.id}" type="checkbox" ${r.force_mute?'checked':''}><span>항상 음소거</span></label></div><div class="inline top-gap"><button class="btn small" data-copy-player="${r.id}">진료실 플레이어 링크</button><button class="btn small danger-outline" data-delete-room="${r.id}">삭제</button></div></div></details>`;}
-  async function addGroup(){const name=qs('#newGroup').value.trim();if(!name)return;const max=state.groups.reduce((m,g)=>Math.max(m,g.sort_order||0),0);const {error}=await db.from('signage_groups').insert({name,kind:qs('#newGroupKind').value,sort_order:max+10});if(error)toast(error.message,'error');else await load();}
-  async function updateGroup(id,patch){if(!patch.name&&Object.hasOwn(patch,'name'))return toast('그룹 이름을 입력하세요.','error');const {error}=await db.from('signage_groups').update(patch).eq('id',id);if(error)toast(error.message,'error');else await load();}
+  async function addGroup(){
+    const input=qs('#newGroup'),button=qs('#addGroup'),name=input?.value.trim();
+    if(!name||groupSaveBusy)return;
+    if(state.groups.some(g=>String(g.name||'').trim().toLocaleLowerCase('ko-KR')===name.toLocaleLowerCase('ko-KR'))){toast('이미 같은 이름의 그룹이 있습니다.','error');input?.focus();return;}
+    groupSaveBusy=true;if(button)button.disabled=true;
+    try{
+      const max=state.groups.reduce((m,g)=>Math.max(m,g.sort_order||0),0);
+      const {error}=await db.from('signage_groups').insert({name,kind:qs('#newGroupKind').value,sort_order:max+10});
+      if(error){if(error.code==='23505'||String(error.message||'').toLowerCase().includes('duplicate'))toast('이미 같은 이름의 그룹이 있습니다.','error');else toast(error.message,'error');return;}
+      if(input)input.value='';await load();
+    } finally {groupSaveBusy=false;if(button)button.disabled=false;}
+  }
+  async function updateGroup(id,patch){
+    if(!patch.name&&Object.hasOwn(patch,'name'))return toast('그룹 이름을 입력하세요.','error');
+    if(Object.hasOwn(patch,'name')){const name=String(patch.name||'').trim();if(state.groups.some(g=>g.id!==id&&String(g.name||'').trim().toLocaleLowerCase('ko-KR')===name.toLocaleLowerCase('ko-KR')))return toast('이미 같은 이름의 그룹이 있습니다.','error');patch.name=name;}
+    const {error}=await db.from('signage_groups').update(patch).eq('id',id);
+    if(error){if(error.code==='23505'||String(error.message||'').toLowerCase().includes('duplicate'))toast('이미 같은 이름의 그룹이 있습니다.','error');else toast(error.message,'error');}else await load();
+  }
   async function deleteGroup(id){const g=groupById(id),count=state.rooms.filter(r=>r.group_id===id).length;if(!confirm(`${g?.name||'그룹'}을 삭제할까요?${count?` 소속 ${count}곳은 미분류로 이동합니다.`:''}`))return;const {error}=await db.from('signage_groups').delete().eq('id',id);if(error)toast(error.message,'error');else await load();}
   async function addRoom(){const name=qs('#newRoom').value.trim();if(!name)return;const max=state.rooms.reduce((m,r)=>Math.max(m,r.sort_order||0),0);const {error}=await db.from('rooms').insert({name,group_id:qs('#newRoomGroup').value||null,room_mode:qs('#newRoomMode').value,sort_order:max+10});if(error)toast(error.message,'error');else await load();}
   async function moveRoom(id,dir){const list=[...state.rooms],from=list.findIndex(x=>x.id===id),to=from+dir;if(from<0||to<0||to>=list.length)return;[list[from],list[to]]=[list[to],list[from]];const {error}=await db.rpc('admin_reorder_rooms',{p_ids:list.map(x=>x.id)});if(error)toast(error.message,'error');else await load();}

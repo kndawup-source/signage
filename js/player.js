@@ -114,6 +114,17 @@
       catch(e){lastError='자동재생 차단';queueHeartbeat(true);return false;}
     }
   }
+  async function waitForRenderedFrame(el,token,timeoutMs=1500){
+    if(!el||token!==switchToken)return false;
+    if(typeof el.requestVideoFrameCallback==='function'){
+      return new Promise(resolve=>{
+        let done=false;
+        const timer=setTimeout(()=>{if(done)return;done=true;resolve(token===switchToken&&el.readyState>=2);},timeoutMs);
+        el.requestVideoFrameCallback(()=>{if(done)return;done=true;clearTimeout(timer);resolve(token===switchToken);});
+      });
+    }
+    return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(token===switchToken&&el.readyState>=2))));
+  }
   async function startWithBroadcastSync(el){
     if(state?.room?.paused)return true;
     const effective=state?.sync_effective_at?new Date(state.sync_effective_at).getTime():0;
@@ -137,11 +148,12 @@
     if(!(await waitUntilPlayable(nextEl,token))||token!==switchToken)return false;
     const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
     if(!started||token!==switchToken)return false;
+    if(!(await waitForRenderedFrame(nextEl,token))||token!==switchToken)return false;
 
-    /* Keep the previous frame visible until the next video is genuinely playing. */
+    /* Swap only after the browser has actually rendered the first frame. */
     nextEl.classList.add('is-active');
-    currentEl?.classList.remove('is-active');
     activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
+    requestAnimationFrame(()=>currentEl?.classList.remove('is-active'));
     requestAnimationFrame(()=>{
       if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
       prepareNext();queueHeartbeat(true);
@@ -246,7 +258,7 @@
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.16',reported_at:new Date().toISOString()};
+    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.16.1',reported_at:new Date().toISOString()};
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}catch(_){}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
