@@ -106,6 +106,7 @@
   }
 
   function clearPinSession() { localStorage.removeItem(PIN_SESSION_KEY); }
+  function getPinSession() { return readPinSession(); }
 
   async function getSession() {
     if (!db || !readPinSession()) return null;
@@ -143,5 +144,5 @@
     location.replace('/');
   }
 
-  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,storePinSession,clearPinSession,getSession,requireAuth,signOut});
+  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,storePinSession,clearPinSession,getPinSession,getSession,requireAuth,signOut});
 })();

@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const { db, qs, esc, joinMediaUrl } = Signage;
+  const { db, qs, esc } = Signage;
   const key = new URLSearchParams(location.search).get('key');
   const root = qs('#playerRoot');
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
@@ -33,7 +33,7 @@
   if (!key) { root.innerHTML = '<div class="player-message">플레이어 키가 없습니다.</div>'; return; }
 
   function playlistSignature(s) {
-    return `${s?.mode||''}|${s?.media_server_url||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.file_modified_at||''}:${v.file_path||v.url||''}`).join(',')}`;
+    return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}`).join(',')}`;
   }
   function stateSignature(s) {
     const r=s?.room||{};
@@ -41,9 +41,7 @@
   }
   function current(){ const list=state?.playlist||[]; return list.length?list[index%list.length]:null; }
   function mediaUrl(v){
-    if(!v)return '';
-    if(v.url)return v.url;
-    return joinMediaUrl(state?.media_server_url||'',v.file_path||'',v.file_modified_at||'');
+    return v?.url ? String(v.url) : '';
   }
   function emergencyUrl(){ return mediaUrl(state?.emergency_video); }
   function saveState(){ try{localStorage.setItem(savedKey,JSON.stringify(state));}catch(_){} }
@@ -174,7 +172,7 @@
       root.innerHTML=`<video id="screenVideo" class="player-video" playsinline autoplay loop></video>${bars()}<div class="player-emergency-badge">비상 재생</div><button id="unmute" class="player-unmute hidden">화면을 눌러 소리 켜기</button>`;
       const el=qs('#screenVideo');el.src=emergencyObjectUrl;el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));el.muted=Boolean(state.room.force_mute);
       el.addEventListener('playing',()=>queueHeartbeat(true));el.addEventListener('error',()=>{lastError='비상영상 재생 실패';queueHeartbeat(true);});
-      await play(el); root.onclick=enableSound; lastError='미디어 서버 장애 · 비상영상 재생 중'; queueHeartbeat(true); scheduleRecovery();
+      await play(el); root.onclick=enableSound; lastError='네트워크 장애 · 비상영상 재생 중'; queueHeartbeat(true); scheduleRecovery();
       return true;
     }catch(_){return false;}
   }
@@ -199,7 +197,7 @@
     if(list.length>1 && cycleFailures<list.length){ retryTimer=setTimeout(next,2500); return; }
     cycleFailures=0;
     if(await playEmergencyCached())return;
-    root.innerHTML=`<div class="player-message">영상 서버 연결을 확인하는 중…<br><small>${esc(lastError)}</small></div>${bars()}`;
+    root.innerHTML=`<div class="player-message">영상 연결을 확인하는 중…<br><small>${esc(lastError)}</small></div>${bars()}`;
     scheduleRecovery();
   }
 
@@ -233,8 +231,8 @@
       volume:el?Math.round(el.volume*100):Number(state.room.volume||0),
       online:navigator.onLine,
       error:lastError,
-      source:emergencyPlaying?'local-emergency-cache':'local-media-server',
-      app_version:'2.6',
+      source:emergencyPlaying?'emergency-cache':'cloud-r2',
+      app_version:'2.7',
       reported_at:new Date().toISOString()
     };
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}

@@ -1,1 +1,1 @@
-http://12F-MSO0:8080/player.html?key=PUT_PLAYER_KEY_HERE
+https://signage-lake.vercel.app/player.html?key=PUT_PLAYER_KEY_HERE

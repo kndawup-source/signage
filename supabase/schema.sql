@@ -184,8 +184,10 @@ alter table public.videos add column if not exists target_gender text[] not null
 alter table public.videos add column if not exists target_treatment text[] not null default '{}';
 update public.videos set source='legacy' where source is null and url is not null;
 update public.videos set source='local' where source is null;
-alter table public.videos alter column source set default 'local';
+alter table public.videos alter column source set default 'r2';
 alter table public.videos alter column source set not null;
+-- v2.7 cloud migration: local media-server entries are kept for reference but disabled.
+update public.videos set active=false, available=false where source='local';
 create index if not exists videos_tags_idx on public.videos using gin(tags);
 create index if not exists videos_target_age_idx on public.videos using gin(target_age);
 create index if not exists videos_target_gender_idx on public.videos using gin(target_gender);
@@ -254,6 +256,7 @@ create table if not exists public.app_settings (
 alter table public.app_settings add column if not exists emergency_video_id uuid;
 alter table public.app_settings add column if not exists disk_warning_gb int not null default 20;
 insert into public.app_settings(id) values(1) on conflict(id) do nothing;
+update public.app_settings set media_server_url='' where id=1;
 
 -- RLS -------------------------------------------------------------------
 alter table public.members enable row level security;
@@ -337,29 +340,6 @@ begin
   where id=p_room;
 end $$;
 
-create or replace function public.staff_room_list()
-returns table(
-  id uuid,name text,sort_order int,default_tags text[],session_tags text[],
-  session_started_at timestamptz,session_timeout_min int,session_expires_at timestamptz,
-  session_age_group text,session_gender text,session_treatment text,last_seen_at timestamptz
-) language plpgsql stable security definer set search_path=public as $$
-begin
-  if not public.is_member() then raise exception 'not allowed'; end if;
-  return query
-  select r.id,r.name,r.sort_order,r.default_tags,r.session_tags,r.session_started_at,r.session_timeout_min,
-    case when r.session_started_at is not null and r.session_timeout_min>0 then r.session_started_at+make_interval(mins=>r.session_timeout_min) else null end,
-    r.session_age_group,r.session_gender,r.session_treatment,r.last_seen_at
-  from public.rooms r order by r.sort_order,r.created_at;
-end $$;
-
-revoke all on function public.start_session(uuid,text[]) from public;
-revoke all on function public.start_patient_session(uuid,text,text,text) from public;
-revoke all on function public.end_session(uuid) from public;
-revoke all on function public.staff_room_list() from public;
-grant execute on function public.start_session(uuid,text[]) to anon,authenticated;
-grant execute on function public.start_patient_session(uuid,text,text,text) to anon,authenticated;
-grant execute on function public.end_session(uuid) to anon,authenticated;
-grant execute on function public.staff_room_list() to anon,authenticated;
 
 -- 관리자 원자적 작업 -----------------------------------------------------
 create or replace function public.send_refresh_all_rooms()
@@ -751,6 +731,20 @@ create policy history_admin on public.control_history for select to anon,authent
 
 grant select,insert,update,delete on public.signage_groups,public.group_broadcasts,public.broadcast_schedules to anon,authenticated;
 grant select on public.control_history to anon,authenticated;
+
+create or replace function public.admin_delete_video(p_id uuid)
+returns void language plpgsql security definer set search_path=public,extensions as $$
+begin
+  if not public.is_admin() then raise exception 'ADMIN_REQUIRED'; end if;
+  update public.broadcast set video_ids=array_remove(video_ids,p_id),active=case when coalesce(array_length(array_remove(video_ids,p_id),1),0)>0 then active else false end,updated_at=now() where id=1;
+  update public.rooms set manual_video_ids=array_remove(manual_video_ids,p_id),manual_active=case when coalesce(array_length(array_remove(manual_video_ids,p_id),1),0)>0 then manual_active else false end where p_id=any(manual_video_ids);
+  update public.group_broadcasts set video_ids=array_remove(video_ids,p_id),active=case when coalesce(array_length(array_remove(video_ids,p_id),1),0)>0 then active else false end,updated_at=now() where p_id=any(video_ids);
+  update public.broadcast_schedules set video_ids=array_remove(video_ids,p_id),enabled=false where p_id=any(video_ids);
+  update public.app_settings set emergency_video_id=null,updated_at=now() where emergency_video_id=p_id;
+  delete from public.videos where id=p_id;
+end $$;
+revoke all on function public.admin_delete_video(uuid) from public;
+grant execute on function public.admin_delete_video(uuid) to anon,authenticated;
 
 create or replace function public.send_refresh_group(p_group uuid)
 returns void language plpgsql security definer set search_path=public as $$

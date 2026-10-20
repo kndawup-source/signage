@@ -1,6 +1,6 @@
 (async function () {
   'use strict';
-  const { db, qs, qsa, esc, toast, formatBytes, formatDuration, isOnline, joinMediaUrl, titleFromPath } = Signage;
+  const { db, qs, qsa, esc, toast, formatBytes, formatDuration, isOnline, titleFromPath } = Signage;
   await Signage.requireAuth('admin');
   qs('#signOut').addEventListener('click', Signage.signOut);
 
@@ -11,8 +11,8 @@
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
 
-  let tab='dashboard', serverHealth=null, loadSeq=0;
-  let state={rooms:[],videos:[],tags:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{media_server_url:'',emergency_video_id:null,disk_warning_gb:20}};
+  let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false;
+  let state={rooms:[],videos:[],tags:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null}};
 
   qsa('.nav-btn').forEach((b)=>b.addEventListener('click',()=>{tab=b.dataset.tab;qsa('.nav-btn').forEach((x)=>x.classList.toggle('active',x===b));render();}));
 
@@ -31,8 +31,32 @@
     ]);
     const errors=[rooms.error,videos.error,tags.error,groups.error,groupBroadcasts.error,schedules.error,history.error,broadcast.error,settings.error].filter(Boolean);
     if(errors.length)throw errors[0]; if(seq!==loadSeq)return;
-    state={rooms:rooms.data||[],videos:videos.data||[],tags:tags.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{media_server_url:'',emergency_video_id:null,disk_warning_gb:20}};
+    state={rooms:rooms.data||[],videos:videos.data||[],tags:tags.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{emergency_video_id:null}};
     render();
+  }
+
+  function apiHeaders(){
+    const session=Signage.getPinSession?.();
+    return {'content-type':'application/json',...(session?.token?{'x-signage-session':session.token}:{})};
+  }
+  async function apiJson(path,options={}){
+    const response=await fetch(path,{...options,headers:{...apiHeaders(),...(options.headers||{})}});
+    const text=await response.text();
+    let data={};
+    try{data=text?JSON.parse(text):{};}catch{data={error:text||`HTTP ${response.status}`};}
+    if(!response.ok)throw new Error(data.error||data.message||`HTTP ${response.status}`);
+    return data;
+  }
+  function uploadByXhr(url,file,onProgress){
+    return new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('PUT',url,true);
+      xhr.setRequestHeader('Content-Type',file.type||'application/octet-stream');
+      xhr.upload.onprogress=(e)=>{if(e.lengthComputable)onProgress?.(Math.round((e.loaded/e.total)*100));};
+      xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve():reject(new Error(`R2 업로드 실패 · HTTP ${xhr.status}`));
+      xhr.onerror=()=>reject(new Error('R2 업로드 네트워크 오류'));
+      xhr.send(file);
+    });
   }
 
   const activeVideos=()=>state.videos.filter((v)=>v.active&&v.available!==false);
@@ -48,7 +72,7 @@
 
   function operationalAlerts(){
     const alerts=[];
-    if(state.settings.media_server_url){if(serverHealth===false)alerts.push({type:'danger',text:'내부 영상 서버에 연결할 수 없습니다.'});else if(serverHealth?.free_bytes!=null){const limit=(Number(state.settings.disk_warning_gb)||20)*1024**3;if(serverHealth.free_bytes<limit)alerts.push({type:'danger',text:`영상 서버 디스크 여유 ${formatBytes(serverHealth.free_bytes)} · 기준 ${state.settings.disk_warning_gb||20}GB 이하`});}}
+    if(storageHealth===false)alerts.push({type:'danger',text:'Cloudflare R2 설정을 확인하세요.'});
     const offline=state.rooms.filter(r=>!isOnline(r)); if(offline.length)alerts.push({type:'warn',text:`오프라인 ${offline.length}곳: ${offline.slice(0,6).map(r=>r.name).join(', ')}${offline.length>6?' 외':''}`});
     const errors=state.rooms.filter(r=>r.player_status?.error); if(errors.length)alerts.push({type:'warn',text:`재생 오류 ${errors.length}곳: ${errors.slice(0,4).map(r=>r.name).join(', ')}${errors.length>4?' 외':''}`});
     const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.6'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
@@ -62,10 +86,10 @@
     const grouped=[...state.groups.map(g=>({group:g,rooms:state.rooms.filter(r=>r.group_id===g.id)})),{group:null,rooms:state.rooms.filter(r=>!r.group_id)}].filter(x=>x.rooms.length||x.group);
     const errors=state.rooms.filter(r=>r.player_status?.error).length;
     const activeGroups=state.groupBroadcasts.filter(g=>g.active).length;
-    const serverState=serverHealth===false?'OFFLINE':(serverHealth?'ONLINE':'확인 중');
+    const storageState=storageHealth===false?'설정 필요':(storageHealth?.ok?'연결됨':'확인 중');
     qs('#adminRoot').innerHTML=`
       <div class="page-head"><div><h1>송출 제어</h1><p class="page-intro">현재 송출 상태와 공간을 한눈에 확인합니다.</p></div><div id="onlineStat" class="stat">온라인 <b>${online}</b> / ${state.rooms.length}</div></div>
-      <div class="ops-summary"><div><span>온라인</span><b>${online}/${state.rooms.length}</b></div><div><span>그룹 송출</span><b>${activeGroups}</b></div><div class="${errors?'has-error':''}"><span>오류</span><b>${errors}</b></div><div class="${serverHealth===false?'has-error':''}"><span>영상 서버</span><b>${serverState}</b>${serverHealth?.files!=null?`<small>${Number(serverHealth.files)} videos</small>`:''}</div></div>
+      <div class="ops-summary"><div><span>온라인</span><b>${online}/${state.rooms.length}</b></div><div><span>그룹 송출</span><b>${activeGroups}</b></div><div class="${errors?'has-error':''}"><span>오류</span><b>${errors}</b></div><div class="${storageHealth===false?'has-error':''}"><span>영상 저장소</span><b>${storageState}</b><small>Cloudflare R2</small></div></div>
       ${alertsHtml()}
       <section class="panel broadcast-compact ${state.broadcast?.active?'broadcast-on':''}"><div class="panel-head compact-head"><div><div class="inline"><h2>전체 병원</h2><span class="mode-pill ${state.broadcast?.active?'on':''}">${state.broadcast?.active?'송출 중':'자동'}</span></div><p>${state.broadcast?.active?'모든 공간에 최우선으로 송출 중입니다.':'전체 병원에 같은 영상을 보낼 때 사용합니다.'}</p></div><div class="inline"><button class="btn" data-undo-scope="hospital">직전 상태</button>${state.broadcast?.active?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 모두 기본영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active?'danger':'primary'}" ${!state.broadcast?.active&&!selected.length?'disabled':''}>${state.broadcast?.active?'전체 송출 중지':`전체 송출 시작${selected.length?` · ${selected.length}개`:''}`}</button></div></div>
       <details class="control-details" ${state.broadcast?.active?'open':''}><summary>전체송출 영상 · 공지 설정 <span>${selected.length?`${selected.length}개 선택`:'선택 필요'}</span></summary><div class="details-body"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="inline top-gap"><input id="notice" class="grow" placeholder="전체 공지 자막" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 적용</button></div></div></details></section>
@@ -133,12 +157,48 @@
   async function undoLatest(type,id){const h=state.history.find(x=>x.scope_type===type&&(!id||x.scope_id===id)&&x.before_state);if(!h)return toast('복귀 가능한 이전 상태가 없습니다.','error');await undoHistory(h.id);}
 
   function renderVideos(){
-    const server=state.settings.media_server_url||'';
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><h1>영상</h1><p class="page-intro">영상과 맞춤 조건을 관리합니다.</p></div><div class="stat">등록 ${state.videos.length}개</div></div><section class="panel"><div class="panel-head"><div><h2>내부 서버 영상</h2><p>영상 파일은 내부 서버에 두고 목록만 동기화합니다.</p></div><button id="syncMedia" class="btn primary" ${server?'':'disabled'}>서버 영상 동기화</button></div><div class="server-line"><code>${esc(server||'설정에서 내부 영상 서버 주소를 먼저 입력하세요.')}</code></div></section><section class="panel"><div class="panel-head"><div><h2>기본 재생 그룹</h2><p>공간별 기본 재생 묶음입니다.</p></div></div><div class="inline"><input id="newTag" placeholder="새 기본 그룹"><button id="addTag" class="btn">추가</button></div><div class="tag-admin">${state.tags.map(t=>`<span class="tag-item">${esc(t.name)}${t.name!=='기본'?`<button data-delete-tag="${esc(t.name)}">×</button>`:''}</span>`).join('')}</div></section><section class="panel"><div class="panel-head"><div><h2>영상 목록</h2><p>조건이 없으면 공통 영상으로 사용합니다.</p></div></div><div class="media-list">${state.videos.map(videoRow).join('')||'<p class="muted">동기화된 영상이 없습니다.</p>'}</div></section>`;
-    qs('#syncMedia')?.addEventListener('click',syncMedia);qs('#addTag')?.addEventListener('click',addTag);qsa('[data-delete-tag]').forEach(b=>b.addEventListener('click',()=>deleteTag(b.dataset.deleteTag)));qsa('[data-video-active]').forEach(i=>i.addEventListener('change',()=>updateVideo(i.dataset.videoActive,{active:i.checked})));qsa('[data-video-title]').forEach(i=>i.addEventListener('change',()=>updateVideo(i.dataset.videoTitle,{title:i.value.trim()||titleFromPath(i.dataset.path)})));qsa('[data-video-tags]').forEach(w=>w.addEventListener('click',async e=>{const b=e.target.closest('[data-tag]');if(!b)return;const v=state.videos.find(x=>x.id===w.dataset.videoTags);let tags=[...(v.tags||[])];tags=tags.includes(b.dataset.tag)?tags.filter(x=>x!==b.dataset.tag):[...tags,b.dataset.tag];await updateVideo(v.id,{tags});}));qsa('[data-target-wrap]').forEach(w=>w.addEventListener('click',async e=>{const b=e.target.closest('[data-target-kind]');if(!b)return;const v=state.videos.find(x=>x.id===w.dataset.targetWrap),kind=b.dataset.targetKind,val=b.dataset.targetValue;let arr=[...(v[kind]||[])];arr=!val?[]:(arr.includes(val)?arr.filter(x=>x!==val):[...arr,val]);await updateVideo(v.id,{[kind]:arr});}));qsa('[data-move-video]').forEach(b=>b.addEventListener('click',()=>moveVideo(b.dataset.moveVideo,Number(b.dataset.dir))));
+    const ready=storageHealth?.ok===true;
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><h1>영상</h1><p class="page-intro">업로드하고 대상만 지정하면 바로 송출됩니다.</p></div><div class="stat">등록 ${state.videos.length}개</div></div>
+    <section class="panel upload-panel"><div class="panel-head"><div><h2>영상 업로드</h2><p>${ready?'Cloudflare R2에 바로 저장됩니다.':'Cloudflare R2 연결 설정이 필요합니다.'}</p></div><label class="btn primary ${ready?'':'disabled'}">영상 선택<input id="videoUpload" type="file" accept="video/mp4,video/webm" multiple hidden ${ready?'':'disabled'}></label></div><div id="uploadQueue" class="upload-queue"></div><div class="storage-line"><span class="dot ${ready?'on':''}"></span><b>Cloudflare R2</b><span>${ready?esc(storageHealth.publicBaseUrl||'연결됨'):'Vercel 환경변수를 확인하세요.'}</span></div></section>
+    <section class="panel"><div class="panel-head"><div><h2>기본 재생 그룹</h2><p>공간별 기본 재생 묶음입니다.</p></div></div><div class="inline"><input id="newTag" placeholder="새 기본 그룹"><button id="addTag" class="btn">추가</button></div><div class="tag-admin">${state.tags.map(t=>`<span class="tag-item">${esc(t.name)}${t.name!=='기본'?`<button data-delete-tag="${esc(t.name)}">×</button>`:''}</span>`).join('')}</div></section>
+    <section class="panel"><div class="panel-head"><div><h2>영상 목록</h2><p>조건이 없으면 공통 영상으로 사용합니다.</p></div></div><div class="media-list">${state.videos.map(videoRow).join('')||'<p class="muted">등록된 영상이 없습니다.</p>'}</div></section>`;
+    qs('#videoUpload')?.addEventListener('change',e=>uploadVideos([...e.target.files]));
+    qs('#addTag')?.addEventListener('click',addTag);qsa('[data-delete-tag]').forEach(b=>b.addEventListener('click',()=>deleteTag(b.dataset.deleteTag)));qsa('[data-video-active]').forEach(i=>i.addEventListener('change',()=>updateVideo(i.dataset.videoActive,{active:i.checked})));qsa('[data-video-title]').forEach(i=>i.addEventListener('change',()=>updateVideo(i.dataset.videoTitle,{title:i.value.trim()||'영상'})));qsa('[data-video-tags]').forEach(w=>w.addEventListener('click',async e=>{const b=e.target.closest('[data-tag]');if(!b)return;const v=state.videos.find(x=>x.id===w.dataset.videoTags);let tags=[...(v.tags||[])];tags=tags.includes(b.dataset.tag)?tags.filter(x=>x!==b.dataset.tag):[...tags,b.dataset.tag];await updateVideo(v.id,{tags});}));qsa('[data-target-wrap]').forEach(w=>w.addEventListener('click',async e=>{const b=e.target.closest('[data-target-kind]');if(!b)return;const v=state.videos.find(x=>x.id===w.dataset.targetWrap),kind=b.dataset.targetKind,val=b.dataset.targetValue;let arr=[...(v[kind]||[])];arr=!val?[]:(arr.includes(val)?arr.filter(x=>x!==val):[...arr,val]);await updateVideo(v.id,{[kind]:arr});}));qsa('[data-move-video]').forEach(b=>b.addEventListener('click',()=>moveVideo(b.dataset.moveVideo,Number(b.dataset.dir))));qsa('[data-delete-video]').forEach(b=>b.addEventListener('click',()=>deleteVideo(b.dataset.deleteVideo)));
   }
-  function videoRow(v){const url=state.settings.media_server_url&&v.file_path?joinMediaUrl(state.settings.media_server_url,v.file_path,v.file_modified_at||''):'';const targetCount=(v.target_age?.length||0)+(v.target_gender?.length||0)+(v.target_treatment?.length||0);return `<article class="media-row ${v.active?'':'inactive'}"><div class="order"><button data-move-video="${v.id}" data-dir="-1">↑</button><button data-move-video="${v.id}" data-dir="1">↓</button></div><div class="grow"><input class="title-input" data-video-title="${v.id}" data-path="${esc(v.file_path||'')}" value="${esc(v.title)}"><div class="meta">${formatBytes(v.size_bytes)} · ${v.available===false?'<b class="error">폴더에서 찾을 수 없음</b>':esc(v.file_path||'기존 외부 영상')}${url?` · <a href="${esc(url)}" target="_blank">재생 확인</a>`:''}</div><details class="media-target-details"><summary>맞춤 조건 <span>${targetCount?`${targetCount}개 설정`:'공통 영상'}</span></summary><div class="targeting" data-target-wrap="${v.id}"><div><div class="section-label">연령</div><div class="chips">${optionChips('target_age',v.target_age||[],AGE_OPTIONS)}</div></div><div><div class="section-label">성별</div><div class="chips">${optionChips('target_gender',v.target_gender||[],GENDER_OPTIONS)}</div></div><div><div class="section-label">진료유형</div><div class="chips">${optionChips('target_treatment',v.target_treatment||[],TREATMENT_OPTIONS)}</div></div></div></details><details class="media-target-details"><summary>기본 재생 그룹 <span>${v.tags?.length||0}개</span></summary><div class="section details-body"><div class="chips" data-video-tags="${v.id}">${chips(v.tags||[])}</div></div></details></div><label class="toggle"><input type="checkbox" data-video-active="${v.id}" ${v.active?'checked':''} ${v.available===false?'disabled':''}><span>사용</span></label></article>`;}
-  async function syncMedia(){const base=state.settings.media_server_url.replace(/\/+$/,'');const btn=qs('#syncMedia');btn.disabled=true;btn.textContent='동기화 중…';try{const res=await fetch(`${base}/api/files?refresh=1`,{cache:'no-store'});if(!res.ok)throw new Error(`미디어 서버 응답 ${res.status}`);const payload=await res.json(),files=(payload.files||[]).map(f=>({path:f.path,size:Number(f.size||0),modified_at:f.modified_at||null}));const {error}=await db.rpc('admin_sync_local_videos',{p_files:files});if(error)throw error;toast(`${files.length}개 파일 동기화 완료`);await load();}catch(e){toast(`동기화 실패: ${e.message||e}`,'error');}finally{if(btn){btn.disabled=false;btn.textContent='서버 영상 동기화';}}}
+  function videoRow(v){
+    const targetCount=(v.target_age?.length||0)+(v.target_gender?.length||0)+(v.target_treatment?.length||0),isR2=v.source==='r2';
+    return `<article class="media-row ${v.active?'':'inactive'}"><div class="order"><button data-move-video="${v.id}" data-dir="-1">↑</button><button data-move-video="${v.id}" data-dir="1">↓</button></div><div class="grow"><input class="title-input" data-video-title="${v.id}" value="${esc(v.title)}"><div class="meta">${formatBytes(v.size_bytes)} · ${isR2?'R2':'기존 영상'}${v.url?` · <a href="${esc(v.url)}" target="_blank" rel="noopener">재생 확인</a>`:''}</div><details class="media-target-details"><summary>맞춤 조건 <span>${targetCount?`${targetCount}개 설정`:'공통 영상'}</span></summary><div class="targeting" data-target-wrap="${v.id}"><div><div class="section-label">연령</div><div class="chips">${optionChips('target_age',v.target_age||[],AGE_OPTIONS)}</div></div><div><div class="section-label">성별</div><div class="chips">${optionChips('target_gender',v.target_gender||[],GENDER_OPTIONS)}</div></div><div><div class="section-label">진료유형</div><div class="chips">${optionChips('target_treatment',v.target_treatment||[],TREATMENT_OPTIONS)}</div></div></div></details><details class="media-target-details"><summary>기본 재생 그룹 <span>${v.tags?.length||0}개</span></summary><div class="section details-body"><div class="chips" data-video-tags="${v.id}">${chips(v.tags||[])}</div></div></details></div><div class="media-actions"><label class="toggle"><input type="checkbox" data-video-active="${v.id}" ${v.active?'checked':''}><span>사용</span></label><button class="text-action danger-text" data-delete-video="${v.id}">삭제</button></div></article>`;
+  }
+  async function uploadVideos(files){
+    if(uploadBusy||!files.length)return;
+    const allowed=new Set(['video/mp4','video/webm']);
+    const invalid=files.find(f=>!allowed.has(f.type));
+    if(invalid)return toast('MP4 또는 WebM 영상만 업로드할 수 있습니다.','error');
+    uploadBusy=true;
+    const queue=qs('#uploadQueue');
+    try{
+      for(const file of files){
+        const row=document.createElement('div');row.className='upload-row';row.innerHTML=`<span>${esc(file.name)}</span><div><i></i></div><b>0%</b>`;queue?.appendChild(row);
+        const info=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType:file.type,size:file.size})});
+        await uploadByXhr(info.uploadUrl,file,pct=>{const bar=row.querySelector('i'),label=row.querySelector('b');if(bar)bar.style.width=`${pct}%`;if(label)label.textContent=`${pct}%`;});
+        const max=state.videos.reduce((m,v)=>Math.max(m,Number(v.sort_order)||0),0);
+        const {error}=await db.from('videos').insert({title:titleFromPath(file.name)||file.name,source:'r2',storage_path:info.key,url:info.publicUrl,size_bytes:file.size,available:true,active:true,sort_order:max+10,tags:['기본'],target_age:[],target_gender:[],target_treatment:[]});
+        if(error){await apiJson('/api/r2-delete',{method:'POST',body:JSON.stringify({key:info.key})}).catch(()=>{});throw error;}
+        row.classList.add('done');row.querySelector('b').textContent='완료';
+        state.videos.push({id:'pending',sort_order:max+10});
+      }
+      toast(`${files.length}개 영상 업로드 완료`);await load();
+    }catch(e){toast(e.message||String(e),'error');}
+    finally{uploadBusy=false;}
+  }
+  async function deleteVideo(id){
+    const v=state.videos.find(x=>x.id===id);if(!v)return;
+    if(!confirm(`'${v.title}' 영상을 삭제할까요?`))return;
+    const {error}=await db.rpc('admin_delete_video',{p_id:id});
+    if(error)return toast(error.message,'error');
+    if(v.source==='r2'&&v.storage_path)await apiJson('/api/r2-delete',{method:'POST',body:JSON.stringify({key:v.storage_path})}).catch(()=>toast('DB에서는 삭제됐지만 R2 파일 정리가 실패했습니다.','error'));
+    toast('영상 삭제 완료');await load();
+  }
   async function addTag(){const name=qs('#newTag').value.trim();if(!name)return;const max=state.tags.reduce((m,t)=>Math.max(m,t.sort_order||0),0);const {error}=await db.from('tags').insert({name,sort_order:max+10});if(error)toast(error.message,'error');else await load();}
   async function deleteTag(name){if(!confirm(`'${name}' 그룹을 삭제할까요?`))return;const {error}=await db.rpc('admin_delete_tag',{p_name:name});if(error)toast(error.message,'error');else await load();}
   async function updateVideo(id,patch){const {error}=await db.from('videos').update(patch).eq('id',id);if(error)toast(error.message,'error');else await load();}
@@ -160,20 +220,24 @@
   async function copyLink(type,id){const r=state.rooms.find(x=>x.id===id);const u=type==='player'?`${location.origin}/player.html?key=${encodeURIComponent(r.player_key)}`:`${location.origin}/staff.html?room=${encodeURIComponent(r.id)}`;await navigator.clipboard.writeText(u);toast(type==='player'?'환자 화면 링크 복사됨':'스텝 고정 링크 복사됨');}
 
   function renderSettings(){
-    const localVideos=state.videos.filter(v=>v.active&&v.available!==false&&v.source==='local'&&v.file_path);
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><h1>설정</h1><p class="page-intro">시스템 설정을 관리합니다.</p></div></div><section class="panel narrow-panel"><h2>내부 영상 서버</h2><p class="muted">서버 PC에서 media-server.js가 실행 중인 주소입니다.</p><label class="field"><span>서버 주소</span><input id="mediaServerUrl" placeholder="http://12F-MSO0:8080" value="${esc(state.settings.media_server_url||'')}"></label><label class="field"><span>디스크 경고 기준(GB)</span><input id="diskWarningGb" type="number" min="1" max="1000" value="${Number(state.settings.disk_warning_gb||20)}"></label><div class="inline top-gap"><button id="testServer" class="btn">연결 테스트</button><button id="saveServer" class="btn primary">저장</button></div><div id="serverResult" class="server-result"></div></section><section class="panel narrow-panel"><h2>비상 로컬 영상</h2><p class="muted">내부 영상 서버 장애 시 각 환자 화면이 로컬 캐시본을 재생합니다.</p><label class="field"><span>비상 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${localVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><p class="muted">250MB 이하 권장.</p><button id="saveEmergency" class="btn primary">비상영상 저장</button></section><section class="panel narrow-panel"><h2>PIN 관리</h2><p class="muted">PIN 원문은 저장하지 않습니다.</p><div class="grid-2"><label class="field"><span>새 관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><label class="field"><span>새 스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label></div><div class="inline top-gap"><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></section><section class="panel narrow-panel"><h2>영상 폴더</h2><pre>C:\\Users\\Public\\Videos</pre><p class="muted">다른 PC에서는 \\12F-MSO0\Users\Public\Videos 로 파일을 복사할 수 있습니다.</p></section>`;
-    qs('#testServer').addEventListener('click',testServer);qs('#saveServer').addEventListener('click',saveServer);qs('#saveEmergency').addEventListener('click',saveEmergency);qs('#changeAdminPin').addEventListener('click',()=>changePin('admin'));qs('#changeStaffPin').addEventListener('click',()=>changePin('staff'));qsa('#newAdminPin,#newStaffPin').forEach(i=>i.addEventListener('input',()=>{i.value=i.value.replace(/\D/g,'').slice(0,6);}));
+    const emergencyVideos=state.videos.filter(v=>v.active&&v.available!==false&&v.url);
+    const ready=storageHealth?.ok===true;
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><h1>설정</h1><p class="page-intro">필수 설정만 관리합니다.</p></div></div><section class="panel narrow-panel"><h2>영상 저장소</h2><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>Cloudflare R2</b><p>${ready?`연결됨 · ${esc(storageHealth.bucket||'')}`:'설정 필요 · Vercel 환경변수를 확인하세요.'}</p></div></div><button id="testStorage" class="btn">연결 확인</button></section><section class="panel narrow-panel"><h2>비상 캐시 영상</h2><p class="muted">인터넷이 잠시 끊겨도 마지막으로 캐시한 비상영상을 재생합니다.</p><label class="field"><span>비상 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><p class="muted">250MB 이하 권장.</p><button id="saveEmergency" class="btn primary">비상영상 저장</button></section><section class="panel narrow-panel"><h2>PIN 관리</h2><p class="muted">PIN 원문은 저장하지 않습니다.</p><div class="grid-2"><label class="field"><span>새 관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><label class="field"><span>새 스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label></div><div class="inline top-gap"><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></section>`;
+    qs('#testStorage').addEventListener('click',async()=>{await checkStorageHealth(true);renderSettings();});qs('#saveEmergency').addEventListener('click',saveEmergency);qs('#changeAdminPin').addEventListener('click',()=>changePin('admin'));qs('#changeStaffPin').addEventListener('click',()=>changePin('staff'));qsa('#newAdminPin,#newStaffPin').forEach(i=>i.addEventListener('input',()=>{i.value=i.value.replace(/\D/g,'').slice(0,6);}));
   }
-  async function testServer(){const u=qs('#mediaServerUrl').value.trim().replace(/\/+$/,'');const out=qs('#serverResult');out.textContent='확인 중…';try{const r=await fetch(`${u}/health`,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);const j=await r.json();serverHealth=j;out.innerHTML=`<span class="ok">연결됨</span> · 영상 ${Number(j.files||0)}개${j.free_bytes!=null?` · 여유 ${formatBytes(j.free_bytes)}`:''}${j.active_streams!=null?` · 스트림 ${Number(j.active_streams)}`:''}`;}catch(e){serverHealth=false;out.innerHTML=`<span class="error">연결 실패</span> · ${esc(e.message||e)}`;}}
-  async function saveServer(){const url=qs('#mediaServerUrl').value.trim().replace(/\/+$/,'');if(!/^https?:\/\//i.test(url))return toast('http:// 또는 https:// 주소를 입력하세요.','error');const disk=Math.max(1,Math.min(1000,Number(qs('#diskWarningGb').value)||20));const {error}=await db.from('app_settings').update({media_server_url:url,disk_warning_gb:disk,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('서버 설정 저장 완료');await load();checkServerHealth();}}
   async function changePin(role){const input=qs(role==='admin'?'#newAdminPin':'#newStaffPin'),pin=input.value.replace(/\D/g,'');if(role==='admin'&&pin.length!==6)return toast('관리자 PIN은 6자리입니다.','error');if(role==='staff'&&(pin.length<4||pin.length>6))return toast('스텝 PIN은 4~6자리입니다.','error');if(!confirm(`${role==='admin'?'관리자':'스텝'} PIN을 변경할까요?`))return;const {error}=await db.rpc('admin_change_pin',{p_role:role,p_pin:pin});if(error)return toast(error.message,'error');input.value='';if(role==='admin'){Signage.clearPinSession();location.replace('/');}else toast('스텝 PIN 변경 완료');}
   async function saveEmergency(){const id=qs('#emergencyVideo').value||null;if(id){const v=state.videos.find(x=>x.id===id);if(Number(v?.size_bytes||0)>MAX_EMERGENCY_BYTES)return toast('비상영상은 250MB 이하로 선택하세요.','error');}const {error}=await db.from('app_settings').update({emergency_video_id:id,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('비상영상 저장 완료');await load();}}
-  async function checkServerHealth(){const u=(state.settings.media_server_url||'').replace(/\/+$/,'');if(!u){serverHealth=null;return;}try{const r=await fetch(`${u}/health`,{cache:'no-store'});if(!r.ok)throw new Error();serverHealth=await r.json();}catch{serverHealth=false;}if(tab==='dashboard')paintAlerts();}
+  async function checkStorageHealth(showToast=false){
+    try{storageHealth=await apiJson('/api/r2-status',{method:'GET'});if(showToast)toast('Cloudflare R2 연결 정상');}
+    catch(e){storageHealth=false;if(showToast)toast(e.message||'R2 연결 실패','error');}
+    if(tab==='dashboard')paintAlerts();
+    if(tab==='videos')renderVideos();
+  }
 
   function mergeRealtimeRoom(next){const i=state.rooms.findIndex(r=>r.id===next.id);if(i<0)return;state.rooms[i]={...state.rooms[i],...next};if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintAlerts();}if(tab==='rooms'){const el=qs(`[data-room-name="${next.id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=isOnline(state.rooms[i])?'ONLINE':'OFFLINE';}const stat=qs('#onlineStat');if(stat)stat.innerHTML=`온라인 <b>${state.rooms.filter(isOnline).length}</b> / ${state.rooms.length}`;}
   function paintLiveRoom(r){const card=qs(`[data-room-card="${r.id}"]`);if(!card)return;const st=r.player_status||{},on=isOnline(r),progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';qs('[data-live-dot]',card)?.classList.toggle('on',on);const mode=qs('[data-live-mode]',card);if(mode)mode.textContent=modeLabel(st.mode);const title=qs('[data-live-title]',card);if(title)title.textContent=r.paused?'일시정지':(st.title||'대기 중');const detail=qs('[data-live-detail]',card);if(detail)detail.textContent=on?`${String(st.playback_state||'CONNECTED').toUpperCase()}${progress?` · ${progress}`:''}${st.muted?' · 음소거':''}${st.error?` · ${st.error}`:''}`:'오프라인';}
 
   try{await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
   let liveRefreshBusy=false;async function refreshLiveRooms(){if(liveRefreshBusy)return;liveRefreshBusy=true;try{const {data}=await db.from('rooms').select('id,last_seen_at,player_status,paused,reload_nonce');(data||[]).forEach(mergeRealtimeRoom);}catch{}finally{liveRefreshBusy=false;}}
-  refreshLiveRooms();setInterval(refreshLiveRooms,5000);checkServerHealth();setInterval(checkServerHealth,30000);setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintAlerts();}},5000);
+  refreshLiveRooms();setInterval(refreshLiveRooms,5000);checkStorageHealth();setInterval(checkStorageHealth,60000);setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintAlerts();}},5000);
 })();
