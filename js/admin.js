@@ -194,7 +194,7 @@
     const ready=storageHealth?.ok===true;
     qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">MEDIA</span><h1>영상</h1><p class="page-intro">영상 보관함과 실제 재생 순서를 분리해서 관리합니다.</p></div><div class="stat">영상 ${state.videos.length} · 플레이리스트 ${state.playlists.length}</div></div>
     <section class="panel upload-panel"><div class="panel-head"><div><h2>영상 업로드</h2><p>업로드한 영상은 보관함에 들어갑니다. 재생 순서는 플레이리스트에서 정합니다.</p></div><label class="btn primary ${ready?'':'disabled'}">파일 선택<input id="videoUpload" type="file" accept="video/mp4,video/webm" multiple hidden ${ready?'':'disabled'}></label></div><div id="uploadQueue" class="upload-queue"></div><div class="storage-line"><span class="dot ${ready?'on':''}"></span><b>영상 저장소</b><span>${ready?'연결됨':'설정 필요'}</span></div></section>
-    <section class="panel playlist-manager"><div class="panel-head"><div><span class="eyebrow">PLAYLISTS</span><h2>플레이리스트</h2><p>각 플레이리스트 안에서만 영상 순서를 정합니다.</p></div></div><div class="playlist-create"><input id="newPlaylistName" placeholder="플레이리스트 이름"><select id="newPlaylistKind"><option value="default">기본 재생</option><option value="patient">환자 맞춤</option></select><select id="newPlaylistTreatment"><option value="">공통</option>${TREATMENT_OPTIONS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button id="addPlaylist" class="btn primary">만들기</button></div><div class="playlist-admin-grid">${state.playlists.map(playlistCard).join('')||'<div class="empty-card">플레이리스트가 없습니다.</div>'}</div></section>
+    <section class="panel playlist-manager"><div class="panel-head"><div><span class="eyebrow">PLAYLISTS</span><h2>플레이리스트</h2><p>용도별 묶음 안에서 영상과 순서를 관리합니다.</p></div></div><div class="playlist-create"><input id="newPlaylistName" placeholder="플레이리스트 이름"><select id="newPlaylistKind"><option value="default">기본 재생</option><option value="patient">환자 맞춤</option></select><select id="newPlaylistTreatment"><option value="">공통</option>${TREATMENT_OPTIONS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button id="addPlaylist" class="btn primary">만들기</button></div>${playlistGroupsHtml()}</section>
     <section class="panel"><div class="panel-head"><div><span class="eyebrow">LIBRARY</span><h2>영상 보관함</h2><p>영상의 제목과 사용 여부만 관리합니다.</p></div></div><div class="media-list">${state.videos.map(videoRow).join('')||'<p class="muted">등록된 영상이 없습니다.</p>'}</div></section>`;
     qs('#videoUpload')?.addEventListener('change',e=>uploadVideos([...e.target.files]));
     qs('#addPlaylist')?.addEventListener('click',addPlaylist);
@@ -209,9 +209,15 @@
     qsa('[data-playlist-gender]').forEach(i=>i.addEventListener('change',()=>updatePlaylist(i.dataset.playlistGender,{target_gender:i.value?[i.value]:[]})));
     qsa('[data-video-active]').forEach(i=>i.addEventListener('change',()=>updateVideo(i.dataset.videoActive,{active:i.checked})));
     qsa('[data-title-edit]').forEach(b=>b.addEventListener('click',()=>toggleTitleEdit(b.dataset.titleEdit,true)));
-    qsa('[data-title-cancel]').forEach(b=>b.addEventListener('click',()=>toggleTitleEdit(b.dataset.titleCancel,false)));
-    qsa('[data-title-save]').forEach(b=>b.addEventListener('click',()=>saveTitle(b.dataset.titleSave)));
+    qsa('[data-title-input]').forEach(i=>{i.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveTitle(i.dataset.titleInput);}else if(e.key==='Escape'){e.preventDefault();toggleTitleEdit(i.dataset.titleInput,false);}});i.addEventListener('blur',()=>{if(!i.closest('[data-title-form]')?.classList.contains('hidden'))saveTitle(i.dataset.titleInput);});});
     qsa('[data-delete-video]').forEach(b=>b.addEventListener('click',()=>deleteVideo(b.dataset.deleteVideo)));
+  }
+  function playlistGroupsHtml(){
+    const groups=[
+      {kind:'default',title:'기본 플레이리스트',desc:'환자가 배정되지 않았을 때 공간에서 반복 재생합니다.'},
+      {kind:'patient',title:'환자 맞춤 플레이리스트',desc:'리셉션에서 선택한 진료유형·연령·성별 조건에 맞춰 자동 재생합니다.'}
+    ];
+    return `<div class="playlist-groups">${groups.map(g=>{const list=state.playlists.filter(p=>p.kind===g.kind);return `<section class="playlist-group"><div class="playlist-group-head"><div><h3>${g.title}</h3><p>${g.desc}</p></div><span>${list.length}개</span></div><div class="playlist-admin-grid">${list.map(playlistCard).join('')||'<div class="playlist-group-empty">아직 플레이리스트가 없습니다.</div>'}</div></section>`;}).join('')}</div>`;
   }
   function playlistCard(p){
     const items=playlistItems(p.id), treatment=(p.target_treatment||[])[0], label=p.kind==='default'?'기본 재생':(treatment?TREATMENT_OPTIONS.find(([v])=>v===treatment)?.[1]||treatment:'환자 공통');
@@ -220,10 +226,24 @@
   }
   function videoRow(v){
     const isR2=v.source==='r2';
-    return `<article class="media-row ${v.active?'':'inactive'}"><div class="grow"><div class="media-title-view" data-title-view="${v.id}"><b>${esc(v.title)}</b><button class="text-action" data-title-edit="${v.id}">제목 수정</button></div><div class="media-title-edit hidden" data-title-form="${v.id}"><input data-title-input="${v.id}" value="${esc(v.title)}"><button class="btn small primary" data-title-save="${v.id}">저장</button><button class="btn small" data-title-cancel="${v.id}">취소</button></div><div class="meta">${formatBytes(v.size_bytes)} · ${isR2?'Cloudflare R2':'기존 영상'}${v.url?` · <a href="${esc(v.url)}" target="_blank" rel="noopener">재생 확인</a>`:''}</div></div><div class="media-actions"><label class="toggle"><input type="checkbox" data-video-active="${v.id}" ${v.active?'checked':''}><span>사용</span></label><button class="text-action danger-text" data-delete-video="${v.id}">삭제</button></div></article>`;
+    return `<article class="media-row ${v.active?'':'inactive'}"><div class="grow"><div class="media-title-view" data-title-view="${v.id}"><button type="button" class="media-title-button" data-title-edit="${v.id}" title="제목 수정">${esc(v.title)}</button></div><div class="media-title-edit hidden" data-title-form="${v.id}"><input data-title-input="${v.id}" value="${esc(v.title)}" aria-label="영상 제목"></div><div class="meta">${formatBytes(v.size_bytes)} · ${isR2?'Cloudflare R2':'기존 영상'}${v.url?` · <a href="${esc(v.url)}" target="_blank" rel="noopener">재생 확인</a>`:''}</div></div><div class="media-actions"><label class="toggle"><input type="checkbox" data-video-active="${v.id}" ${v.active?'checked':''}><span>사용</span></label><button class="text-action danger-text" data-delete-video="${v.id}">삭제</button></div></article>`;
   }
-  function toggleTitleEdit(id,on){qs(`[data-title-view="${id}"]`)?.classList.toggle('hidden',on);qs(`[data-title-form="${id}"]`)?.classList.toggle('hidden',!on);if(on)qs(`[data-title-input="${id}"]`)?.focus();}
-  async function saveTitle(id){const input=qs(`[data-title-input="${id}"]`);const title=input?.value.trim();if(!title)return toast('제목을 입력하세요.','error');await updateVideo(id,{title});}
+  function toggleTitleEdit(id,on){
+    const view=qs(`[data-title-view="${id}"]`),form=qs(`[data-title-form="${id}"]`),input=qs(`[data-title-input="${id}"]`),video=state.videos.find(v=>v.id===id);
+    view?.classList.toggle('hidden',on);form?.classList.toggle('hidden',!on);
+    if(on){if(input){input.value=video?.title||input.value;requestAnimationFrame(()=>{input.focus();input.select();});}}
+    else if(input&&video)input.value=video.title;
+  }
+  async function saveTitle(id){
+    const input=qs(`[data-title-input="${id}"]`),video=state.videos.find(v=>v.id===id),title=input?.value.trim();
+    if(!title){if(input&&video)input.value=video.title;return toggleTitleEdit(id,false);}
+    if(video?.title===title)return toggleTitleEdit(id,false);
+    const {error}=await db.from('videos').update({title}).eq('id',id);
+    if(error){toast(error.message,'error');if(input&&video)input.value=video.title;return;}
+    if(video)video.title=title;
+    const button=qs(`[data-title-edit="${id}"]`);if(button)button.textContent=title;
+    toggleTitleEdit(id,false);toast('제목을 저장했습니다.');
+  }
   async function addPlaylist(){const name=qs('#newPlaylistName').value.trim(),kind=qs('#newPlaylistKind').value,t=qs('#newPlaylistTreatment').value;if(!name)return toast('플레이리스트 이름을 입력하세요.','error');const max=state.playlists.reduce((m,p)=>Math.max(m,Number(p.sort_order)||0),0);const {error}=await db.from('playlists').insert({name,kind,target_treatment:kind==='patient'&&t?[t]:[],sort_order:max+10});if(error)return toast(error.message,'error');toast('플레이리스트를 만들었습니다.');await load();}
   async function updatePlaylist(id,patch){const {error}=await db.from('playlists').update({...patch,updated_at:new Date().toISOString()}).eq('id',id);if(error)toast(error.message,'error');else await load();}
   async function deletePlaylist(id){if(!confirm('플레이리스트를 삭제할까요? 영상 파일은 삭제되지 않습니다.'))return;const {error}=await db.from('playlists').delete().eq('id',id);if(error)toast(error.message,'error');else await load();}
