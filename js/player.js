@@ -32,6 +32,7 @@
   let slots = [];
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false;
+  let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
 
   if (!key) { console.error('Clinic Signage: missing player key'); return; }
 
@@ -61,7 +62,7 @@
     activeSlot=0;
     slots.forEach((el,slotIndex)=>{
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying)advanceSeamless();});
-      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;queueHeartbeat(true);}});
+      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();}});
       el.addEventListener('pause',()=>{if(slotIndex===activeSlot)queueHeartbeat(true);});
       el.addEventListener('error',()=>{if(slotIndex===activeSlot&&!emergencyPlaying)handleMediaFailure(current());});
@@ -85,7 +86,7 @@
   function resetSlot(el){
     if(!el)return;
     try{el.pause();}catch(_){}
-    el.loop=false;el.removeAttribute('src');el.dataset.videoId='';el.dataset.mediaUrl='';el.dataset.videoIndex='';
+    el.loop=false;el.removeAttribute('src');el.dataset.videoId='';el.dataset.mediaUrl='';el.dataset.videoIndex='';el.dataset.prerolled='';
     try{el.load();}catch(_){}
   }
   function loadSlot(el,v,videoIndex){
@@ -134,26 +135,93 @@
     if(delay< -500 && Number.isFinite(el.duration) && el.duration>1){const elapsed=Math.max(0,(-delay)/1000);try{el.currentTime=elapsed%el.duration;}catch(_){}}
     return playElement(el);
   }
+  function cancelPreroll(){
+    prerollBusy=false;prerolledIndex=-1;prerolledSlot=-1;frameWatchToken++;
+    slots.forEach(el=>{if(el)el.dataset.prerolled='';});
+  }
+  async function prerollNext(){
+    if(prerollBusy||emergencyPlaying||state?.room?.paused)return false;
+    const items=list();if(items.length<2)return false;
+    const targetIndex=(index+1)%items.length;
+    if(prerolledIndex===targetIndex&&prerolledSlot===inactiveSlotIndex())return true;
+    const v=items[targetIndex],slot=inactiveSlotIndex(),el=slots[slot];
+    if(!v||!mediaUrl(v)||!el)return false;
+    prerollBusy=true;
+    const token=++switchToken;
+    try{
+      loadSlot(el,v,targetIndex);
+      if(!(await waitUntilPlayable(el,token,5000))||token!==switchToken)return false;
+      const desiredMuted=el.muted,desiredVolume=el.volume;
+      el.muted=true;el.volume=0;
+      let started=false;
+      try{await el.play();started=true;}catch(_){}
+      if(!started||token!==switchToken)return false;
+      if(!(await waitForRenderedFrame(el,token,1200))||token!==switchToken)return false;
+      try{el.pause();}catch(_){}
+      /* Keep the decoded first frame resident. Do not seek back to 0 here; seeking can drop the decoded frame. */
+      el.dataset.prerolled='1';
+      el.dataset.prerollMuted=desiredMuted?'1':'0';
+      el.dataset.prerollVolume=String(desiredVolume);
+      prerolledIndex=targetIndex;prerolledSlot=slot;
+      return true;
+    }finally{prerollBusy=false;}
+  }
+  function watchForPreroll(el,slotIndex){
+    const myToken=++frameWatchToken;
+    const tick=()=>{
+      if(myToken!==frameWatchToken||slotIndex!==activeSlot||!el||el.paused||el.ended||emergencyPlaying)return;
+      const duration=Number(el.duration),time=Number(el.currentTime);
+      if(Number.isFinite(duration)&&duration>0&&Number.isFinite(time)){
+        const remain=duration-time;
+        if(remain<=1.25&&remain>0.02){prerollNext();}
+      }
+      if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
+      else requestAnimationFrame(tick);
+    };
+    if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
+    else requestAnimationFrame(tick);
+  }
   async function switchToIndex(targetIndex,{sync=false}={}){
     const items=list(); if(!items.length){blankPlayer();return false;}
     const normalized=((targetIndex%items.length)+items.length)%items.length;
-    const v=items[normalized],token=++switchToken;
+    const v=items[normalized];
     ensureSurface();
     const currentEl=activeVideoEl();
     if(slotMatches(currentEl,v)){
       index=normalized;applyLiveControls();prepareNext();return true;
     }
+
     const targetSlot=inactiveSlotIndex(),nextEl=slots[targetSlot];
+    const readyPreroll=prerolledIndex===normalized&&prerolledSlot===targetSlot&&nextEl?.dataset.prerolled==='1'&&slotMatches(nextEl,v);
+
+    if(readyPreroll){
+      /* The first frame is already decoded. Put it on screen before asking playback to resume. */
+      nextEl.classList.add('is-active');
+      activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
+      currentEl?.classList.remove('is-active');
+      const muted=nextEl.dataset.prerollMuted==='1';
+      const volume=Number(nextEl.dataset.prerollVolume);
+      nextEl.muted=state?.room?.force_mute?true:muted;
+      if(Number.isFinite(volume))nextEl.volume=volume;
+      nextEl.dataset.prerolled='';prerolledIndex=-1;prerolledSlot=-1;
+      const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
+      if(!started)return false;
+      requestAnimationFrame(()=>{
+        if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
+        prepareNext();queueHeartbeat(true);
+      });
+      return true;
+    }
+
+    const token=++switchToken;
     loadSlot(nextEl,v,normalized);
     if(!(await waitUntilPlayable(nextEl,token))||token!==switchToken)return false;
     const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
     if(!started||token!==switchToken)return false;
     if(!(await waitForRenderedFrame(nextEl,token))||token!==switchToken)return false;
-
-    /* Swap only after the browser has actually rendered the first frame. */
     nextEl.classList.add('is-active');
     activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
-    requestAnimationFrame(()=>currentEl?.classList.remove('is-active'));
+    currentEl?.classList.remove('is-active');
     requestAnimationFrame(()=>{
       if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
       prepareNext();queueHeartbeat(true);
@@ -175,13 +243,14 @@
   }
   function blankPlayer(){
     ensureSurface();
+    cancelPreroll();
     switchToken++;
     slots.forEach(el=>{try{el.pause();}catch(_){}el.classList.remove('is-active');});
     queueHeartbeat(true);
   }
   async function renderFull(){
     if(!state)return;
-    clearTimeout(recoveryTimer);clearTimeout(syncStartTimer);clearEmergencyObjectUrl();emergencyPlaying=false;
+    clearTimeout(recoveryTimer);clearTimeout(syncStartTimer);clearEmergencyObjectUrl();cancelPreroll();emergencyPlaying=false;
     const v=current();
     if(!v||!mediaUrl(v)){blankPlayer();renderBarsOnly();return;}
     ensureSurface();renderBarsOnly();
@@ -258,7 +327,7 @@
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.17',reported_at:new Date().toISOString()};
+    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.17.2',reported_at:new Date().toISOString()};
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}catch(_){}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
