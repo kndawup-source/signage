@@ -220,6 +220,9 @@
     if(!db||!state?.room)return;
     heartbeatInFlight=true;
     const el=qs('#screenVideo'),v=emergencyPlaying?state?.emergency_video:current();
+    const list=state?.playlist||[];
+    const currentIndex=list.length?(index%list.length):0;
+    const nextVideo=list.length>1?list[(currentIndex+1)%list.length]:null;
     const status={
       video_id:v?.id||null,
       title:v?.title||null,
@@ -232,7 +235,11 @@
       online:navigator.onLine,
       error:lastError,
       source:emergencyPlaying?'emergency-cache':'cloud-r2',
-      app_version:'2.7',
+      playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):list.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),
+      playlist_count:emergencyPlaying?(v?1:0):list.length,
+      current_index:emergencyPlaying?0:currentIndex,
+      next_title:emergencyPlaying?null:(nextVideo?.title||null),
+      app_version:'2.10',
       reported_at:new Date().toISOString()
     };
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}

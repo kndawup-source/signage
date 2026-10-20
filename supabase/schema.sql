@@ -602,6 +602,10 @@ begin
     'online',case when jsonb_typeof(p_status->'online')='boolean' then (p_status->>'online')::boolean else false end,
     'error',left(coalesce(p_status->>'error',''),300),
     'source',left(coalesce(p_status->>'source',''),64),
+    'playlist_titles',coalesce((select jsonb_agg(left(x.value,120) order by x.ord) from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_titles')='array' then p_status->'playlist_titles' else '[]'::jsonb end) with ordinality as x(value,ord) where x.ord<=12),'[]'::jsonb),
+    'playlist_count',case when jsonb_typeof(p_status->'playlist_count')='number' then greatest(0,least((p_status->>'playlist_count')::int,500)) else 0 end,
+    'current_index',case when jsonb_typeof(p_status->'current_index')='number' then greatest(0,least((p_status->>'current_index')::int,499)) else 0 end,
+    'next_title',left(coalesce(p_status->>'next_title',''),160),
     'app_version',left(coalesce(p_status->>'app_version',''),24),
     'reported_at',left(coalesce(p_status->>'reported_at',''),48)
   );
