@@ -239,7 +239,7 @@
       playlist_count:emergencyPlaying?(v?1:0):list.length,
       current_index:emergencyPlaying?0:currentIndex,
       next_title:emergencyPlaying?null:(nextVideo?.title||null),
-      app_version:'2.10',
+      app_version:'2.14',
       reported_at:new Date().toISOString()
     };
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}
