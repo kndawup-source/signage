@@ -12,13 +12,13 @@
   const MAX_EMERGENCY_BYTES=250*1024*1024;
 
   let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false;
-  let state={rooms:[],videos:[],playlists:[],playlistItems:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null}};
+  let state={rooms:[],videos:[],playlists:[],playlistItems:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null};
 
   qsa('.nav-btn').forEach((b)=>b.addEventListener('click',()=>{tab=b.dataset.tab;qsa('.nav-btn').forEach((x)=>x.classList.toggle('active',x===b));render();}));
 
   async function load(){
     const seq=++loadSeq;
-    const [rooms,videos,playlists,playlistItems,groups,groupBroadcasts,schedules,history,broadcast,settings]=await Promise.all([
+    const [rooms,videos,playlists,playlistItems,groups,groupBroadcasts,schedules,history,broadcast,settings,playbackToday]=await Promise.all([
       db.from('rooms').select('*').order('sort_order').order('created_at'),
       db.from('videos').select('*').order('created_at',{ascending:false}),
       db.from('playlists').select('*').order('sort_order').order('created_at'),
@@ -28,11 +28,12 @@
       db.from('broadcast_schedules').select('*').order('starts_at',{ascending:true}),
       db.from('control_history').select('*').order('created_at',{ascending:false}).limit(20),
       db.from('broadcast').select('*').eq('id',1).maybeSingle(),
-      db.from('app_settings').select('*').eq('id',1).maybeSingle()
+      db.from('app_settings').select('*').eq('id',1).maybeSingle(),
+      db.rpc('admin_playback_today')
     ]);
-    const errors=[rooms.error,videos.error,playlists.error,playlistItems.error,groups.error,groupBroadcasts.error,schedules.error,history.error,broadcast.error,settings.error].filter(Boolean);
+    const errors=[rooms.error,videos.error,playlists.error,playlistItems.error,groups.error,groupBroadcasts.error,schedules.error,history.error,broadcast.error,settings.error,playbackToday.error].filter(Boolean);
     if(errors.length)throw errors[0]; if(seq!==loadSeq)return;
-    state={rooms:rooms.data||[],videos:videos.data||[],playlists:playlists.data||[],playlistItems:playlistItems.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{emergency_video_id:null}};
+    state={rooms:rooms.data||[],videos:videos.data||[],playlists:playlists.data||[],playlistItems:playlistItems.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{emergency_video_id:null},playbackToday:playbackToday.data||null};
     render();
   }
 
@@ -91,12 +92,19 @@
     if(storageHealth===false)alerts.push({type:'danger',text:'영상 저장소 설정을 확인하세요.'});
     const offline=state.rooms.filter(r=>!isOnline(r)); if(offline.length)alerts.push({type:'warn',text:`오프라인 ${offline.length}곳: ${offline.slice(0,6).map(r=>r.name).join(', ')}${offline.length>6?' 외':''}`});
     const errors=state.rooms.filter(r=>r.player_status?.error); if(errors.length)alerts.push({type:'warn',text:`재생 오류 ${errors.length}곳: ${errors.slice(0,4).map(r=>r.name).join(', ')}${errors.length>4?' 외':''}`});
-    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.14'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
+    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.16'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
     return alerts;
   }
   function alertsHtml(){return `<div id="opsAlerts" class="ops-alerts">${operationalAlerts().map(x=>`<div class="ops-alert ${x.type}">${esc(x.text)}</div>`).join('')}</div>`;}
   function paintAlerts(){const el=qs('#opsAlerts');if(el)el.innerHTML=operationalAlerts().map(x=>`<div class="ops-alert ${x.type}">${esc(x.text)}</div>`).join('');}
 
+  function hms(sec){sec=Math.max(0,Number(sec)||0);const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);return h?`${h}시간 ${m}분`:`${m}분`;}
+  function playbackAnalyticsMarkup(){
+    const d=state.playbackToday;if(!d)return '';
+    const overall=d.overall||{},rooms=d.rooms||[],rate=Number(overall.rate||0),remaining=Math.max(0,Number(overall.planned_seconds||0)-Number(overall.playing_seconds||0));
+    const roomRows=rooms.map(r=>{const rr=Math.max(0,Math.min(100,Number(r.rate||0)));const miss=Math.max(0,Number(r.planned_seconds||0)-Number(r.playing_seconds||0));return `<div class="playback-room-row"><div class="playback-room-name"><b>${esc(r.name)}</b><span>${esc(r.group_name||'')}</span></div><div class="playback-room-bar"><i style="width:${rr}%"></i></div><b class="playback-rate">${rr.toFixed(1)}%</b><span class="playback-room-meta">재생 ${hms(r.playing_seconds)} · 중단 ${hms(miss)}${Number(r.error_count||0)?` · 오류 ${r.error_count}`:''}</span></div>`;}).join('');
+    return `<section class="playback-analytics"><div class="playback-analytics-head"><div><span class="eyebrow">TODAY</span><h2>오늘 재생 현황</h2><p>${String(d.operating_start||'09:00').slice(0,5)}–${String(d.operating_end||'20:00').slice(0,5)} 기준</p></div><div class="playback-big-rate"><b>${rate.toFixed(1)}%</b><span>전체 재생률</span></div></div><div class="playback-overall-bar"><i style="width:${Math.max(0,Math.min(100,rate))}%"></i></div><div class="playback-summary"><span>재생 <b>${hms(overall.playing_seconds)}</b></span><span>중단 <b>${hms(remaining)}</b></span><span>오류 <b>${overall.error_count||0}</b></span><span>재연결 <b>${overall.reconnect_count||0}</b></span></div><details class="playback-room-details" open><summary>진료실별 재생률 <span>${rooms.length}곳</span></summary><div class="playback-room-list">${roomRows}</div></details></section>`;
+  }
   function renderDashboard(){
     const videos=activeVideos(),selected=state.broadcast?.video_ids||[],online=state.rooms.filter(isOnline).length;
     const grouped=[...state.groups.map(g=>({group:g,rooms:state.rooms.filter(r=>r.group_id===g.id)})),{group:null,rooms:state.rooms.filter(r=>!r.group_id)}].filter(x=>x.rooms.length||x.group);
@@ -116,6 +124,7 @@
         <div><span>저장소</span><b class="${storageHealth===false?'danger-text':''}">${storageState}</b></div>
       </div>
       ${alertsHtml()}
+      ${playbackAnalyticsMarkup()}
       <section class="monitor-broadcast-strip ${state.broadcast?.active?'is-live':''}">
         <div class="monitor-broadcast-copy"><span>전체 송출</span><b>${state.broadcast?.active?'송출 중':'기본 상태'}</b><em>${esc(broadcastText)}</em></div>
         <div class="monitor-broadcast-actions"><details><summary>전체 송출 설정</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active?'danger':'primary'}" ${!state.broadcast?.active&&!selected.length?'disabled':''}>${state.broadcast?.active?'전체 중지':'전체 시작'}</button></div>
@@ -305,12 +314,13 @@
   function renderSettings(){
     const emergencyVideos=state.videos.filter(v=>v.active&&v.available!==false&&v.url);
     const ready=storageHealth?.ok===true;
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">SETTINGS</span><h1>설정</h1><p class="page-intro">접속 주소와 공간, 플레이어, 비상 영상, PIN처럼 자주 바꾸지 않는 항목만 모았습니다.</p></div></div>${accessLinksMarkup()}${roomSettingsMarkup()}<section class="settings-section"><div class="settings-section-head"><div><span class="eyebrow">SYSTEM</span><h2>시스템</h2></div></div><div class="settings-system-grid"><div class="settings-card"><h3>영상 저장소</h3><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>${ready?'연결됨':'설정 필요'}</b><p>Cloudflare R2 영상 저장 상태</p></div></div><button id="testStorage" class="btn">연결 확인</button></div><div class="settings-card"><h3>비상 영상</h3><label class="field"><span>재생할 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><button id="saveEmergency" class="btn primary">저장</button></div><div class="settings-card"><h3>PIN</h3><label class="field"><span>관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><label class="field top-gap"><span>스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></div></section>`;
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">SETTINGS</span><h1>설정</h1><p class="page-intro">접속 주소와 공간, 플레이어, 비상 영상, PIN처럼 자주 바꾸지 않는 항목만 모았습니다.</p></div></div>${accessLinksMarkup()}${roomSettingsMarkup()}<section class="settings-section"><div class="settings-section-head"><div><span class="eyebrow">SYSTEM</span><h2>시스템</h2></div></div><div class="settings-system-grid"><div class="settings-card"><h3>운영시간</h3><div class="grid-2"><label class="field"><span>시작</span><input id="operatingStart" type="time" value="${String(state.settings.operating_start||'09:00').slice(0,5)}"></label><label class="field"><span>종료</span><input id="operatingEnd" type="time" value="${String(state.settings.operating_end||'20:00').slice(0,5)}"></label></div><p class="muted">전체 병원의 재생률 계산 기준입니다.</p><button id="saveOperatingHours" class="btn primary">저장</button></div><div class="settings-card"><h3>영상 저장소</h3><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>${ready?'연결됨':'설정 필요'}</b><p>Cloudflare R2 영상 저장 상태</p></div></div><button id="testStorage" class="btn">연결 확인</button></div><div class="settings-card"><h3>비상 영상</h3><label class="field"><span>재생할 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><button id="saveEmergency" class="btn primary">저장</button></div><div class="settings-card"><h3>PIN</h3><label class="field"><span>관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><label class="field top-gap"><span>스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></div></section>`;
     bindRoomSettings();
     qsa('[data-open-address]').forEach(b=>b.addEventListener('click',()=>openAddress(b.dataset.openAddress)));
     qsa('[data-copy-address]').forEach(b=>b.addEventListener('click',()=>copyAddress(b.dataset.copyAddress,b.dataset.copyLabel||'주소')));
-    qs('#testStorage')?.addEventListener('click',async()=>{await checkStorageHealth(true);renderSettings();});qs('#saveEmergency')?.addEventListener('click',saveEmergency);qs('#changeAdminPin')?.addEventListener('click',()=>changePin('admin'));qs('#changeStaffPin')?.addEventListener('click',()=>changePin('staff'));qsa('#newAdminPin,#newStaffPin').forEach(i=>i.addEventListener('input',()=>{i.value=i.value.replace(/\D/g,'').slice(0,6);}));
+    qs('#saveOperatingHours')?.addEventListener('click',saveOperatingHours);qs('#testStorage')?.addEventListener('click',async()=>{await checkStorageHealth(true);renderSettings();});qs('#saveEmergency')?.addEventListener('click',saveEmergency);qs('#changeAdminPin')?.addEventListener('click',()=>changePin('admin'));qs('#changeStaffPin')?.addEventListener('click',()=>changePin('staff'));qsa('#newAdminPin,#newStaffPin').forEach(i=>i.addEventListener('input',()=>{i.value=i.value.replace(/\D/g,'').slice(0,6);}));
   }
+  async function saveOperatingHours(){const start=qs('#operatingStart')?.value,end=qs('#operatingEnd')?.value;if(!start||!end||start>=end)return toast('운영시간을 확인하세요.','error');const {error}=await db.from('app_settings').update({operating_start:start,operating_end:end,updated_at:new Date().toISOString()}).eq('id',1);if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();}
   async function changePin(role){const input=qs(role==='admin'?'#newAdminPin':'#newStaffPin'),pin=input.value.replace(/\D/g,'');if(role==='admin'&&pin.length!==6)return toast('관리자 PIN은 6자리입니다.','error');if(role==='staff'&&(pin.length<4||pin.length>6))return toast('스텝 PIN은 4~6자리입니다.','error');if(!confirm(`${role==='admin'?'관리자':'스텝'} PIN을 변경할까요?`))return;const {error}=await db.rpc('admin_change_pin',{p_role:role,p_pin:pin});if(error)return toast(error.message,'error');input.value='';if(role==='admin'){Signage.clearPinSession();location.replace('/');}else toast('스텝 PIN 변경 완료');}
   async function saveEmergency(){const id=qs('#emergencyVideo').value||null;if(id){const v=state.videos.find(x=>x.id===id);if(Number(v?.size_bytes||0)>MAX_EMERGENCY_BYTES)return toast('비상영상은 250MB 이하로 선택하세요.','error');}const {error}=await db.from('app_settings').update({emergency_video_id:id,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('비상영상 저장 완료');await load();}}
   async function checkStorageHealth(showToast=false){
