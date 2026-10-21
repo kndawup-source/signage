@@ -10,6 +10,11 @@
   let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, liveChannel=null, signalChannel=null;
   const LIVE_DELAY_MS=70000, LIVE_OFFLINE_MS=180000;
   async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
+  async function refreshRoomLiveStatus(room){
+    if(!room)return;
+    try{const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status,updated_at').eq('room_id',room).maybeSingle();if(!error&&data)mergePlayerLiveStatus(data);}catch(_){}
+  }
+  function scheduleRoomLiveAck(room){[120,350,800,1600,3000].forEach(delay=>window.setTimeout(()=>refreshRoomLiveStatus(room),delay));}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
@@ -240,8 +245,8 @@
     if(error)return toast(error.message,'error'); await signalRoom(room); toast('선택한 기본 플레이리스트로 돌아갑니다.'); await load();
   }
 
-  async function staffToggleVideo(room,video,enabled){const r=state.rooms.find(x=>x.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');if(busy)return;busy=true;const {error}=await db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled});busy=false;if(error)return toast(error.message,'error');await signalRoom(room);await load();}
-  async function staffMoveVideo(room,video,dir){const r=state.rooms.find(x=>x.id===room),items=staffRoomOutputItems(r||{});if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await signalRoom(room);await load();}
+  async function staffToggleVideo(room,video,enabled){const r=state.rooms.find(x=>x.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');if(busy)return;busy=true;const {error}=await db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled});busy=false;if(error)return toast(error.message,'error');await signalRoom(room);await load();scheduleRoomLiveAck(room);}
+  async function staffMoveVideo(room,video,dir){const r=state.rooms.find(x=>x.id===room),items=staffRoomOutputItems(r||{});if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await signalRoom(room);await load();scheduleRoomLiveAck(room);}
 
   async function quickSet(room,treatment){
     if(busy)return; busy=true;

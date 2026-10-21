@@ -10,7 +10,7 @@
   const GROUP_KINDS=[['floor','층'],['zone','구역'],['consultation','구역'],['waiting','구역'],['vip','VIP'],['other','기타']];
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['lobby','로비'],['vip','VIP'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
-  const PLAYER_VERSION='2.22.4';
+  const PLAYER_VERSION='2.22.5';
   // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
   const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
@@ -577,6 +577,23 @@
       return true;
     }catch(e){console.warn('Clinic Signage control signal failed:',e);return false;}
   }
+  function affectedRoomIds(scope={}){
+    if(scope.all)return state.rooms.map(r=>r.id);
+    if(scope.groupId)return state.rooms.filter(r=>r.group_id===scope.groupId).map(r=>r.id);
+    return Array.isArray(scope.roomIds)?scope.roomIds.filter(Boolean):[];
+  }
+  async function refreshAffectedLiveStatus(scope={}){
+    const ids=affectedRoomIds(scope);
+    if(!ids.length||document.hidden)return;
+    try{
+      const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status,updated_at').in('room_id',ids);
+      if(error)return;
+      (data||[]).forEach(mergePlayerLiveStatus);
+    }catch(_){}
+  }
+  function schedulePlaybackAcknowledgement(scope={}){
+    [120,350,800,1600,3000].forEach(delay=>window.setTimeout(()=>refreshAffectedLiveStatus(scope),delay));
+  }
   async function syncAfterControl(scope={}){
     // A room-row revision is the canonical wake-up path. It survives UI moves and does not depend on a specific menu DOM.
     await signalAffectedRooms(scope);
@@ -584,13 +601,11 @@
     // Broadcast is only a low-latency assist; room revision + Postgres Realtime is the durable path.
     await sendImmediateControlSignal();
     lastRoomSyncAt=0;lastControlSyncAt=0;
-    await Promise.all([refreshLiveControls(true),refreshLiveRooms(true)]);
-    // Short acknowledgement burst only after a control action. No background polling.
-    [450,1400,3200,6500].forEach(delay=>window.setTimeout(()=>{
-      if(document.hidden||tab!=='dashboard')return;
-      lastRoomSyncAt=0;
-      refreshLiveRooms(true);
-    },delay));
+    await refreshLiveControls(true);
+    await refreshAffectedLiveStatus(scope);
+    // Only the affected rooms are rechecked for a few seconds after a control action.
+    // This follows the player's actual `playing` heartbeat without restoring background polling.
+    schedulePlaybackAcknowledgement(scope);
   }
 
   let liveRefreshBusy=false,lastRoomSyncAt=0;
