@@ -654,6 +654,15 @@
     lastControlSyncAt=0;
     if(!document.hidden&&tab==='dashboard')refreshLiveControls(true);
   }
+  const liveFastRefreshTimers=new Map();
+  function scheduleFastLiveRefresh(roomId){
+    if(!roomId||document.hidden)return;
+    clearTimeout(liveFastRefreshTimers.get(roomId));
+    liveFastRefreshTimers.set(roomId,setTimeout(async()=>{
+      liveFastRefreshTimers.delete(roomId);
+      try{const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status,updated_at').eq('room_id',roomId).maybeSingle();if(!error&&data)mergePlayerLiveStatus(data);}catch(_){}
+    },30));
+  }
   function startRealtime(){
     try{
       controlSignalReadyPromise=new Promise(resolve=>{
@@ -664,6 +673,7 @@
           else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')resolve(false);
         });
       });
+      db.channel('clinic-admin-live-fast-v2226').on('broadcast',{event:'changed'},msg=>scheduleFastLiveRefresh(msg?.payload?.room_id)).subscribe();
       db.channel('clinic-admin-live-v22111')
         .on('postgres_changes',{event:'INSERT',schema:'public',table:'player_live_status'},payload=>mergePlayerLiveStatus(payload.new||{}))
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'player_live_status'},payload=>mergePlayerLiveStatus(payload.new||{}))

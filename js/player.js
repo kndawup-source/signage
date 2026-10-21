@@ -6,7 +6,7 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = '2.22.5';
+  const APP_VERSION = '2.22.6';
 
   let state = null;
   let index = 0;
@@ -27,6 +27,10 @@
   let fetchQueued = false;
   let heartbeatInFlight = false;
   let heartbeatQueued = false;
+  let livePingInFlight = false;
+  let livePingQueued = false;
+  let liveFastChannel = null;
+  let liveFastReady = false;
   let syncStartTimer = null;
   let transitionTimer = null;
   let activeSlot = 0;
@@ -66,7 +70,7 @@
     activeSlot=0;
     slots.forEach((el,slotIndex)=>{
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';advanceSeamless();}});
-      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushHeartbeatNow();}});
+      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
@@ -74,12 +78,13 @@
         pauseConfirmTimer=setTimeout(()=>{
           if(slotIndex!==activeSlot||transitionInProgress||!el.paused||el.ended)return;
           confirmedPlaybackState='paused';
-          pushHeartbeatNow();
+          pushLiveStatusNow();
+          queueHeartbeat(true);
         },180);
       });
-      el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress){confirmedPlaybackState='loading';queueHeartbeat(true);}});
-      el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';queueHeartbeat(true);}});
-      el.addEventListener('error',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='error';handleMediaFailure(current());}});
+      el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('error',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='error';pushLiveStatusNow();handleMediaFailure(current());}});
     });
     root.onclick=enableSound;
   }
@@ -348,11 +353,27 @@
   function scheduleExpiry(){clearTimeout(expireTimer);if(!state?.session_expires_at)return;const ms=new Date(state.session_expires_at).getTime()-serverNow();if(ms>0)expireTimer=setTimeout(fetchState,ms+1200);}
   function scheduleTransition(){clearTimeout(transitionTimer);if(!state?.next_transition_at)return;const ms=new Date(state.next_transition_at).getTime()-serverNow();if(ms>0)transitionTimer=setTimeout(fetchState,ms+500);}
   function playbackState(){const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(confirmedPlaybackState==='playing'&&!el.ended)return 'playing';if(el.ended)return 'ended';if(el.paused)return confirmedPlaybackState==='playing'?'playing':'paused';if(el.readyState<3)return 'loading';return 'playing';}
+  function buildLiveStatus(){
+    const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
+  }
+  async function publishLiveChanged(){
+    if(!liveFastChannel||!liveFastReady||!state?.room?.id)return;
+    try{await liveFastChannel.send({type:'broadcast',event:'changed',payload:{room_id:state.room.id,at:new Date().toISOString()}});}catch(_){}
+  }
+  async function fastLivePing(){
+    if(livePingInFlight){livePingQueued=true;return;}if(!db||!state?.room)return;livePingInFlight=true;
+    try{
+      const {error}=await db.rpc('player_live_ping',{p_key:key,p_status:buildLiveStatus()});
+      if(error)throw error;
+      await publishLiveChanged();
+    }catch(e){console.warn('Clinic Signage live status ping failed:',e?.message||e);}
+    finally{livePingInFlight=false;if(livePingQueued){livePingQueued=false;queueMicrotask(fastLivePing);}}
+  }
+  function pushLiveStatusNow(){void fastLivePing();}
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
-    const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
-    try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}catch(_){}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
+    try{await db.rpc('player_heartbeat',{p_key:key,p_status:buildLiveStatus()});lastHeartbeatAt=Date.now();}catch(e){console.warn('Clinic Signage heartbeat failed:',e?.message||e);}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
   async function playbackWatchdog(){
@@ -378,6 +399,13 @@
     clearTimeout(realtimeFetchTimer);
     realtimeFetchTimer=setTimeout(()=>fetchState(),25);
   }
+  function ensureLiveFastChannel(){
+    if(liveFastChannel)return;
+    try{
+      liveFastChannel=db.channel('clinic-signage-live-fast');
+      liveFastChannel.subscribe(status=>{liveFastReady=status==='SUBSCRIBED';});
+    }catch(_){}
+  }
   function subscribePlayerRealtime(){
     if(!db)return;
     const roomId=state?.room?.id||null;
@@ -400,5 +428,6 @@
 
 
   ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',acquireWake);fetchState();
-  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);setInterval(fetchState,PLAYER_FALLBACK_MS);setInterval(heartbeat,Math.max(20000,Number(Signage.cfg.heartbeatMs)||20000));setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);});
+  ensureLiveFastChannel();
+  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);setInterval(fetchState,PLAYER_FALLBACK_MS);setInterval(heartbeat,Math.max(20000,Number(Signage.cfg.heartbeatMs)||20000));setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);if(liveFastChannel)db?.removeChannel(liveFastChannel);});
 })();

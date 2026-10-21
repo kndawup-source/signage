@@ -7,7 +7,7 @@
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, liveChannel=null, signalChannel=null;
+  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, liveChannel=null, signalChannel=null, liveFastChannel=null;
   const LIVE_DELAY_MS=70000, LIVE_OFFLINE_MS=180000;
   async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
   async function refreshRoomLiveStatus(room){
@@ -304,6 +304,7 @@
   function scheduleStaffStateReload(){clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(!document.hidden&&!busy)load({background:true}).catch(()=>{});},250);}
   function startRealtime(){
     try{
+      liveFastChannel=db.channel('clinic-staff-live-fast-v2226').on('broadcast',{event:'changed'},msg=>refreshRoomLiveStatus(msg?.payload?.room_id)).subscribe();
       liveChannel=db.channel('clinic-staff-live-v2223').on('postgres_changes',{event:'INSERT',schema:'public',table:'player_live_status'},p=>mergePlayerLiveStatus(p.new||{})).on('postgres_changes',{event:'UPDATE',schema:'public',table:'player_live_status'},p=>mergePlayerLiveStatus(p.new||{})).subscribe();
       signalChannel=db.channel('clinic-staff-signal-v2223').on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals'},scheduleStaffStateReload).subscribe();
     }catch(_){}
@@ -311,5 +312,5 @@
 
   try{await load();startRealtime();}catch(e){qs('#staffRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
   let tick=0;const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();if(++tick%5===0)verifyStaleLiveStatuses();},1000);
-  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);try{if(liveChannel)db.removeChannel(liveChannel);if(signalChannel)db.removeChannel(signalChannel);}catch(_){}});
+  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);try{if(liveChannel)db.removeChannel(liveChannel);if(signalChannel)db.removeChannel(signalChannel);if(liveFastChannel)db.removeChannel(liveFastChannel);}catch(_){}});
 })();
