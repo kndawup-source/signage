@@ -221,3 +221,34 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
     gap:12px;
   }
 }
+
+
+/* v2.21.4 compact space settings */
+.space-control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.space-control-panel,.registered-spaces-compact{padding:0;overflow:hidden}
+.space-control-panel>summary,.registered-spaces-summary,.space-room-group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:18px}
+.space-control-panel>summary::-webkit-details-marker,.registered-spaces-summary::-webkit-details-marker,.space-room-group>summary::-webkit-details-marker{display:none}
+.space-control-panel>summary{min-height:76px;padding:17px 20px}
+.space-control-panel>summary span,.registered-spaces-summary span,.space-room-group>summary span{display:grid;gap:4px;min-width:0}
+.space-control-panel>summary b,.registered-spaces-summary b{font-size:16px;letter-spacing:-.02em}
+.space-control-panel>summary small,.registered-spaces-summary small,.space-room-group>summary small{font-size:10px;color:var(--muted);font-weight:550;line-height:1.4}
+.space-control-panel>summary em,.registered-spaces-summary em,.space-room-group>summary em{font-style:normal;color:var(--primary);font-size:11px;font-weight:800;white-space:nowrap}
+.space-control-panel[open]>summary,.registered-spaces-compact[open]>.registered-spaces-summary,.space-room-group[open]>summary{border-bottom:1px solid var(--line)}
+.space-control-body{padding:18px 20px 20px}
+.space-control-body>p{margin:0 0 13px;font-size:11px}
+.space-add-inline{display:grid;grid-template-columns:minmax(0,1fr) 130px auto;gap:8px}
+.space-manager .group-admin-list{margin-top:14px;padding:0;background:transparent;border-radius:0;border-top:1px solid var(--line)}
+.space-manager .group-admin-row{grid-template-columns:minmax(140px,1fr) 120px auto auto;padding:11px 0}
+.registered-spaces-compact{margin-top:0}
+.registered-spaces-summary{min-height:82px;padding:18px 20px}
+.registered-spaces-body{padding:0 20px 20px}
+.space-room-group{border-bottom:1px solid var(--line)}
+.space-room-group:last-child{border-bottom:0}
+.space-room-group>summary{padding:15px 2px}
+.space-room-group>summary b{font-size:14px;letter-spacing:-.01em}
+.space-room-group>.settings-room-list{padding:0 0 8px 18px;border-top:0}
+.space-room-group .room-admin-compact>summary{padding:13px 0}
+.space-room-group .room-admin-body{padding:14px 0 18px}
+.empty-setting-message{display:block;padding:14px 0}
+@media(max-width:900px){.space-control-grid{grid-template-columns:1fr}.space-add-inline{grid-template-columns:1fr 130px auto}}
+@media(max-width:760px){.space-control-panel>summary,.registered-spaces-summary{min-height:68px;padding:15px 16px}.space-control-body{padding:16px}.registered-spaces-body{padding:0 16px 16px}.space-add-inline,.settings-add-room{grid-template-columns:1fr}.space-manager .group-admin-row{grid-template-columns:1fr 110px}.space-manager .group-admin-row .muted,.space-manager .group-admin-row .danger-outline{justify-self:start}.space-room-group>.settings-room-list{padding-left:10px}}
