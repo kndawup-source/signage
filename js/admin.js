@@ -489,7 +489,7 @@
     try{
       if(!controlSignalChannel)return false;
       await waitForControlSignal();
-      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:'2.21.9'}});
+      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:'2.21.10'}});
       return result==='ok'||result===true||result===undefined;
     }catch(_){return false;}
   }

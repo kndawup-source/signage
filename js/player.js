@@ -327,7 +327,7 @@
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,50).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.21.9',reported_at:new Date().toISOString()};
+    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,50).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.21.10',reported_at:new Date().toISOString()};
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}catch(_){}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
@@ -365,15 +365,11 @@
     if(!roomId||realtimeRoomId===roomId)return;
     if(realtimeDbChannel)db.removeChannel(realtimeDbChannel);
     realtimeRoomId=roomId;
-    realtimeDbChannel=db.channel(`clinic-player-db-${roomId}`)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms',filter:`id=eq.${roomId}`},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'room_video_rules',filter:`room_id=eq.${roomId}`},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'broadcast'},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'group_broadcasts'},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'playlist_items'},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'playlists'},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'videos'},requestRealtimeState)
-      .on('postgres_changes',{event:'*',schema:'public',table:'broadcast_schedules'},requestRealtimeState)
+    // Canonical control wake-up channel. This table has a public SELECT policy by design,
+    // so anonymous player screens can receive its Realtime UPDATE even though rooms and
+    // other admin tables remain protected by RLS.
+    realtimeDbChannel=db.channel(`clinic-player-control-${roomId}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals',filter:`room_id=eq.${roomId}`},requestRealtimeState)
       .subscribe();
   }
 
