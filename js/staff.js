@@ -8,6 +8,7 @@
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, timer=null;
+  async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
@@ -154,20 +155,20 @@
   async function setRoomPlaylist(room){
     if(busy)return; const playlist=qs(`[data-staff-playlist="${room}"]`)?.value; if(!playlist)return toast('플레이리스트를 선택하세요.','error');
     busy=true; const {error}=await db.rpc('staff_set_room_playlist',{p_room:room,p_playlist:playlist}); busy=false;
-    if(error)return toast(error.message,'error'); toast('공간 플레이리스트를 변경했습니다.'); await load();
+    if(error)return toast(error.message,'error'); await signalRoom(room); toast('공간 플레이리스트를 변경했습니다.'); await load();
   }
   async function addRoomVideo(room){
     if(busy)return; const video=qs(`[data-staff-video="${room}"]`)?.value; if(!video)return toast('추가할 영상을 선택하세요.','error');
     busy=true; const {error}=await db.rpc('staff_add_room_video',{p_room:room,p_video:video}); busy=false;
-    if(error)return toast(error.message,'error'); toast('이 공간에 영상 1개를 추가했습니다.'); await load();
+    if(error)return toast(error.message,'error'); await signalRoom(room); toast('이 공간에 영상 1개를 추가했습니다.'); await load();
   }
   async function clearRoomManual(room){
     if(busy)return; busy=true; const {error}=await db.rpc('staff_clear_room_manual',{p_room:room}); busy=false;
-    if(error)return toast(error.message,'error'); toast('선택한 기본 플레이리스트로 돌아갑니다.'); await load();
+    if(error)return toast(error.message,'error'); await signalRoom(room); toast('선택한 기본 플레이리스트로 돌아갑니다.'); await load();
   }
 
-  async function staffToggleVideo(room,video,enabled){const r=state.rooms.find(x=>x.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');if(busy)return;busy=true;const {error}=await db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled});busy=false;if(error)return toast(error.message,'error');await load();}
-  async function staffMoveVideo(room,video,dir){const r=state.rooms.find(x=>x.id===room),items=staffRoomOutputItems(r||{});if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await load();}
+  async function staffToggleVideo(room,video,enabled){const r=state.rooms.find(x=>x.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');if(busy)return;busy=true;const {error}=await db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled});busy=false;if(error)return toast(error.message,'error');await signalRoom(room);await load();}
+  async function staffMoveVideo(room,video,dir){const r=state.rooms.find(x=>x.id===room),items=staffRoomOutputItems(r||{});if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await signalRoom(room);await load();}
 
   async function quickSet(room,treatment){
     if(busy)return; busy=true;
