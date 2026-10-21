@@ -13,6 +13,7 @@
 
   let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false;
   let state={rooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null};
+  let controlSignalChannel=null;
 
   qsa('.nav-btn').forEach((b)=>b.addEventListener('click',()=>{tab=b.dataset.tab;qsa('.nav-btn').forEach((x)=>x.classList.toggle('active',x===b));render();}));
 
@@ -478,15 +479,24 @@
 
   try{const pruneKey='clinic-signage:event-prune-day',today=new Date().toISOString().slice(0,10);if(localStorage.getItem(pruneKey)!==today){db.rpc('admin_prune_player_events',{p_days:30}).then(()=>localStorage.setItem(pruneKey,today)).catch(()=>{});}await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
 
+  async function sendImmediateControlSignal(){
+    try{
+      if(!controlSignalChannel)return;
+      await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString()}});
+    }catch(_){}
+  }
   async function syncAfterControl(){
     if(document.hidden)return;
+    // Wake every player immediately. This is event-driven and runs only after an operator action.
+    await sendImmediateControlSignal();
     lastRoomSyncAt=0;lastControlSyncAt=0;
     await Promise.all([refreshLiveControls(true),refreshLiveRooms(true)]);
-    window.setTimeout(()=>{
-      if(document.hidden)return;
+    // Short acknowledgement burst only after a control action. No background polling.
+    [450,1400,3200,6500].forEach(delay=>window.setTimeout(()=>{
+      if(document.hidden||tab!=='dashboard')return;
       lastRoomSyncAt=0;
       refreshLiveRooms(true);
-    },1600);
+    },delay));
   }
 
   let liveRefreshBusy=false,lastRoomSyncAt=0;
@@ -516,7 +526,7 @@
       ]);
       if(rules.error||broadcast.error||groups.error)return;
       const sig=JSON.stringify([rules.data||[],broadcast.data||null,groups.data||[]]);
-      if(liveControlSig&&sig!==liveControlSig){
+      if(sig!==liveControlSig){
         state.roomRules=rules.data||[];state.broadcast=broadcast.data||state.broadcast;state.groupBroadcasts=groups.data||[];
         const openRooms=qsa('.monitor-room[open]').map(x=>x.dataset.roomCard),openGroups=qsa('.monitor-group[open]').map(x=>x.dataset.groupCard),scrollY=window.scrollY;
         renderDashboard();
@@ -533,7 +543,9 @@
   }
   function startRealtime(){
     try{
-      db.channel('clinic-admin-live-v2211')
+      controlSignalChannel=db.channel('clinic-signage-control');
+      controlSignalChannel.subscribe();
+      db.channel('clinic-admin-live-v2217')
         .on('postgres_changes',{event:'INSERT',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
         .on('postgres_changes',{event:'DELETE',schema:'public',table:'rooms'},payload=>removeRealtimeRoom(payload.old?.id))
