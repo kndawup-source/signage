@@ -6,7 +6,7 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = '2.22.6';
+  const APP_VERSION = '2.22.7';
 
   let state = null;
   let index = 0;
@@ -373,7 +373,15 @@
   function pushLiveStatusNow(){void fastLivePing();}
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
-    try{await db.rpc('player_heartbeat',{p_key:key,p_status:buildLiveStatus()});lastHeartbeatAt=Date.now();}catch(e){console.warn('Clinic Signage heartbeat failed:',e?.message||e);}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
+    try{
+      const {error}=await db.rpc('player_heartbeat',{p_key:key,p_status:buildLiveStatus()});
+      if(error)throw error;
+      lastHeartbeatAt=Date.now();
+    }catch(e){
+      console.warn('Clinic Signage heartbeat failed:',e?.message||e);
+      /* Live presence must never depend on the heavier analytics heartbeat. */
+      void fastLivePing();
+    }finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
   async function playbackWatchdog(){
@@ -429,5 +437,15 @@
 
   ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',acquireWake);fetchState();
   ensureLiveFastChannel();
-  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);setInterval(fetchState,PLAYER_FALLBACK_MS);setInterval(heartbeat,Math.max(20000,Number(Signage.cfg.heartbeatMs)||20000));setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);if(liveFastChannel)db?.removeChannel(liveFastChannel);});
+  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);
+  const LIVE_PRESENCE_MS=Math.max(30000,Number(Signage.cfg.livePresenceMs)||30000);
+  const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
+  setInterval(fetchState,PLAYER_FALLBACK_MS);
+  /* Lightweight persisted presence: keeps player_live_status fresh even with no playback state changes. */
+  setInterval(fastLivePing,LIVE_PRESENCE_MS);
+  /* Heavier stats/event heartbeat runs less often and is no longer the source of online truth. */
+  setInterval(heartbeat,ANALYTICS_HEARTBEAT_MS);
+  setInterval(playbackWatchdog,10000);
+  window.addEventListener('online',()=>{fetchState();void fastLivePing();});
+  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);if(liveFastChannel)db?.removeChannel(liveFastChannel);});
 })();

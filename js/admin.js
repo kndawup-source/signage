@@ -10,7 +10,7 @@
   const GROUP_KINDS=[['floor','층'],['zone','구역'],['consultation','구역'],['waiting','구역'],['vip','VIP'],['other','기타']];
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['lobby','로비'],['vip','VIP'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
-  const PLAYER_VERSION='2.22.5';
+  const PLAYER_VERSION='2.22.7';
   // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
   const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
