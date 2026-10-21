@@ -7,7 +7,7 @@
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  let state={patients:[],rooms:[],playlists:[],videos:[],broadcast:{active:false}}, busy=false, timer=null;
+  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, timer=null;
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
@@ -18,6 +18,12 @@
   const isPatientRoom=(r)=>['treatment','consultation'].includes(r.room_mode);
   const playlistOptions=(selected='')=>`<option value="">플레이리스트 선택</option>${state.playlists.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}${p.kind==='patient'?' · 맞춤':''}</option>`).join('')}`;
   const videoOptions=()=>`<option value="">영상 선택</option>${state.videos.filter(v=>v.active!==false).map(v=>`<option value="${v.id}">${esc(v.title)}</option>`).join('')}`;
+  const roomRules=(room)=>state.roomRules.filter(x=>x.room_id===room);
+  function staffPatientPlaylist(r){const matches=state.playlists.filter(p=>p.active!==false&&p.kind==='patient'&&(!(p.target_treatment||[]).length||(r.session_treatment&&(p.target_treatment||[]).includes(r.session_treatment)))&&(!(p.target_age||[]).length||(r.session_age_group&&(p.target_age||[]).includes(r.session_age_group)))&&(!(p.target_gender||[]).length||(r.session_gender&&(p.target_gender||[]).includes(r.session_gender))));return matches.sort((a,b)=>(((b.target_treatment||[]).length?100:0)+((b.target_age||[]).length?10:0)+((b.target_gender||[]).length?5:0))-(((a.target_treatment||[]).length?100:0)+((a.target_age||[]).length?10:0)+((a.target_gender||[]).length?5:0))||(a.sort_order||0)-(b.sort_order||0))[0]||null;}
+  function staffBaseIds(r){const mode=String(r.player_status?.mode||'');if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(mode)){const live=Array.isArray(r.player_status?.playlist_video_ids)?r.player_status.playlist_video_ids.filter(Boolean):[];if(live.length)return live;}if(r.manual_active&&r.manual_video_ids?.length)return r.manual_video_ids;if(mode==='patient'){const pp=staffPatientPlaylist(r);if(pp)return state.playlistItems.filter(x=>x.playlist_id===pp.id).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>x.video_id);}const fallback=r.default_playlist_id||state.playlists.filter(p=>p.active!==false&&p.kind==='default').sort((a,b)=>(a.sort_order||0)-(b.sort_order||0))[0]?.id;return state.playlistItems.filter(x=>x.playlist_id===fallback).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>x.video_id);}
+  function staffRoomOutputItems(r){const ids=staffBaseIds(r),rules=new Map(roomRules(r.id).map(x=>[x.video_id,x]));return ids.map((id,idx)=>({id,video:state.videos.find(v=>v.id===id),rule:rules.get(id),idx})).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.idx+1)*10))-(b.rule?.sort_order??((b.idx+1)*10)));}
+  function staffThumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
+  function staffOutputList(r){const items=staffRoomOutputItems(r);return `<div class="staff-output-list">${items.map((x,i)=>`<div class="staff-output-item ${x.rule?.enabled===false?'is-disabled':''}"><div class="staff-output-thumb">${staffThumb(x.video)}</div><b>${esc(x.video.title)}</b><label class="switch"><input type="checkbox" data-staff-video-toggle="${r.id}" data-video-id="${x.id}" ${x.rule?.enabled===false?'':'checked'} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;}
   const activePatients=()=>state.patients.filter(p=>['waiting','assigned','in_progress'].includes(p.status));
   const elapsedMinutes=(start,end=Date.now())=>start?Math.max(0,Math.floor((new Date(end).getTime()-new Date(start).getTime())/60000)):0;
   const waitText=(p)=>`${elapsedMinutes(p.waiting_started_at||p.created_at,p.assigned_at||Date.now())}분 대기`;
@@ -33,7 +39,7 @@
   async function load(){
     const {data,error}=await db.rpc('staff_reception_state');
     if(error)throw error;
-    state={patients:data?.patients||[],rooms:data?.rooms||[],playlists:data?.playlists||[],videos:data?.videos||[],broadcast:data?.broadcast||{active:false}};
+    state={patients:data?.patients||[],rooms:data?.rooms||[],playlists:data?.playlists||[],videos:data?.videos||[],playlistItems:data?.playlist_items||[],roomRules:data?.room_video_rules||[],broadcast:data?.broadcast||{active:false}};
     render();
   }
 
@@ -94,6 +100,7 @@
       <div class="room-card-head"><span><i class="dot ${isOnline(r)?'on':''}"></i><b>${esc(r.group_name?`${r.group_name} · ${r.name}`:r.name)}</b></span><em>${esc(roomTypeLabel(r.room_mode))}</em></div>
       <div class="room-state-main"><span>송출 상태</span><b>${manual?'개별 영상':activeTreatment?esc(treatmentLabel(activeTreatment)):esc(defaultPlaylist?.name||'기본 플레이리스트')}</b>${audience?`<small>${esc(audience)}</small>`:''}</div>
       <div class="room-playing"><span>지금 재생</span><b>${esc(current)}</b>${next?`<small>다음 · ${esc(next)}</small>`:''}</div>
+      <details class="staff-output-details"><summary>송출 영상 목록</summary>${staffOutputList(r)}</details>
       <div class="staff-output-controls">
         <div class="staff-output-row"><span>플레이리스트</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">변경</button></div>
         <div class="staff-output-row"><span>영상 추가</span><select data-staff-video="${r.id}">${videoOptions()}</select><button class="btn" data-staff-video-add="${r.id}">추가</button>${manual?`<button class="btn" data-staff-manual-clear="${r.id}">기본으로</button>`:''}</div>
@@ -128,6 +135,8 @@
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));
     qsa('[data-staff-manual-clear]').forEach(b=>b.addEventListener('click',()=>clearRoomManual(b.dataset.staffManualClear)));
+    qsa('[data-staff-video-toggle]').forEach(i=>i.addEventListener('change',()=>staffToggleVideo(i.dataset.staffVideoToggle,i.dataset.videoId,i.checked)));
+    qsa('[data-staff-video-move]').forEach(b=>b.addEventListener('click',()=>staffMoveVideo(b.dataset.staffVideoMove,b.dataset.videoId,Number(b.dataset.dir))));
     qsa('[data-open-quick]').forEach(b=>b.addEventListener('click',()=>qs(`[data-quick-panel="${b.dataset.openQuick}"]`)?.classList.remove('hidden')));
     qsa('[data-close-quick]').forEach(b=>b.addEventListener('click',()=>qs(`[data-quick-panel="${b.dataset.closeQuick}"]`)?.classList.add('hidden')));
     qsa('[data-quick-treatment]').forEach(b=>b.addEventListener('click',()=>quickSet(b.dataset.room,b.dataset.quickTreatment)));
@@ -156,6 +165,9 @@
     if(busy)return; busy=true; const {error}=await db.rpc('staff_clear_room_manual',{p_room:room}); busy=false;
     if(error)return toast(error.message,'error'); toast('선택한 기본 플레이리스트로 돌아갑니다.'); await load();
   }
+
+  async function staffToggleVideo(room,video,enabled){const r=state.rooms.find(x=>x.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');if(busy)return;busy=true;const {error}=await db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled});busy=false;if(error)return toast(error.message,'error');await load();}
+  async function staffMoveVideo(room,video,dir){const r=state.rooms.find(x=>x.id===room),items=staffRoomOutputItems(r||{});if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await load();}
 
   async function quickSet(room,treatment){
     if(busy)return; busy=true;

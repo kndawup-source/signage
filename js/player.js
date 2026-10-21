@@ -31,7 +31,7 @@
   let activeSlot = 0;
   let slots = [];
   let switchToken = 0;
-  let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false;
+  let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
   let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
 
   if (!key) { console.error('Clinic Signage: missing player key'); return; }
@@ -63,7 +63,7 @@
     slots.forEach((el,slotIndex)=>{
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying)advanceSeamless();});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;}});
       el.addEventListener('pause',()=>{if(slotIndex===activeSlot)queueHeartbeat(true);});
       el.addEventListener('error',()=>{if(slotIndex===activeSlot&&!emergencyPlaying)handleMediaFailure(current());});
     });
@@ -327,7 +327,7 @@
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.17.2',reported_at:new Date().toISOString()};
+    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,50).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.19',reported_at:new Date().toISOString()};
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}catch(_){}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
@@ -335,14 +335,20 @@
     const el=activeVideoEl();if(!el||!state||state.room?.paused||emergencyPlaying||document.hidden)return;
     if(el.paused||el.ended||el.readyState<2)return;
     if(Date.now()-lastProgressAt<25000||stallRecovering)return;
-    stallRecovering=true;lastError='재생 정체 자동 복구';queueHeartbeat(true);
-    try{const ok=await switchToIndex(index);if(!ok)await advanceSeamless();}catch(_){handleMediaFailure(current());}
+    stallRecovering=true;recoveryAttempts++;recoveryStage=Math.min(5,recoveryAttempts);lastError=`재생 정체 자동 복구 ${recoveryStage}단계`;queueHeartbeat(true);
+    try{
+      if(recoveryStage===1){try{el.currentTime=Math.max(0,(el.currentTime||0)-.15);}catch(_){}await playElement(el);}
+      else if(recoveryStage===2){await advanceSeamless();}
+      else if(recoveryStage===3){const target=inactiveSlotIndex();resetSlot(slots[target]);const ok=await switchToIndex(index);if(!ok)await advanceSeamless();}
+      else if(recoveryStage===4){await fetchState();const ok=await switchToIndex(index);if(!ok)await advanceSeamless();}
+      else {queueHeartbeat(true);setTimeout(()=>location.reload(),1200);}
+    }catch(_){handleMediaFailure(current());}
     finally{lastProgressAt=Date.now();stallRecovering=false;}
   }
   function queueHeartbeat(immediate=false){clearTimeout(heartbeatTimer);const wait=immediate?Math.max(0,1200-(Date.now()-lastHeartbeatAt)):1200;heartbeatTimer=setTimeout(heartbeat,wait);}
   async function acquireWake(){try{if(navigator.wakeLock&&document.visibilityState==='visible'){try{await wakeLock?.release();}catch(_){}wakeLock=await navigator.wakeLock.request('screen');}}catch(_){}}
 
   ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',acquireWake);fetchState();
-  setInterval(fetchState,Signage.cfg.pollMs||30000);setInterval(heartbeat,Signage.cfg.heartbeatMs||10000);setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',clearEmergencyObjectUrl);
+  setInterval(fetchState,Signage.cfg.pollMs||30000);setInterval(heartbeat,Math.max(20000,Signage.cfg.heartbeatMs||20000));setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',clearEmergencyObjectUrl);
   if(db){const channel=db.channel(`room:${key}`).on('broadcast',{event:'refresh'},()=>setTimeout(fetchState,120)).subscribe();window.addEventListener('beforeunload',()=>db.removeChannel(channel));}
 })();
