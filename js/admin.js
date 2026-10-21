@@ -163,7 +163,7 @@
       </div>
       ${alertsHtml()}
       ${playbackAnalyticsMarkup()}
-      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><span>50~100개 공간 운영 시 이상 공간을 우선 확인합니다.</span></div>
+      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button><span>평상시는 Realtime으로 반영하고, 필요할 때만 전체 상태를 다시 확인합니다.</span></div>
       <section class="monitor-broadcast-strip ${state.broadcast?.active?'is-live':''}">
         <div class="monitor-broadcast-copy"><span>전체 송출</span><b>${state.broadcast?.active?'송출 중':'기본 상태'}</b><em>${esc(broadcastText)}</em></div>
         <div class="monitor-broadcast-actions"><details><summary>전체 송출 설정</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active?'danger':'primary'}" ${!state.broadcast?.active&&!selected.length?'disabled':''}>${state.broadcast?.active?'전체 중지':'전체 시작'}</button></div>
@@ -209,10 +209,10 @@
   }
 
   function bindDashboard(){
-    qs('#issuesOnly')?.addEventListener('click',()=>{issuesOnly=!issuesOnly;renderDashboard();});
-    qs('#broadcastPicks')?.addEventListener('click',async(e)=>{const b=e.target.closest('[data-video-id]');if(!b)return;let ids=[...(state.broadcast.video_ids||[])],id=b.dataset.videoId;ids=ids.includes(id)?ids.filter(x=>x!==id):[...ids,id];const result=state.broadcast.active?await db.rpc('admin_set_broadcast',{p_active:ids.length>0,p_video_ids:ids,p_notice:state.broadcast.notice_text||null,p_delay_ms:3000}):await db.from('broadcast').update({video_ids:ids,updated_at:new Date().toISOString()}).eq('id',1);if(result.error)return toast(result.error.message,'error');await load();});
-    qs('#broadcastToggle')?.addEventListener('click',async()=>{const next=!state.broadcast.active;if(next&&!state.broadcast.video_ids?.length)return;const result=next?await db.rpc('admin_set_broadcast',{p_active:true,p_video_ids:state.broadcast.video_ids||[],p_notice:state.broadcast.notice_text||null,p_delay_ms:3000}):await db.rpc('admin_stop_broadcast',{p_resume:qs('#broadcastResume')?.value||'previous'});if(result.error)return toast(result.error.message,'error');toast(next?'3초 후 전체 동기 송출 시작':'전체 송출 종료');await load();});
-    qs('#noticeSave')?.addEventListener('click',async()=>{const {error}=await db.from('broadcast').update({notice_text:qs('#notice').value.trim()||null,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('공지 적용 완료');await load();}});
+    qs('#issuesOnly')?.addEventListener('click',()=>{issuesOnly=!issuesOnly;renderDashboard();});qs('#refreshLiveStatus')?.addEventListener('click',async()=>{const b=qs('#refreshLiveStatus');if(b){b.disabled=true;b.textContent='확인 중…';}lastRoomSyncAt=0;lastControlSyncAt=0;await Promise.all([refreshLiveRooms(true),refreshLiveControls(true)]);try{const {data}=await db.rpc('admin_playback_today');if(data)state.playbackToday=data;}catch{}if(tab==='dashboard')renderDashboard();if(b){b.disabled=false;b.textContent='상태 새로고침';}toast('송출 상태를 다시 확인했습니다.');});
+    qs('#broadcastPicks')?.addEventListener('click',async(e)=>{const b=e.target.closest('[data-video-id]');if(!b)return;let ids=[...(state.broadcast.video_ids||[])],id=b.dataset.videoId;ids=ids.includes(id)?ids.filter(x=>x!==id):[...ids,id];const result=state.broadcast.active?await db.rpc('admin_set_broadcast',{p_active:ids.length>0,p_video_ids:ids,p_notice:state.broadcast.notice_text||null,p_delay_ms:0}):await db.from('broadcast').update({video_ids:ids,updated_at:new Date().toISOString()}).eq('id',1);if(result.error)return toast(result.error.message,'error');await syncAfterControl();});
+    qs('#broadcastToggle')?.addEventListener('click',async()=>{const next=!state.broadcast.active;if(next&&!state.broadcast.video_ids?.length)return;const result=next?await db.rpc('admin_set_broadcast',{p_active:true,p_video_ids:state.broadcast.video_ids||[],p_notice:state.broadcast.notice_text||null,p_delay_ms:0}):await db.rpc('admin_stop_broadcast',{p_resume:qs('#broadcastResume')?.value||'previous'});if(result.error)return toast(result.error.message,'error');toast(next?'전체 송출 시작':'전체 송출 종료');await syncAfterControl();});
+    qs('#noticeSave')?.addEventListener('click',async()=>{const {error}=await db.from('broadcast').update({notice_text:qs('#notice').value.trim()||null,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('공지 적용 완료');await syncAfterControl();}});
     qsa('[data-group-apply]').forEach(b=>b.addEventListener('click',()=>applyGroup(b.dataset.groupApply)));qsa('[data-group-stop]').forEach(b=>b.addEventListener('click',()=>stopGroup(b.dataset.groupStop)));
     qsa('[data-room-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.roomPlaylistApply)));
     qsa('[data-room-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.roomVideoAdd)));
@@ -232,16 +232,16 @@
     qsa('[data-undo-history]').forEach(b=>b.addEventListener('click',()=>undoHistory(Number(b.dataset.undoHistory))));
   }
 
-  async function applyGroup(groupId){const sel=qs(`[data-group-video="${groupId}"]`),notice=qs(`[data-group-notice="${groupId}"]`)?.value.trim()||null,id=sel?.value;if(!id)return toast('그룹에 송출할 영상을 선택하세요.','error');const {error}=await db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:true,p_video_ids:[id],p_notice:notice,p_delay_ms:2000});if(error)toast(error.message,'error');else{toast(groupBroadcast(groupId).active?'그룹 송출 변경':'그룹 송출 시작');await load();}}
-  async function stopGroup(groupId){const gb=groupBroadcast(groupId);const {error}=await db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:false,p_video_ids:gb.video_ids||[],p_notice:gb.notice_text||null,p_delay_ms:0});if(error)toast(error.message,'error');else{toast('그룹 송출 종료');await load();}}
-  async function setRoomPlaylist(id){const playlist=qs(`[data-room-playlist="${id}"]`)?.value;if(!playlist)return toast('플레이리스트를 선택하세요.','error');const {error}=await db.rpc('admin_set_room_playlist',{p_room:id,p_playlist:playlist});if(error)toast(error.message,'error');else{toast('이 공간의 기본 플레이리스트를 변경했습니다.');await load();}}
-  async function addRoomVideo(id){const video=qs(`[data-room-video="${id}"]`)?.value;if(!video)return toast('추가할 영상을 선택하세요.','error');const {error}=await db.rpc('admin_add_room_video',{p_room:id,p_video:video});if(error)toast(error.message,'error');else{toast('이 공간 재생목록에 영상 1개를 추가했습니다.');await load();}}
-  async function clearRoomVideo(id){const {error}=await db.rpc('admin_set_rooms_manual',{p_rooms:[id],p_video_ids:[],p_active:false});if(error)toast(error.message,'error');else{toast('자동 송출로 복귀');await load();}}
-  async function setRoomVideoRule(room,video,enabled){const rr=state.rooms.find(r=>r.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(rr?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);const {error}=await db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled,p_starts_at:current?.starts_at||null,p_ends_at:current?.ends_at||null});if(error)return toast(error.message,'error');await load();}
-  async function moveRoomVideo(room,video,dir){const rr=state.rooms.find(r=>r.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(rr?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 공간 목록 순서를 바꿀 수 없습니다.','error');const items=roomOutputItems(state.rooms.find(r=>r.id===room)||{});const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('admin_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await load();}
-  async function saveRoomVideoRuleSchedule(room,video){const start=qs(`[data-rule-start="${room}:${video}"]`)?.value||'',end=qs(`[data-rule-end="${room}:${video}"]`)?.value||'';if(start&&end&&start>=end)return toast('종료 시각은 시작 시각보다 뒤여야 합니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);const {error}=await db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:current?.enabled!==false,p_starts_at:start?new Date(start).toISOString():null,p_ends_at:end?new Date(end).toISOString():null});if(error)return toast(error.message,'error');toast('영상 기간을 저장했습니다.');await load();}
-  async function clearRoomRules(room){if(!confirm('이 공간의 영상 ON/OFF·순서·기간 설정을 초기화할까요?'))return;const {error}=await db.rpc('admin_clear_room_video_rules',{p_room:room});if(error)return toast(error.message,'error');await load();}
-  async function batchRooms(active){const ids=qsa('[data-room-check]:checked').map(i=>i.dataset.roomCheck);if(!ids.length)return toast('공간을 선택하세요.','error');const video=qs('#batchVideo')?.value;if(active&&!video)return toast('영상을 선택하세요.','error');const {error}=await db.rpc('admin_set_rooms_manual',{p_rooms:ids,p_video_ids:active?[video]:[],p_active:active});if(error)toast(error.message,'error');else{toast(`${ids.length}곳 ${active?'송출 시작':'기본으로 변경'}`);await load();}}
+  async function applyGroup(groupId){const sel=qs(`[data-group-video="${groupId}"]`),notice=qs(`[data-group-notice="${groupId}"]`)?.value.trim()||null,id=sel?.value;if(!id)return toast('그룹에 송출할 영상을 선택하세요.','error');const {error}=await db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:true,p_video_ids:[id],p_notice:notice,p_delay_ms:0});if(error)toast(error.message,'error');else{toast(groupBroadcast(groupId).active?'그룹 송출 변경':'그룹 송출 시작');await syncAfterControl();}}
+  async function stopGroup(groupId){const gb=groupBroadcast(groupId);const {error}=await db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:false,p_video_ids:gb.video_ids||[],p_notice:gb.notice_text||null,p_delay_ms:0});if(error)toast(error.message,'error');else{toast('그룹 송출 종료');await syncAfterControl();}}
+  async function setRoomPlaylist(id){const playlist=qs(`[data-room-playlist="${id}"]`)?.value;if(!playlist)return toast('플레이리스트를 선택하세요.','error');const {error}=await db.rpc('admin_set_room_playlist',{p_room:id,p_playlist:playlist});if(error)toast(error.message,'error');else{toast('이 공간의 기본 플레이리스트를 변경했습니다.');await syncAfterControl();}}
+  async function addRoomVideo(id){const video=qs(`[data-room-video="${id}"]`)?.value;if(!video)return toast('추가할 영상을 선택하세요.','error');const {error}=await db.rpc('admin_add_room_video',{p_room:id,p_video:video});if(error)toast(error.message,'error');else{toast('이 공간 재생목록에 영상 1개를 추가했습니다.');await syncAfterControl();}}
+  async function clearRoomVideo(id){const {error}=await db.rpc('admin_set_rooms_manual',{p_rooms:[id],p_video_ids:[],p_active:false});if(error)toast(error.message,'error');else{toast('자동 송출로 복귀');await syncAfterControl();}}
+  async function setRoomVideoRule(room,video,enabled){const rr=state.rooms.find(r=>r.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(rr?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);const {error}=await db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled,p_starts_at:current?.starts_at||null,p_ends_at:current?.ends_at||null});if(error)return toast(error.message,'error');await syncAfterControl();}
+  async function moveRoomVideo(room,video,dir){const rr=state.rooms.find(r=>r.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(rr?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 공간 목록 순서를 바꿀 수 없습니다.','error');const items=roomOutputItems(state.rooms.find(r=>r.id===room)||{});const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('admin_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await syncAfterControl();}
+  async function saveRoomVideoRuleSchedule(room,video){const start=qs(`[data-rule-start="${room}:${video}"]`)?.value||'',end=qs(`[data-rule-end="${room}:${video}"]`)?.value||'';if(start&&end&&start>=end)return toast('종료 시각은 시작 시각보다 뒤여야 합니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);const {error}=await db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:current?.enabled!==false,p_starts_at:start?new Date(start).toISOString():null,p_ends_at:end?new Date(end).toISOString():null});if(error)return toast(error.message,'error');toast('영상 기간을 저장했습니다.');await syncAfterControl();}
+  async function clearRoomRules(room){if(!confirm('이 공간의 영상 ON/OFF·순서·기간 설정을 초기화할까요?'))return;const {error}=await db.rpc('admin_clear_room_video_rules',{p_room:room});if(error)return toast(error.message,'error');await syncAfterControl();}
+  async function batchRooms(active){const ids=qsa('[data-room-check]:checked').map(i=>i.dataset.roomCheck);if(!ids.length)return toast('공간을 선택하세요.','error');const video=qs('#batchVideo')?.value;if(active&&!video)return toast('영상을 선택하세요.','error');const {error}=await db.rpc('admin_set_rooms_manual',{p_rooms:ids,p_video_ids:active?[video]:[],p_active:active});if(error)toast(error.message,'error');else{toast(`${ids.length}곳 ${active?'송출 시작':'기본으로 변경'}`);await syncAfterControl();}}
   async function roomAction(b){const r=state.rooms.find(x=>x.id===b.dataset.roomId);if(!r)return;await updateRoom(r.id,b.dataset.roomAction==='pause'?{paused:!r.paused}:{reload_nonce:(r.reload_nonce||0)+1});}
   async function updateRoom(id,patch){const {error}=await db.from('rooms').update(patch).eq('id',id);if(error)toast(error.message,'error');else await load();}
   async function addSchedule(){const scope=qs('#scheduleScope').value,video=qs('#scheduleVideo').value,start=qs('#scheduleStart').value,end=qs('#scheduleEnd').value;if(!video||!start||!end)return toast('영상과 시작/종료 시각을 입력하세요.','error');const isGroup=scope.startsWith('group:'),group=isGroup?scope.slice(6):null;const {error}=await db.rpc('admin_create_schedule',{p_scope_type:isGroup?'group':'hospital',p_group:group,p_video_ids:[video],p_notice:qs('#scheduleNotice').value.trim()||null,p_starts_at:new Date(start).toISOString(),p_ends_at:new Date(end).toISOString()});if(error)toast(error.message,'error');else{toast('예약 송출 추가');await load();}}
@@ -478,11 +478,21 @@
 
   try{const pruneKey='clinic-signage:event-prune-day',today=new Date().toISOString().slice(0,10);if(localStorage.getItem(pruneKey)!==today){db.rpc('admin_prune_player_events',{p_days:30}).then(()=>localStorage.setItem(pruneKey,today)).catch(()=>{});}await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
 
-  const LIVE_FALLBACK_MS=60000;
+  async function syncAfterControl(){
+    if(document.hidden)return;
+    lastRoomSyncAt=0;lastControlSyncAt=0;
+    await Promise.all([refreshLiveControls(true),refreshLiveRooms(true)]);
+    window.setTimeout(()=>{
+      if(document.hidden)return;
+      lastRoomSyncAt=0;
+      refreshLiveRooms(true);
+    },1600);
+  }
+
   let liveRefreshBusy=false,lastRoomSyncAt=0;
   async function refreshLiveRooms(force=false){
     if(liveRefreshBusy||document.hidden)return;
-    if(!force&&Date.now()-lastRoomSyncAt<LIVE_FALLBACK_MS-1000)return;
+    if(!force)return;
     liveRefreshBusy=true;
     try{
       const {data,error}=await db.from('rooms').select('*').order('sort_order').order('created_at');
@@ -496,7 +506,7 @@
   let liveControlBusy=false,liveControlSig='',lastControlSyncAt=0;
   async function refreshLiveControls(force=false){
     if(liveControlBusy||tab!=='dashboard'||document.hidden)return;
-    if(!force&&Date.now()-lastControlSyncAt<LIVE_FALLBACK_MS-1000)return;
+    if(!force)return;
     liveControlBusy=true;
     try{
       const [rules,broadcast,groups]=await Promise.all([
@@ -533,14 +543,9 @@
         .subscribe();
     }catch(_){}
   }
-  refreshLiveRooms(true);refreshLiveControls(true);startRealtime();
-  const liveFallbackTimer=setInterval(()=>{if(document.hidden)return;refreshLiveRooms();refreshLiveControls();},LIVE_FALLBACK_MS);
-  document.addEventListener('visibilitychange',()=>{
-    if(document.hidden)return;
-    lastRoomSyncAt=0;lastControlSyncAt=0;
-    refreshLiveRooms(true);refreshLiveControls(true);
-  });
-  checkStorageHealth();setInterval(checkStorageHealth,60000);
-  setInterval(async()=>{if(tab!=='dashboard')return;try{const {data}=await db.rpc('admin_playback_today');if(data){state.playbackToday=data;const open=qs('.playback-analytics')?.open;const old=qs('.playback-analytics');if(old){const wrap=document.createElement('div');wrap.innerHTML=playbackAnalyticsMarkup();const next=wrap.firstElementChild;if(open)next.open=true;old.replaceWith(next);}}}catch{}},60000);
+  // Initial load is the only automatic full-state read. After this, Realtime handles changes.
+  startRealtime();
+  checkStorageHealth();
+  // Local-only clock/progress repaint. This does not query Supabase or R2.
   setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintLiveSummary();}},1000);
 })();
