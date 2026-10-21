@@ -6,7 +6,7 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = '2.22.7';
+  const APP_VERSION = '2.22.8';
 
   let state = null;
   let index = 0;
@@ -31,6 +31,8 @@
   let livePingQueued = false;
   let liveFastChannel = null;
   let liveFastReady = false;
+  const FRAME_PRESENCE_MS = 15000;
+  let lastFramePresenceAt = 0;
   let syncStartTimer = null;
   let transitionTimer = null;
   let activeSlot = 0;
@@ -71,7 +73,7 @@
     slots.forEach((el,slotIndex)=>{
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;markRenderedPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
@@ -194,6 +196,7 @@
         const remain=duration-time;
         if(remain<=1.25&&remain>0.02){prerollNext();}
       }
+      markRenderedPresence();
       if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
       else requestAnimationFrame(tick);
     };
@@ -371,6 +374,14 @@
     finally{livePingInFlight=false;if(livePingQueued){livePingQueued=false;queueMicrotask(fastLivePing);}}
   }
   function pushLiveStatusNow(){void fastLivePing();}
+  function markRenderedPresence(){
+    const now=Date.now();
+    if(now-lastFramePresenceAt<FRAME_PRESENCE_MS)return;
+    const el=activeVideoEl();
+    if(!el||el.paused||el.ended||el.readyState<2||state?.room?.paused)return;
+    lastFramePresenceAt=now;
+    void fastLivePing();
+  }
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     try{
@@ -435,10 +446,10 @@
   }
 
 
-  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',acquireWake);fetchState();
+  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible')void fastLivePing();});window.addEventListener('focus',()=>void fastLivePing());fetchState();
   ensureLiveFastChannel();
   const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);
-  const LIVE_PRESENCE_MS=Math.max(30000,Number(Signage.cfg.livePresenceMs)||30000);
+  const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
   setInterval(fetchState,PLAYER_FALLBACK_MS);
   /* Lightweight persisted presence: keeps player_live_status fresh even with no playback state changes. */
