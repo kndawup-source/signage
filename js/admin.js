@@ -19,8 +19,9 @@
 
   async function load(){
     const seq=++loadSeq;
-    const [rooms,videos,playlists,playlistItems,roomRules,groups,groupBroadcasts,schedules,history,broadcast,settings,playbackToday]=await Promise.all([
+    const [rooms,liveStatuses,videos,playlists,playlistItems,roomRules,groups,groupBroadcasts,schedules,history,broadcast,settings,playbackToday]=await Promise.all([
       db.from('rooms').select('*').order('sort_order').order('created_at'),
+      db.from('player_live_status').select('*'),
       db.from('videos').select('*').order('created_at',{ascending:false}),
       db.from('playlists').select('*').order('sort_order').order('created_at'),
       db.from('playlist_items').select('*').order('sort_order').order('created_at'),
@@ -33,9 +34,11 @@
       db.from('app_settings').select('*').eq('id',1).maybeSingle(),
       db.rpc('admin_playback_today')
     ]);
-    const errors=[rooms.error,videos.error,playlists.error,playlistItems.error,roomRules.error,groups.error,groupBroadcasts.error,schedules.error,history.error,broadcast.error,settings.error,playbackToday.error].filter(Boolean);
+    const errors=[rooms.error,liveStatuses.error,videos.error,playlists.error,playlistItems.error,roomRules.error,groups.error,groupBroadcasts.error,schedules.error,history.error,broadcast.error,settings.error,playbackToday.error].filter(Boolean);
     if(errors.length)throw errors[0]; if(seq!==loadSeq)return;
-    state={rooms:rooms.data||[],videos:videos.data||[],playlists:playlists.data||[],playlistItems:playlistItems.data||[],roomRules:roomRules.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{emergency_video_id:null},playbackToday:playbackToday.data||null};
+    const liveByRoom=new Map((liveStatuses.data||[]).map(x=>[x.room_id,x]));
+    const mergedRooms=(rooms.data||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status,__live_received_at:Date.now()}:r;});
+    state={rooms:mergedRooms,videos:videos.data||[],playlists:playlists.data||[],playlistItems:playlistItems.data||[],roomRules:roomRules.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{emergency_video_id:null},playbackToday:playbackToday.data||null};
     render();
   }
 
@@ -122,7 +125,7 @@
     if(storageHealth===false)alerts.push({type:'danger',text:'영상 저장소 설정을 확인하세요.'});
     const offline=state.rooms.filter(r=>!isOnline(r)); if(offline.length)alerts.push({type:'warn',text:`오프라인 ${offline.length}곳: ${offline.slice(0,6).map(r=>r.name).join(', ')}${offline.length>6?' 외':''}`});
     const errors=state.rooms.filter(r=>r.player_status?.error); if(errors.length)alerts.push({type:'warn',text:`재생 오류 ${errors.length}곳: ${errors.slice(0,4).map(r=>r.name).join(', ')}${errors.length>4?' 외':''}`});
-    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.19'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
+    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!=='2.21.11'); if(oldVersion.length)alerts.push({type:'warn',text:`플레이어 버전 확인 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
     const shortages=contentWarnings();if(shortages.length)alerts.push({type:'warn',text:`콘텐츠 확인 ${shortages.length}곳: ${shortages.slice(0,4).join(' · ')}${shortages.length>4?' 외':''}`});
     return alerts;
   }
@@ -459,6 +462,14 @@
     if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintLiveSummary();paintAlerts();}
     if(tab==='settings'){const el=qs(`[data-room-name="${next.id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=isOnline(state.rooms[i])?'온라인':'오프라인';}
   }
+  function mergePlayerLiveStatus(live){
+    if(!live?.room_id)return;
+    const i=state.rooms.findIndex(r=>r.id===live.room_id);
+    if(i<0)return;
+    state.rooms[i]={...state.rooms[i],last_seen_at:live.last_seen_at||state.rooms[i].last_seen_at,player_status:live.player_status||state.rooms[i].player_status,__live_received_at:Date.now()};
+    if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintLiveSummary();paintAlerts();}
+    if(tab==='settings'){const el=qs(`[data-room-name="${live.room_id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=isOnline(state.rooms[i])?'온라인':'오프라인';}
+  }
   function removeRealtimeRoom(id){
     if(!id)return;
     const before=state.rooms.length;state.rooms=state.rooms.filter(r=>r.id!==id);
@@ -489,7 +500,7 @@
     try{
       if(!controlSignalChannel)return false;
       await waitForControlSignal();
-      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:'2.21.10'}});
+      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:'2.21.11'}});
       return result==='ok'||result===true||result===undefined;
     }catch(_){return false;}
   }
@@ -522,9 +533,13 @@
     if(!force)return;
     liveRefreshBusy=true;
     try{
-      const {data,error}=await db.from('rooms').select('*').order('sort_order').order('created_at');
-      if(error)throw error;
-      const rows=data||[],ids=new Set(rows.map(r=>r.id));
+      const [roomsResult,liveResult]=await Promise.all([
+        db.from('rooms').select('*').order('sort_order').order('created_at'),
+        db.from('player_live_status').select('*')
+      ]);
+      if(roomsResult.error)throw roomsResult.error;if(liveResult.error)throw liveResult.error;
+      const liveByRoom=new Map((liveResult.data||[]).map(x=>[x.room_id,x]));
+      const rows=(roomsResult.data||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;}),ids=new Set(rows.map(r=>r.id));
       rows.forEach(mergeRealtimeRoom);
       state.rooms.filter(r=>!ids.has(r.id)).forEach(r=>removeRealtimeRoom(r.id));
       lastRoomSyncAt=Date.now();
@@ -568,9 +583,10 @@
           else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')resolve(false);
         });
       });
-      db.channel('clinic-admin-live-v2218')
+      db.channel('clinic-admin-live-v22111')
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'player_live_status'},payload=>mergePlayerLiveStatus(payload.new||{}))
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'player_live_status'},payload=>mergePlayerLiveStatus(payload.new||{}))
         .on('postgres_changes',{event:'INSERT',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
-        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
         .on('postgres_changes',{event:'DELETE',schema:'public',table:'rooms'},payload=>removeRealtimeRoom(payload.old?.id))
         .on('postgres_changes',{event:'*',schema:'public',table:'broadcast'},scheduleRealtimeControlSync)
         .on('postgres_changes',{event:'*',schema:'public',table:'group_broadcasts'},scheduleRealtimeControlSync)
