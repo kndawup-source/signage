@@ -10,6 +10,9 @@
   const GROUP_KINDS=[['floor','층'],['zone','구역'],['consultation','구역'],['waiting','구역'],['vip','VIP'],['other','기타']];
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['lobby','로비'],['vip','VIP'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
+  const PLAYER_VERSION='2.22.1';
+  // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
+  const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
   let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false;
   let state={rooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null};
@@ -54,11 +57,11 @@
     if(!response.ok)throw new Error(data.error||data.message||`HTTP ${response.status}`);
     return data;
   }
-  function uploadByXhr(url,file,onProgress){
+  function uploadByXhr(url,file,contentType,onProgress){
     return new Promise((resolve,reject)=>{
       const xhr=new XMLHttpRequest();
       xhr.open('PUT',url,true);
-      xhr.setRequestHeader('Content-Type',file.type||'application/octet-stream');
+      xhr.setRequestHeader('Content-Type',contentType||'video/mp4');
       xhr.upload.onprogress=(e)=>{if(e.lengthComputable)onProgress?.(Math.round((e.loaded/e.total)*100));};
       xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve():reject(new Error(`R2 업로드 실패 · HTTP ${xhr.status}`));
       xhr.onerror=()=>reject(new Error('R2 업로드 네트워크 오류'));
@@ -115,7 +118,7 @@
   function thumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
   function roomOutputListHtml(r,staff=false){
     const items=roomOutputItems(r);if(!items.length)return '<div class="room-output-empty">재생 가능한 영상이 없습니다.</div>';
-    return `<div class="room-output-list">${items.map((x,i)=>`<div class="room-output-item ${x.enabled?'':'is-disabled'}"><div class="room-output-thumb">${thumb(x.video)}</div><div class="room-output-copy"><b>${esc(x.video.title)}</b><small>${formatDuration(x.video.duration_sec||0)}${x.rule?.starts_at||x.rule?.ends_at?(x.scheduledOn?' · 예약 적용':' · 예약 대기'):''}</small></div><label class="switch"><input type="checkbox" data-room-video-toggle="${r.id}" data-video-id="${x.id}" ${x.ruleEnabled?'checked':''} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div class="room-output-order"><button data-room-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-room-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div>${staff?'':`<details class="room-video-schedule"><summary>기간</summary><div><input type="datetime-local" data-rule-start="${r.id}:${x.id}" value="${x.rule?.starts_at?new Date(x.rule.starts_at).toISOString().slice(0,16):''}"><span>–</span><input type="datetime-local" data-rule-end="${r.id}:${x.id}" value="${x.rule?.ends_at?new Date(x.rule.ends_at).toISOString().slice(0,16):''}"><button class="btn small" data-rule-save="${r.id}" data-video-id="${x.id}">저장</button></div></details>`}</div>`).join('')}</div>`;
+    return `<div class="room-output-list">${items.map((x,i)=>`<div class="room-output-item ${x.enabled?'':'is-disabled'}"><div class="room-output-thumb">${thumb(x.video)}</div><div class="room-output-copy"><b>${esc(x.video.title)}</b><small>${formatDuration(x.video.duration_sec||0)}${x.rule?.starts_at||x.rule?.ends_at?(x.scheduledOn?' · 예약 적용':' · 예약 대기'):''}</small></div><label class="switch"><input type="checkbox" data-room-video-toggle="${r.id}" data-video-id="${x.id}" ${x.ruleEnabled?'checked':''} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div class="room-output-order"><button data-room-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-room-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div>${staff?'':`<details class="room-video-schedule"><summary>기간</summary><div><input type="datetime-local" data-rule-start="${r.id}:${x.id}" value="${toLocalInput(x.rule?.starts_at)}"><span>–</span><input type="datetime-local" data-rule-end="${r.id}:${x.id}" value="${toLocalInput(x.rule?.ends_at)}"><button class="btn small" data-rule-save="${r.id}" data-video-id="${x.id}">저장</button></div></details>`}</div>`).join('')}</div>`;
   }
   function contentWarnings(){return state.rooms.map(r=>{const items=roomOutputItems(r).filter(x=>x.enabled),known=items.filter(x=>Number(x.video.duration_sec)>0),sec=known.reduce((s,x)=>s+Number(x.video.duration_sec||0),0);if(items.length===0)return `${r.name}: 재생 영상 없음`;if(items.length===1)return `${r.name}: 재생 영상 1개`;if(known.length===items.length&&sec<180)return `${r.name}: 전체 길이 ${Math.ceil(sec/60)}분 미만`;return null;}).filter(Boolean);}
   function render(){if(tab==='dashboard')renderDashboard();else if(tab==='videos')renderVideos();else renderSettings();}
@@ -167,7 +170,7 @@
       </div>
       ${alertsHtml()}
       ${playbackAnalyticsMarkup()}
-      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button><span>평상시는 Realtime으로 반영하고, 필요할 때만 전체 상태를 다시 확인합니다.</span></div>
+      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button><span>실시간 상태는 Realtime으로 반영되며, 필요할 때만 전체 상태를 다시 확인합니다.</span></div>
       <section class="monitor-broadcast-strip ${state.broadcast?.active?'is-live':''}">
         <div class="monitor-broadcast-copy"><span>전체 송출</span><b>${state.broadcast?.active?'송출 중':'기본 상태'}</b><em>${esc(broadcastText)}</em></div>
         <div class="monitor-broadcast-actions"><details><summary>전체 송출 설정</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active?'danger':'primary'}" ${!state.broadcast?.active&&!selected.length?'disabled':''}>${state.broadcast?.active?'전체 중지':'전체 시작'}</button></div>
@@ -330,8 +333,9 @@
       for(const file of files){
         const meta=await probeVideoFile(file);
         const row=document.createElement('div');row.className='upload-row';row.innerHTML=`<span>${esc(file.name)}</span><div><i></i></div><b>0%</b>`;queue?.appendChild(row);
-        const info=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType:file.type,size:file.size})});
-        await uploadByXhr(info.uploadUrl,file,pct=>{const bar=row.querySelector('i'),label=row.querySelector('b');if(bar)bar.style.width=`${pct}%`;if(label)label.textContent=`${pct}%`;});
+        const contentType='video/mp4';
+        const info=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType,size:file.size})});
+        await uploadByXhr(info.uploadUrl,file,contentType,pct=>{const bar=row.querySelector('i'),label=row.querySelector('b');if(bar)bar.style.width=`${pct}%`;if(label)label.textContent=`${pct}%`;});
         const max=state.videos.reduce((m,v)=>Math.max(m,Number(v.sort_order)||0),0);
         const {error}=await db.from('videos').insert({title:titleFromPath(file.name)||file.name,source:'r2',storage_path:info.key,url:info.publicUrl,size_bytes:file.size,duration_sec:meta.duration_sec,thumbnail_data_url:meta.thumbnail_data_url,available:true,active:true,sort_order:max+10,tags:[],target_age:[],target_gender:[],target_treatment:[]});
         if(error){await apiJson('/api/r2-delete',{method:'POST',body:JSON.stringify({key:info.key})}).catch(()=>{});throw error;}
@@ -339,7 +343,7 @@
         state.videos.push({id:'pending',sort_order:max+10});
       }
       toast(`${files.length}개 영상 업로드 완료`);await load();
-    }catch(e){toast(e.message||String(e),'error');}
+    }catch(e){toast(e.message||String(e),'error');load().catch(()=>{});}
     finally{uploadBusy=false;}
   }
 
@@ -368,7 +372,14 @@
   async function addRoom(){const name=qs('#newRoom').value.trim();if(!name)return;const max=state.rooms.reduce((m,r)=>Math.max(m,r.sort_order||0),0);const {error}=await db.from('rooms').insert({name,group_id:qs('#newRoomGroup').value||null,room_mode:qs('#newRoomMode').value,sort_order:max+10});if(error)toast(error.message,'error');else await load();}
   async function moveRoom(id,dir){const list=[...state.rooms],from=list.findIndex(x=>x.id===id),to=from+dir;if(from<0||to<0||to>=list.length)return;[list[from],list[to]]=[list[to],list[from]];const {error}=await db.rpc('admin_reorder_rooms',{p_ids:list.map(x=>x.id)});if(error)toast(error.message,'error');else await load();}
   function roomPlayerPath(id){const r=state.rooms.find(x=>x.id===id);return r?.player_key?`/player.html?key=${encodeURIComponent(r.player_key)}`:'';}function openRoomPlayer(id){const path=roomPlayerPath(id);if(!path)return toast('공간 플레이어 주소를 찾을 수 없습니다.','error');openAddress(path);}async function copyRoomPlayer(id){const path=roomPlayerPath(id);if(!path)return toast('공간 플레이어 주소를 찾을 수 없습니다.','error');await copyAddress(path,'공간 플레이어 링크');}async function copyLink(type,id){return copyRoomPlayer(id);}
-  async function copyAddress(path,label='주소'){const u=`${location.origin}${path}`;await navigator.clipboard.writeText(u);toast(`${label} 복사됨`);}
+  async function copyAddress(path,label='주소'){
+    const u=`${location.origin}${path}`;
+    try{
+      if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(u);}
+      else{const ta=document.createElement('textarea');ta.value=u;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();if(!ok)throw new Error('COPY_FAILED');}
+      toast(`${label} 복사됨`);
+    }catch(_){window.prompt(`${label}를 복사하세요`,u);}
+  }
   function openAddress(path){window.open(`${location.origin}${path}`,'_blank','noopener');}
 
   function accessLinksMarkup(){
@@ -385,7 +396,7 @@
   function bindRoomSettings(){
     qs('#addGroup')?.addEventListener('click',addGroup); qs('#addRoom')?.addEventListener('click',addRoom);
     qsa('[data-group-name]').forEach(i=>i.addEventListener('change',()=>updateGroup(i.dataset.groupName,{name:i.value.trim()})));qsa('[data-group-kind]').forEach(i=>i.addEventListener('change',()=>updateGroup(i.dataset.groupKind,{kind:i.value})));qsa('[data-delete-group]').forEach(b=>b.addEventListener('click',()=>deleteGroup(b.dataset.deleteGroup)));
-    qsa('[data-room-name]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomName,{name:i.value.trim()})));qsa('[data-room-group]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomGroup,{group_id:i.value||null})));qsa('[data-room-mode]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomMode,{room_mode:i.value})));qsa('[data-force-mute]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.forceMute,{force_mute:i.checked})));qsa('[data-timeout]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.timeout,{session_timeout_min:Math.max(0,Number(i.value)||0)})));qsa('[data-room-playlist]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomPlaylist,{default_playlist_id:i.value||null})));qsa('[data-delete-room]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('공간을 삭제할까요?'))return;const {error}=await db.from('rooms').delete().eq('id',b.dataset.deleteRoom);if(error)toast(error.message,'error');else await load();}));qsa('[data-move-room]').forEach(b=>b.addEventListener('click',()=>moveRoom(b.dataset.moveRoom,Number(b.dataset.dir))));
+    qsa('[data-room-name]').forEach(i=>i.addEventListener('change',()=>{const name=i.value.trim();if(!name){toast('공간 이름을 입력하세요.','error');i.value=state.rooms.find(r=>r.id===i.dataset.roomName)?.name||'';return;}updateRoom(i.dataset.roomName,{name});}));qsa('[data-room-group]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomGroup,{group_id:i.value||null})));qsa('[data-room-mode]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomMode,{room_mode:i.value})));qsa('[data-force-mute]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.forceMute,{force_mute:i.checked})));qsa('[data-timeout]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.timeout,{session_timeout_min:Math.max(0,Number(i.value)||0)})));qsa('[data-room-playlist]').forEach(i=>i.addEventListener('change',()=>updateRoom(i.dataset.roomPlaylist,{default_playlist_id:i.value||null})));qsa('[data-delete-room]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('공간을 삭제할까요?'))return;const {error}=await db.from('rooms').delete().eq('id',b.dataset.deleteRoom);if(error)toast(error.message,'error');else await load();}));qsa('[data-move-room]').forEach(b=>b.addEventListener('click',()=>moveRoom(b.dataset.moveRoom,Number(b.dataset.dir))));
   }
 
   function operatingDayRow(key,label,enabled,start,end){return `<div class="operating-day-row"><label class="toggle"><input type="checkbox" data-hours-enabled="${key}" ${enabled?'checked':''}><span>${label}</span></label><div class="operating-time-fields ${enabled?'':'is-disabled'}" data-hours-fields="${key}"><input type="time" data-hours-start="${key}" value="${String(start).slice(0,5)}" ${enabled?'':'disabled'}><span>–</span><input type="time" data-hours-end="${key}" value="${String(end).slice(0,5)}" ${enabled?'':'disabled'}></div><b>${enabled?'운영':'휴무'}</b></div>`;}
@@ -480,7 +491,7 @@
     const st=r.player_status||{},on=isOnline(r),current=estimatedCurrentTime(r),progress=st.duration?`${formatDuration(current)} / ${formatDuration(st.duration)}`:'',p=playlistInfo(st),h=roomHealth(r),cv=state.videos.find(v=>v.id===st.video_id)||null;
     card.className=card.className.replace(/health-(normal|delayed|offline|error|recovering)/g,'').trim()+` health-${h}`;card.dataset.health=h;
     const health=qs('.monitor-health',card);if(health)health.textContent=healthLabel(h);
-    const th=qs('.monitor-current-thumb',card);if(th)th.innerHTML=thumb(cv);
+    const th=qs('.monitor-current-thumb',card),thumbKey=String(cv?.id||'');if(th&&th.dataset.videoId!==thumbKey){th.innerHTML=thumb(cv);th.dataset.videoId=thumbKey;}
     qs('[data-live-dot]',card)?.classList.toggle('on',on);
     const mode=qs('[data-live-mode]',card);if(mode)mode.textContent=`지금 재생 · ${modeLabel(st.mode)}`;
     const title=qs('[data-live-title]',card);if(title)title.textContent=r.paused?'일시정지':(st.title||'대기 중');
@@ -500,7 +511,7 @@
     try{
       if(!controlSignalChannel)return false;
       await waitForControlSignal();
-      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:'2.21.11'}});
+      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:PLAYER_VERSION}});
       return result==='ok'||result===true||result===undefined;
     }catch(_){return false;}
   }
