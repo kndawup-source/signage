@@ -153,11 +153,11 @@
     qs('#adminRoot').innerHTML=`
       <div class="monitor-head"><div><span class="eyebrow">MONITOR</span><h1>송출 현황</h1></div><div class="monitor-clock-meta"><b id="onlineStat">${online}/${state.rooms.length}</b><span>온라인</span></div></div>
       <div class="monitor-status-strip">
-        <div><span>온라인</span><b>${online}/${state.rooms.length}</b></div>
-        <div><span>지연/복구</span><b>${delayed}</b></div>
-        <div><span>오프라인</span><b>${offlineCount}</b></div>
-        <div><span>오류</span><b class="${errors?'danger-text':''}">${errors}</b></div>
-        <div><span>일시정지</span><b>${paused}</b></div>
+        <div><span>온라인</span><b data-stat-online>${online}/${state.rooms.length}</b></div>
+        <div><span>지연/복구</span><b data-stat-delayed>${delayed}</b></div>
+        <div><span>오프라인</span><b data-stat-offline>${offlineCount}</b></div>
+        <div><span>오류</span><b data-stat-errors class="${errors?'danger-text':''}">${errors}</b></div>
+        <div><span>일시정지</span><b data-stat-paused>${paused}</b></div>
         <div><span>그룹 송출</span><b>${activeGroups}</b></div>
         <div><span>저장소</span><b class="${storageHealth===false?'danger-text':''}">${storageState}</b></div>
       </div>
@@ -181,14 +181,14 @@
     const gid=group?.id||'',gb=group?groupBroadcast(gid):null,online=rooms.filter(r=>roomHealth(r)!=='offline').length,selectedId=gb?.video_ids?.[0]||'';
     const issueCount=rooms.filter(r=>roomHealth(r)!=='normal').length,currentVideo=state.videos.find(v=>v.id===selectedId)?.title||'';
     const visibleRooms=issuesOnly?rooms.filter(r=>roomHealth(r)!=='normal'):rooms;
-    return `<details class="monitor-group" ${issuesOnly||state.groups.length<=4?'open':''}><summary class="monitor-group-summary"><div><h2>${esc(group?.name||'미분류')}</h2><p>${group?esc(kindLabel(group.kind)):'기타'} · ${online}/${rooms.length} 온라인${issueCount?` · 확인 ${issueCount}`:''}${gb?.active&&currentVideo?` · ${esc(currentVideo)}`:''}</p></div><span>상세보기</span></summary><div class="monitor-group-body">${group?`<div class="monitor-group-control-row"><details class="monitor-group-control"><summary>그룹 송출</summary><div><select data-group-video="${gid}">${videoOptions(selectedId)}</select><button class="btn primary" data-group-apply="${gid}">${gb.active?'변경':'보내기'}</button>${gb.active?`<button class="btn danger-outline" data-group-stop="${gid}">중지</button>`:''}<button class="btn" data-undo-group="${gid}">되돌리기</button></div></details></div>`:''}<div class="monitor-room-grid">${visibleRooms.map(r=>roomCard(r,videos)).join('')||'<p class="muted">표시할 공간이 없습니다.</p>'}</div></div></details>`;
+    return `<details class="monitor-group" data-group-card="${gid||'ungrouped'}" ${issuesOnly||state.groups.length<=4?'open':''}><summary class="monitor-group-summary"><div><h2>${esc(group?.name||'미분류')}</h2><p data-group-live-summary>${group?esc(kindLabel(group.kind)):'기타'} · ${online}/${rooms.length} 온라인${issueCount?` · 확인 ${issueCount}`:''}${gb?.active&&currentVideo?` · ${esc(currentVideo)}`:''}</p></div><span>상세보기</span></summary><div class="monitor-group-body">${group?`<div class="monitor-group-control-row"><details class="monitor-group-control"><summary>그룹 송출</summary><div><select data-group-video="${gid}">${videoOptions(selectedId)}</select><button class="btn primary" data-group-apply="${gid}">${gb.active?'변경':'보내기'}</button>${gb.active?`<button class="btn danger-outline" data-group-stop="${gid}">중지</button>`:''}<button class="btn" data-undo-group="${gid}">되돌리기</button></div></details></div>`:''}<div class="monitor-room-grid">${visibleRooms.map(r=>roomCard(r,videos)).join('')||'<p class="muted">표시할 공간이 없습니다.</p>'}</div></div></details>`;
   }
 
   function roomCard(r,videos){
     const h=roomHealth(r),on=h!=='offline',st=r.player_status||{},progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'',manual=r.manual_active&&r.manual_video_ids?.length;
     const p=playlistInfo(st),currentTitle=r.paused?'일시정지':(st.title||'대기 중'),nextTitle=p.next||((p.titles.length>1)?p.titles[(p.current+1)%p.titles.length]:'');
     const currentVideo=state.videos.find(v=>v.id===st.video_id)||null, manualCount=manual?(r.manual_video_ids||[]).length:0, output=roomOutputItems(r),enabledCount=output.filter(x=>x.enabled).length;
-    return `<details class="monitor-room health-${h}" data-room-card="${r.id}" data-health="${h}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><label class="room-check" onclick="event.stopPropagation()"><input type="checkbox" data-room-check="${r.id}"></label><span data-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="monitor-health">${esc(healthLabel(h))}</span></div><div class="monitor-current-thumb">${thumb(currentVideo)}</div><div class="monitor-now"><span>지금 재생 · ${esc(modeLabel(st.mode))}</span><b data-live-title>${esc(currentTitle)}</b><small data-live-detail>${on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${st.muted?' · 음소거':''}${st.error?` · ${esc(st.error)}`:''}`:'오프라인'}</small></div><div class="monitor-next"><span>다음</span><b data-live-next>${esc(nextTitle||'—')}</b></div><div class="monitor-card-foot"><span>송출 목록 ${enabledCount}/${output.length}</span><b>관리</b></div></summary><div class="monitor-room-controls room-output-editor"><div class="room-output-head"><div><b>실제 송출 목록</b><span>${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(st.mode||''))?'상위 송출이 적용 중이라 목록은 보기 전용입니다.':'개별 영상을 끄거나 순서를 바꿀 수 있습니다.'}</span></div><button class="btn small" data-room-rules-clear="${r.id}">목록 설정 초기화</button></div>${roomOutputListHtml(r)}<div class="room-output-row"><span class="room-output-label">플레이리스트</span><select data-room-playlist="${r.id}" class="grow">${roomPlaylistOptions(r.default_playlist_id||'')}</select><button class="btn small primary" data-room-playlist-apply="${r.id}">변경</button></div><div class="room-output-row"><span class="room-output-label">영상 추가</span><select data-room-video="${r.id}" class="grow">${videoOptions()}</select><button class="btn small" data-room-video-add="${r.id}">추가</button>${manual?`<button class="btn small" data-room-auto="${r.id}">기본으로</button>`:''}</div>${manual?`<div class="room-output-note">이 공간에만 임시 영상 ${manualCount}개가 적용 중입니다.</div>`:''}<div class="room-player-actions"><span>공간 플레이어</span><div><button class="btn small" data-room-player-open="${r.id}">열기</button><button class="btn small" data-room-player-copy="${r.id}">링크 복사</button></div></div><div class="inline monitor-secondary-controls"><button class="btn small" data-room-action="pause" data-room-id="${r.id}">${r.paused?'재생':'일시정지'}</button><button class="btn small" data-room-action="reload" data-room-id="${r.id}">새로고침</button><span class="section-label">음량 ${r.volume}${r.force_mute?' · 항상 음소거':''}</span><input data-volume="${r.id}" type="range" min="0" max="100" value="${r.volume}"></div><div class="inline"><input class="grow" data-overlay="${r.id}" placeholder="화면 문구" value="${esc(r.overlay_text||'')}"><button class="btn small" data-overlay-save="${r.id}">문구 적용</button></div></div></details>`;
+    return `<details class="monitor-room health-${h}" data-room-card="${r.id}" data-health="${h}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><label class="room-check" onclick="event.stopPropagation()"><input type="checkbox" data-room-check="${r.id}"></label><span data-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="monitor-health">${esc(healthLabel(h))}</span></div><div class="monitor-current-thumb">${thumb(currentVideo)}</div><div class="monitor-now"><span data-live-mode>지금 재생 · ${esc(modeLabel(st.mode))}</span><b data-live-title>${esc(currentTitle)}</b><small data-live-detail>${on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${st.muted?' · 음소거':''}${st.error?` · ${esc(st.error)}`:''}`:'오프라인'}</small></div><div class="monitor-next"><span>다음</span><b data-live-next>${esc(nextTitle||'—')}</b></div><div class="monitor-card-foot"><span>송출 목록 ${enabledCount}/${output.length}</span><b>관리</b></div></summary><div class="monitor-room-controls room-output-editor"><div class="room-output-head"><div><b>실제 송출 목록</b><span>${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(st.mode||''))?'상위 송출이 적용 중이라 목록은 보기 전용입니다.':'개별 영상을 끄거나 순서를 바꿀 수 있습니다.'}</span></div><button class="btn small" data-room-rules-clear="${r.id}">목록 설정 초기화</button></div>${roomOutputListHtml(r)}<div class="room-output-row"><span class="room-output-label">플레이리스트</span><select data-room-playlist="${r.id}" class="grow">${roomPlaylistOptions(r.default_playlist_id||'')}</select><button class="btn small primary" data-room-playlist-apply="${r.id}">변경</button></div><div class="room-output-row"><span class="room-output-label">영상 추가</span><select data-room-video="${r.id}" class="grow">${videoOptions()}</select><button class="btn small" data-room-video-add="${r.id}">추가</button>${manual?`<button class="btn small" data-room-auto="${r.id}">기본으로</button>`:''}</div>${manual?`<div class="room-output-note">이 공간에만 임시 영상 ${manualCount}개가 적용 중입니다.</div>`:''}<div class="room-player-actions"><span>공간 플레이어</span><div><button class="btn small" data-room-player-open="${r.id}">열기</button><button class="btn small" data-room-player-copy="${r.id}">링크 복사</button></div></div><div class="inline monitor-secondary-controls"><button class="btn small" data-room-action="pause" data-room-id="${r.id}">${r.paused?'재생':'일시정지'}</button><button class="btn small" data-room-action="reload" data-room-id="${r.id}">새로고침</button><span class="section-label">음량 ${r.volume}${r.force_mute?' · 항상 음소거':''}</span><input data-volume="${r.id}" type="range" min="0" max="100" value="${r.volume}"></div><div class="inline"><input class="grow" data-overlay="${r.id}" placeholder="화면 문구" value="${esc(r.overlay_text||'')}"><button class="btn small" data-overlay-save="${r.id}">문구 적용</button></div></div></details>`;
   }
 
   function schedulePanel(videos){
@@ -412,10 +412,132 @@
     if(tab==='videos')renderVideos();
   }
 
-  function mergeRealtimeRoom(next){const i=state.rooms.findIndex(r=>r.id===next.id);if(i<0)return;state.rooms[i]={...state.rooms[i],...next};if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintAlerts();}if(tab==='settings'){const el=qs(`[data-room-name="${next.id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=isOnline(state.rooms[i])?'온라인':'오프라인';}const stat=qs('#onlineStat');if(stat)stat.innerHTML=`<b>${state.rooms.filter(isOnline).length}</b> / ${state.rooms.length} 온라인`;}
-  function paintLiveRoom(r){const card=qs(`[data-room-card="${r.id}"]`);if(!card)return;const st=r.player_status||{},on=isOnline(r),progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'',p=playlistInfo(st),h=roomHealth(r),cv=state.videos.find(v=>v.id===st.video_id)||null;card.className=card.className.replace(/health-(normal|delayed|offline|error|recovering)/g,'').trim()+` health-${h}`;card.dataset.health=h;const health=qs('.monitor-health',card);if(health)health.textContent=healthLabel(h);const th=qs('.monitor-current-thumb',card);if(th)th.innerHTML=thumb(cv);qs('[data-live-dot]',card)?.classList.toggle('on',on);const mode=qs('[data-live-mode]',card);if(mode)mode.textContent=modeLabel(st.mode);const title=qs('[data-live-title]',card);if(title)title.textContent=r.paused?'일시정지':(st.title||'대기 중');const next=qs('[data-live-next]',card);if(next)next.textContent=p.next||((p.titles.length>1)?p.titles[(p.current+1)%p.titles.length]:'—');const playlist=qs('[data-live-playlist]',card);if(playlist)playlist.innerHTML=playlistHtml(st);const detail=qs('[data-live-detail]',card);if(detail)detail.textContent=on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}${st.muted?' · 음소거':''}${st.error?` · ${st.error}`:''}`:'오프라인';}
+  function estimatedCurrentTime(r){
+    const st=r?.player_status||{};
+    let current=Math.max(0,Number(st.current_time)||0);
+    const duration=Math.max(0,Number(st.duration)||0);
+    const playing=String(st.playback_state||'').toLowerCase()==='playing'&&!r.paused;
+    if(playing){
+      const base=Number(r.__live_received_at||0)||new Date(st.reported_at||r.last_seen_at||0).getTime();
+      if(base>0)current+=(Date.now()-base)/1000;
+    }
+    if(duration>0)current=Math.min(duration,current);
+    return current;
+  }
+  function paintLiveSummary(){
+    if(tab!=='dashboard')return;
+    const online=state.rooms.filter(isOnline).length;
+    const delayed=state.rooms.filter(r=>['delayed','recovering'].includes(roomHealth(r))).length;
+    const offline=state.rooms.filter(r=>roomHealth(r)==='offline').length;
+    const errors=state.rooms.filter(r=>roomHealth(r)==='error').length;
+    const paused=state.rooms.filter(r=>r.paused).length;
+    const top=qs('#onlineStat');if(top)top.textContent=`${online}/${state.rooms.length}`;
+    const o=qs('[data-stat-online]');if(o)o.textContent=`${online}/${state.rooms.length}`;
+    const d=qs('[data-stat-delayed]');if(d)d.textContent=String(delayed);
+    const f=qs('[data-stat-offline]');if(f)f.textContent=String(offline);
+    const e=qs('[data-stat-errors]');if(e){e.textContent=String(errors);e.classList.toggle('danger-text',errors>0);}
+    const p=qs('[data-stat-paused]');if(p)p.textContent=String(paused);
+    state.groups.forEach(g=>paintGroupSummary(g.id));
+    paintGroupSummary(null);
+  }
+  function paintGroupSummary(groupId){
+    const key=groupId||'ungrouped',card=qs(`[data-group-card="${key}"]`),summary=card?.querySelector('[data-group-live-summary]');if(!summary)return;
+    const rooms=state.rooms.filter(r=>(r.group_id||null)===(groupId||null)),group=groupId?groupById(groupId):null,gb=groupId?groupBroadcast(groupId):null;
+    const online=rooms.filter(r=>roomHealth(r)!=='offline').length,issues=rooms.filter(r=>roomHealth(r)!=='normal').length;
+    const currentVideo=gb?.active?state.videos.find(v=>v.id===gb.video_ids?.[0])?.title||'':'';
+    summary.textContent=`${group?kindLabel(group.kind):'기타'} · ${online}/${rooms.length} 온라인${issues?` · 확인 ${issues}`:''}${gb?.active&&currentVideo?` · ${currentVideo}`:''}`;
+  }
+  function mergeRealtimeRoom(next){
+    if(!next?.id)return;
+    const i=state.rooms.findIndex(r=>r.id===next.id);
+    if(i<0){state.rooms.push({...next,__live_received_at:Date.now()});state.rooms.sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||String(a.created_at||'').localeCompare(String(b.created_at||'')));if(tab==='dashboard')renderDashboard();return;}
+    state.rooms[i]={...state.rooms[i],...next,__live_received_at:Date.now()};
+    if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintLiveSummary();paintAlerts();}
+    if(tab==='settings'){const el=qs(`[data-room-name="${next.id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=isOnline(state.rooms[i])?'온라인':'오프라인';}
+  }
+  function removeRealtimeRoom(id){
+    if(!id)return;
+    const before=state.rooms.length;state.rooms=state.rooms.filter(r=>r.id!==id);
+    if(before!==state.rooms.length&&tab==='dashboard')renderDashboard();
+  }
+  function paintLiveRoom(r){
+    const card=qs(`[data-room-card="${r.id}"]`);if(!card)return;
+    const st=r.player_status||{},on=isOnline(r),current=estimatedCurrentTime(r),progress=st.duration?`${formatDuration(current)} / ${formatDuration(st.duration)}`:'',p=playlistInfo(st),h=roomHealth(r),cv=state.videos.find(v=>v.id===st.video_id)||null;
+    card.className=card.className.replace(/health-(normal|delayed|offline|error|recovering)/g,'').trim()+` health-${h}`;card.dataset.health=h;
+    const health=qs('.monitor-health',card);if(health)health.textContent=healthLabel(h);
+    const th=qs('.monitor-current-thumb',card);if(th)th.innerHTML=thumb(cv);
+    qs('[data-live-dot]',card)?.classList.toggle('on',on);
+    const mode=qs('[data-live-mode]',card);if(mode)mode.textContent=`지금 재생 · ${modeLabel(st.mode)}`;
+    const title=qs('[data-live-title]',card);if(title)title.textContent=r.paused?'일시정지':(st.title||'대기 중');
+    const next=qs('[data-live-next]',card);if(next)next.textContent=p.next||((p.titles.length>1)?p.titles[(p.current+1)%p.titles.length]:'—');
+    const detail=qs('[data-live-detail]',card);if(detail)detail.textContent=on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}${st.muted?' · 음소거':''}${st.error?` · ${st.error}`:''}`:'오프라인';
+  }
 
   try{const pruneKey='clinic-signage:event-prune-day',today=new Date().toISOString().slice(0,10);if(localStorage.getItem(pruneKey)!==today){db.rpc('admin_prune_player_events',{p_days:30}).then(()=>localStorage.setItem(pruneKey,today)).catch(()=>{});}await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
-  let liveRefreshBusy=false;async function refreshLiveRooms(){if(liveRefreshBusy)return;liveRefreshBusy=true;try{const {data}=await db.from('rooms').select('id,last_seen_at,player_status,paused,reload_nonce');(data||[]).forEach(mergeRealtimeRoom);}catch{}finally{liveRefreshBusy=false;}}
-  refreshLiveRooms();setInterval(refreshLiveRooms,15000);checkStorageHealth();setInterval(checkStorageHealth,60000);setInterval(async()=>{if(tab!=='dashboard')return;try{const {data}=await db.rpc('admin_playback_today');if(data){state.playbackToday=data;const open=qs('.playback-analytics')?.open;const old=qs('.playback-analytics');if(old){const wrap=document.createElement('div');wrap.innerHTML=playbackAnalyticsMarkup();const next=wrap.firstElementChild;if(open)next.open=true;old.replaceWith(next);}}}catch{}},60000);setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintAlerts();}},15000);
+
+  const LIVE_FALLBACK_MS=60000;
+  let liveRefreshBusy=false,lastRoomSyncAt=0;
+  async function refreshLiveRooms(force=false){
+    if(liveRefreshBusy||document.hidden)return;
+    if(!force&&Date.now()-lastRoomSyncAt<LIVE_FALLBACK_MS-1000)return;
+    liveRefreshBusy=true;
+    try{
+      const {data,error}=await db.from('rooms').select('*').order('sort_order').order('created_at');
+      if(error)throw error;
+      const rows=data||[],ids=new Set(rows.map(r=>r.id));
+      rows.forEach(mergeRealtimeRoom);
+      state.rooms.filter(r=>!ids.has(r.id)).forEach(r=>removeRealtimeRoom(r.id));
+      lastRoomSyncAt=Date.now();
+    }catch(_){}finally{liveRefreshBusy=false;}
+  }
+  let liveControlBusy=false,liveControlSig='',lastControlSyncAt=0;
+  async function refreshLiveControls(force=false){
+    if(liveControlBusy||tab!=='dashboard'||document.hidden)return;
+    if(!force&&Date.now()-lastControlSyncAt<LIVE_FALLBACK_MS-1000)return;
+    liveControlBusy=true;
+    try{
+      const [rules,broadcast,groups]=await Promise.all([
+        db.from('room_video_rules').select('*'),
+        db.from('broadcast').select('*').eq('id',1).maybeSingle(),
+        db.from('group_broadcasts').select('*')
+      ]);
+      if(rules.error||broadcast.error||groups.error)return;
+      const sig=JSON.stringify([rules.data||[],broadcast.data||null,groups.data||[]]);
+      if(liveControlSig&&sig!==liveControlSig){
+        state.roomRules=rules.data||[];state.broadcast=broadcast.data||state.broadcast;state.groupBroadcasts=groups.data||[];
+        const openRooms=qsa('.monitor-room[open]').map(x=>x.dataset.roomCard),openGroups=qsa('.monitor-group[open]').map(x=>x.dataset.groupCard),scrollY=window.scrollY;
+        renderDashboard();
+        openGroups.forEach(id=>qs(`[data-group-card="${id}"]`)?.setAttribute('open',''));
+        openRooms.forEach(id=>qs(`[data-room-card="${id}"]`)?.setAttribute('open',''));
+        window.scrollTo(0,scrollY);
+      }
+      liveControlSig=sig;lastControlSyncAt=Date.now();
+    }catch(_){}finally{liveControlBusy=false;}
+  }
+  function scheduleRealtimeControlSync(){
+    lastControlSyncAt=0;
+    if(!document.hidden&&tab==='dashboard')refreshLiveControls(true);
+  }
+  function startRealtime(){
+    try{
+      db.channel('clinic-admin-live-v2211')
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
+        .on('postgres_changes',{event:'DELETE',schema:'public',table:'rooms'},payload=>removeRealtimeRoom(payload.old?.id))
+        .on('postgres_changes',{event:'*',schema:'public',table:'broadcast'},scheduleRealtimeControlSync)
+        .on('postgres_changes',{event:'*',schema:'public',table:'group_broadcasts'},scheduleRealtimeControlSync)
+        .on('postgres_changes',{event:'*',schema:'public',table:'room_video_rules'},scheduleRealtimeControlSync)
+        .subscribe();
+    }catch(_){}
+  }
+  refreshLiveRooms(true);refreshLiveControls(true);startRealtime();
+  const liveFallbackTimer=setInterval(()=>{if(document.hidden)return;refreshLiveRooms();refreshLiveControls();},LIVE_FALLBACK_MS);
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden)return;
+    lastRoomSyncAt=0;lastControlSyncAt=0;
+    refreshLiveRooms(true);refreshLiveControls(true);
+  });
+  checkStorageHealth();setInterval(checkStorageHealth,60000);
+  setInterval(async()=>{if(tab!=='dashboard')return;try{const {data}=await db.rpc('admin_playback_today');if(data){state.playbackToday=data;const open=qs('.playback-analytics')?.open;const old=qs('.playback-analytics');if(old){const wrap=document.createElement('div');wrap.innerHTML=playbackAnalyticsMarkup();const next=wrap.firstElementChild;if(open)next.open=true;old.replaceWith(next);}}}catch{}},60000);
+  setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintLiveSummary();}},1000);
 })();
