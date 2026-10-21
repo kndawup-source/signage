@@ -1,13 +1,14 @@
 (async function () {
   'use strict';
-  const { db, qs, qsa, esc, toast, isOnline } = Signage;
+  const { db, qs, qsa, esc, toast, formatDuration } = Signage;
   await Signage.requireAuth();
   qs('#signOut').addEventListener('click', Signage.signOut);
 
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, timer=null;
+  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, liveChannel=null, signalChannel=null;
+  const LIVE_DELAY_MS=70000, LIVE_OFFLINE_MS=180000;
   async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
@@ -25,6 +26,39 @@
   function staffRoomOutputItems(r){const ids=staffBaseIds(r),rules=new Map(roomRules(r.id).map(x=>[x.video_id,x]));return ids.map((id,idx)=>({id,video:state.videos.find(v=>v.id===id),rule:rules.get(id),idx})).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.idx+1)*10))-(b.rule?.sort_order??((b.idx+1)*10)));}
   function staffThumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
   function staffOutputList(r){const items=staffRoomOutputItems(r);return `<div class="staff-output-list">${items.map((x,i)=>`<div class="staff-output-item ${x.rule?.enabled===false?'is-disabled':''}"><div class="staff-output-thumb">${staffThumb(x.video)}</div><b>${esc(x.video.title)}</b><label class="switch"><input type="checkbox" data-staff-video-toggle="${r.id}" data-video-id="${x.id}" ${x.rule?.enabled===false?'':'checked'} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;}
+  function roomAgeMs(r){const ts=r?.last_seen_at?new Date(r.last_seen_at).getTime():0;return ts>0?Math.max(0,Date.now()-ts):Infinity;}
+  function roomHealth(r){
+    const st=r.player_status||{},age=roomAgeMs(r);
+    if(age>LIVE_OFFLINE_MS)return 'offline';
+    if(st.error||String(st.playback_state||'').toLowerCase()==='error')return 'error';
+    if(st.recovery_stage)return 'recovering';
+    if(age>LIVE_DELAY_MS)return 'delayed';
+    return 'normal';
+  }
+  const staffIsOnline=(r)=>roomHealth(r)!=='offline';
+  function roomDisplayStatus(r){
+    const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase();
+    if(h==='offline')return {key:'offline',label:'오프라인'};
+    if(h==='error')return {key:'error',label:'오류'};
+    if(h==='recovering')return {key:'recovering',label:'복구 중'};
+    if(h==='delayed')return {key:'delayed',label:'확인 중'};
+    if(play==='paused')return {key:'paused',label:'일시정지'};
+    if(['playing','emergency'].includes(play))return {key:'live',label:'송출 중'};
+    return {key:'idle',label:'대기'};
+  }
+  function groupStatusSummary(rooms){
+    const statuses=rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
+    const issues=statuses.filter(x=>['error','recovering','delayed'].includes(x.key)).length,online=rooms.length-offline;
+    let key='idle',label='대기';
+    if(!rooms.length){label='공간 없음';}
+    else if(offline===rooms.length){key='offline';label='오프라인';}
+    else if(issues>0){key='issue';label='확인 필요';}
+    else if(live>0){key='live';label='송출 중';}
+    return {live,offline,issues,online,total:rooms.length,key,label};
+  }
+  function groupDisplayName(name){const n=String(name||'미분류').trim();return /^\d+$/.test(n)?`${n}층`:n;}
+  const currentVideoForRoom=(r)=>state.videos.find(v=>v.id===r.player_status?.video_id)||null;
+  const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨'})[String(v||'').toLowerCase()]||'연결됨';
   const activePatients=()=>state.patients.filter(p=>['waiting','assigned','in_progress'].includes(p.status));
   const elapsedMinutes=(start,end=Date.now())=>start?Math.max(0,Math.floor((new Date(end).getTime()-new Date(start).getTime())/60000)):0;
   const waitText=(p)=>`${elapsedMinutes(p.waiting_started_at||p.created_at,p.assigned_at||Date.now())}분 대기`;
@@ -37,11 +71,46 @@
     return '기본 영상';
   };
 
-  async function load(){
-    const {data,error}=await db.rpc('staff_reception_state');
-    if(error)throw error;
-    state={patients:data?.patients||[],rooms:data?.rooms||[],playlists:data?.playlists||[],videos:data?.videos||[],playlistItems:data?.playlist_items||[],roomRules:data?.room_video_rules||[],broadcast:data?.broadcast||{active:false}};
+  async function load({background=false}={}){
+    const [reception,liveStatuses]=await Promise.all([
+      db.rpc('staff_reception_state'),
+      db.from('player_live_status').select('*')
+    ]);
+    if(reception.error)throw reception.error;
+    if(liveStatuses.error)throw liveStatuses.error;
+    const data=reception.data||{},liveByRoom=new Map((liveStatuses.data||[]).map(x=>[x.room_id,x]));
+    const rooms=(data.rooms||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status,__live_verified_at:Date.now()}:r;});
+    state={patients:data.patients||[],rooms,playlists:data.playlists||[],videos:data.videos||[],playlistItems:data.playlist_items||[],roomRules:data.room_video_rules||[],broadcast:data.broadcast||{active:false}};
+    if(background&&isInteracting())return;
+    renderPreservingUi(background);
+  }
+  function isInteracting(){
+    const a=document.activeElement,root=qs('#staffRoot');
+    return !!(a&&root&&root.contains(a)&&['INPUT','SELECT','TEXTAREA'].includes(a.tagName));
+  }
+  function uiKey(el){
+    const card=el.closest('[data-room-card]')?.dataset.roomCard||el.closest('[data-staff-group]')?.dataset.staffGroup||el.closest('[data-patient]')?.dataset.patient||'';
+    return `${card}|${el.className}`;
+  }
+  function renderPreservingUi(keepInputs=true){
+    const root=qs('#staffRoot');
+    const openDetails=new Set(qsa('details[open]',root).map(uiKey));
+    const openQuick=keepInputs?qsa('[data-quick-panel]:not(.hidden)',root).map(x=>x.dataset.quickPanel):[];
+    const formOpen=keepInputs&&!!qs('#patientForm:not(.hidden)',root);
+    const dirty=!keepInputs?[]:qsa('select[data-dirty="1"],#patientForm input,#patientForm select',root).map(el=>{const attr=[...el.attributes].find(a=>a.name.startsWith('data-')&&a.name!=='data-dirty');return {sel:el.id?`#${el.id}`:attr?`[${attr.name}="${attr.value}"]`:null,value:el.value};}).filter(x=>x.sel);
+    const scrollY=window.scrollY;
     render();
+    qsa('details',root).forEach(d=>{if(openDetails.has(uiKey(d)))d.open=true;});
+    openQuick.forEach(id=>qs(`[data-quick-panel="${id}"]`,root)?.classList.remove('hidden'));
+    if(formOpen)qs('#patientForm',root)?.classList.remove('hidden');
+    dirty.forEach(({sel,value})=>{const el=qs(sel,root);if(!el)return;if(el.tagName==='SELECT'&&![...el.options].some(o=>o.value===value))return;el.value=value;if(el.tagName==='SELECT')el.dataset.dirty='1';});
+    window.scrollTo(0,scrollY);
+  }
+
+  function groupedRooms(){
+    const map=new Map(),order=[];
+    for(const r of state.rooms){const key=r.group_id||'ungrouped';if(!map.has(key)){map.set(key,{id:key,name:r.group_name||'미분류',rooms:[]});order.push(key);}map.get(key).rooms.push(r);}
+    return order.map(k=>map.get(k));
   }
 
   function render(){
@@ -49,23 +118,24 @@
     const assigned=state.patients.filter(p=>p.status==='assigned');
     const inProgress=state.patients.filter(p=>p.status==='in_progress');
     const completed=state.patients.filter(p=>p.status==='completed');
-    const online=state.rooms.filter(isOnline).length;
-    const quick=state.rooms.filter(isQuickSession).length;
-    const custom=state.rooms.filter(r=>r.session_treatment).length;
+    const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
+    const issues=statuses.filter(x=>['error','recovering','delayed'].includes(x.key)).length,online=state.rooms.length-offline;
+    const quick=state.rooms.filter(isQuickSession).length,custom=state.rooms.filter(r=>r.session_treatment).length;
+    const groups=groupedRooms();
     qs('#staffRoot').innerHTML=`
       ${state.broadcast?.active?'<div class="broadcast-strip">전체 송출 중 · 맞춤 설정은 저장되며 전체 송출 종료 후 자동 적용됩니다.</div>':''}
-      <div class="reception-head reception-head-board"><div><span class="eyebrow">RECEPTION</span><h1>공간 현황</h1><p>각 공간의 플레이리스트를 바꾸거나 영상 1개를 추가할 수 있습니다.</p></div></div>
-      <div class="reception-summary reception-summary-board">
-        <div class="is-primary"><span>온라인</span><b>${online}/${state.rooms.length}</b></div>
-        <div><span>맞춤 송출</span><b>${custom}</b></div>
-        <div><span>빠른 설정</span><b>${quick}</b></div>
-        <div><span>등록 환자</span><b>${assigned.length+inProgress.length}</b></div>
-        <div><span>대기</span><b>${waiting.length}</b></div>
+      <div class="reception-head reception-head-board"><div><span class="eyebrow">RECEPTION</span><h1>송출 현황</h1><p>어드민과 같은 기준으로 실제 송출 상태를 확인하고 각 공간의 플레이리스트와 영상을 관리합니다.</p></div><button id="staffStatusRefresh" class="btn">상태 새로고침</button></div>
+      <div class="monitor-status-strip monitor-status-primary staff-status-primary">
+        <div><span>전체 공간</span><b data-staff-stat-total>${state.rooms.length}</b></div>
+        <div class="status-live"><span>송출 중</span><b data-staff-stat-live>${live}</b></div>
+        <div class="${issues?'status-issue':''}"><span>확인 필요</span><b data-staff-stat-issues>${issues}</b></div>
+        <div class="${offline?'status-offline':''}"><span>오프라인</span><b data-staff-stat-offline>${offline}</b></div>
       </div>
+      <div class="monitor-status-secondary staff-status-secondary"><span>온라인 <b data-staff-stat-online>${online}</b></span><span>맞춤 송출 <b>${custom}</b></span><span>빠른 설정 <b>${quick}</b></span><span>등록 환자 <b>${assigned.length+inProgress.length}</b></span><span>대기 <b>${waiting.length}</b></span></div>
 
-      <section class="reception-rooms reception-rooms-first">
-        <div class="reception-section-head"><div><span class="eyebrow">SPACE STATUS</span><h2>공간</h2></div><b>${online}/${state.rooms.length} 온라인</b></div>
-        <div class="reception-room-grid reception-room-grid-control">${state.rooms.map(roomCard).join('')}</div>
+      <section class="reception-rooms reception-rooms-first staff-space-status">
+        <div class="reception-section-head"><div><span class="eyebrow">SPACE STATUS</span><h2>층 · 구역별 현황</h2></div><b>${live}곳 송출 중</b></div>
+        <div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div>
       </section>
 
       <details class="patient-management">
@@ -91,16 +161,17 @@
     bind();
   }
 
+  function groupCard(group){
+    const summary=groupStatusSummary(group.rooms),nowText=summary.key==='live'?`${summary.live}곳 송출 중`:summary.key==='issue'?`확인 필요한 공간 ${summary.issues}곳`:summary.key==='offline'?'모든 공간 연결 끊김':summary.key==='idle'?'현재 재생 대기':'현재 상태 확인';
+    return `<details class="monitor-group staff-monitor-group group-state-${summary.key}" data-staff-group="${esc(group.id)}"><summary class="monitor-group-summary"><div class="monitor-group-overview"><div class="monitor-group-title-row"><h2>${esc(groupDisplayName(group.name))}</h2><span class="group-status-badge status-${summary.key}" data-staff-group-status>${esc(summary.label)}</span></div><div class="group-metric-row"><span>공간 <b data-staff-group-total>${summary.total}</b></span><span>송출 <b data-staff-group-live>${summary.live}</b></span><span>온라인 <b data-staff-group-online>${summary.online}</b></span><span>확인 <b data-staff-group-issues>${summary.issues}</b></span></div><p data-staff-group-summary>${esc(nowText)}</p></div><span class="group-detail-link">상세보기</span></summary><div class="monitor-group-body"><div class="monitor-room-grid staff-monitor-room-grid">${group.rooms.map(roomCard).join('')}</div></div></details>`;
+  }
+
   function roomCard(r){
-    const p=patientForRoom(r.id), quick=isQuickSession(r), current=r.player_status?.title||'대기 중', next=r.player_status?.next_title||'';
-    const activeTreatment=p?.treatment||r.session_treatment||'';
-    const audience=[p?.age_group||r.session_age_group,p?.gender||r.session_gender].filter(Boolean).map((v,i)=>i===0?ageLabel(v):genderLabel(v)).filter(x=>x!=='전체').join(' · ');
-    const manual=!!r.manual_active&&Array.isArray(r.manual_video_ids)&&r.manual_video_ids.length>0;
-    const defaultPlaylist=playlistById(r.default_playlist_id);
-    return `<article class="reception-room-card reception-control-card ${p?'occupied':''} ${quick?'quick-custom':''} ${!isOnline(r)?'offline':''}" data-room-card="${r.id}">
-      <div class="room-card-head"><span><i class="dot ${isOnline(r)?'on':''}"></i><b>${esc(r.group_name?`${r.group_name} · ${r.name}`:r.name)}</b></span><em>${esc(roomTypeLabel(r.room_mode))}</em></div>
-      <div class="room-state-main"><span>송출 상태</span><b>${manual?'개별 영상':activeTreatment?esc(treatmentLabel(activeTreatment)):esc(defaultPlaylist?.name||'기본 플레이리스트')}</b>${audience?`<small>${esc(audience)}</small>`:''}</div>
-      <div class="room-playing"><span>지금 재생</span><b>${esc(current)}</b>${next?`<small>다음 · ${esc(next)}</small>`:''}</div>
+    const p=patientForRoom(r.id),quick=isQuickSession(r),st=r.player_status||{},display=roomDisplayStatus(r),health=roomHealth(r),current=st.title||'대기 중',next=st.next_title||'',activeTreatment=p?.treatment||r.session_treatment||'';
+    const audience=[p?.age_group||r.session_age_group,p?.gender||r.session_gender].filter(Boolean).map((v,i)=>i===0?ageLabel(v):genderLabel(v)).filter(x=>x!=='전체').join(' · '),manual=!!r.manual_active&&Array.isArray(r.manual_video_ids)&&r.manual_video_ids.length>0,defaultPlaylist=playlistById(r.default_playlist_id),currentVideo=currentVideoForRoom(r),on=staffIsOnline(r);
+    const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
+    return `<details class="monitor-room staff-monitor-room health-${health}" data-room-card="${r.id}" data-health="${health}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><span data-staff-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="room-status-badge status-${display.key}" data-staff-room-status>${esc(display.label)}</span></div><div class="monitor-current-thumb" data-staff-live-thumb>${staffThumb(currentVideo)}</div><div class="monitor-now"><span>지금 재생 · ${esc(roomModeText(r))}</span><b data-staff-live-title>${esc(current)}</b><small data-staff-live-detail>${on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${st.error?` · ${esc(st.error)}`:''}`:'오프라인'}</small></div><div class="monitor-next"><span>다음</span><b data-staff-live-next>${esc(next||'—')}</b></div><div class="monitor-card-foot"><span>${esc(roomTypeLabel(r.room_mode))}${manual?' · 개별 영상':activeTreatment?` · ${esc(treatmentLabel(activeTreatment))}`:defaultPlaylist?` · ${esc(defaultPlaylist.name)}`:''}</span><b>관리</b></div></summary><div class="monitor-room-controls staff-room-control-body">
+      ${audience?`<div class="room-output-note">맞춤 대상 · ${esc(audience)}</div>`:''}
       <details class="staff-output-details"><summary>송출 영상 목록</summary>${staffOutputList(r)}</details>
       <div class="staff-output-controls">
         <div class="staff-output-row"><span>플레이리스트</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">변경</button></div>
@@ -108,7 +179,7 @@
       </div>
       ${p?`<div class="room-patient compact"><b>${esc(p.label||`대기 ${p.queue_no}`)}</b><span>${esc(waitText(p))}</span></div>`:''}
       ${isPatientRoom(r)?`<div class="room-card-actions">${!p?`<button class="btn" data-open-quick="${r.id}">${quick?'맞춤 변경':'환자 맞춤'}</button>${quick?`<button class="btn" data-quick-clear="${r.id}">맞춤 해제</button>`:''}`:'<span class="room-managed-note">환자 관리에서 변경</span>'}</div>${!p?quickPanel(r):''}`:''}
-    </article>`;
+    </div></details>`;
   }
 
   function quickPanel(r){
@@ -128,11 +199,13 @@
       <div class="patient-card-top"><div><span class="patient-status">${status}</span><h3>${esc(p.label||`대기 ${p.queue_no}`)}</h3></div><strong>${esc(waitText(p))}</strong></div>
       <div class="patient-profile"><b>${esc(treatmentLabel(p.treatment))}</b><span>${esc(audience)}</span></div>
       ${room?`<div class="patient-room"><span>진료실</span><b>${esc(room.name)}</b><small>${esc(room.player_status?.title||'영상 준비 중')}</small></div>`:''}
-      <div class="patient-actions">${waiting?`<select data-room-select="${p.id}"><option value="">진료실 선택</option>${available.map(r=>`<option value="${r.id}">${esc(r.group_name?`${r.group_name} · `:'')}${esc(r.name)}${isOnline(r)?'':' · 오프라인'}</option>`).join('')}</select><button class="btn primary" data-assign="${p.id}">배정</button>`:`${p.status==='assigned'?`<button class="btn primary" data-start="${p.id}">진료 시작</button>`:''}<button class="btn" data-unassign="${p.id}">배정 변경</button><button class="btn" data-complete="${p.id}">종료</button>`}<button class="text-action danger-text" data-cancel="${p.id}">취소</button></div>
+      <div class="patient-actions">${waiting?`<select data-room-select="${p.id}"><option value="">진료실 선택</option>${available.map(r=>`<option value="${r.id}">${esc(r.group_name?`${r.group_name} · `:'')}${esc(r.name)}${staffIsOnline(r)?'':' · 오프라인'}</option>`).join('')}</select><button class="btn primary" data-assign="${p.id}">배정</button>`:`${p.status==='assigned'?`<button class="btn primary" data-start="${p.id}">진료 시작</button>`:''}<button class="btn" data-unassign="${p.id}">배정 변경</button><button class="btn" data-complete="${p.id}">종료</button>`}<button class="text-action danger-text" data-cancel="${p.id}">취소</button></div>
     </article>`;
   }
 
   function bind(){
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));
+    qsa('#staffRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));
     qsa('[data-staff-manual-clear]').forEach(b=>b.addEventListener('click',()=>clearRoomManual(b.dataset.staffManualClear)));
@@ -193,7 +266,45 @@
   }
   async function action(fn,id,msg){const {error}=await db.rpc(fn,{p_patient:id});if(error)return toast(error.message,'error');toast(msg);await load();}
 
-  try{await load();}catch(e){qs('#staffRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
-  timer=setInterval(()=>{if(document.visibilityState==='visible')load().catch(()=>{});},10000);
-  window.addEventListener('beforeunload',()=>clearInterval(timer));
+  function updateStaffRoomDom(r){
+    const card=qs(`[data-room-card="${r.id}"]`);if(!card)return;
+    const health=roomHealth(r),display=roomDisplayStatus(r),st=r.player_status||{},on=staffIsOnline(r),video=currentVideoForRoom(r),progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
+    card.dataset.health=health;card.className=`monitor-room staff-monitor-room health-${health}`;
+    const dot=qs('[data-staff-live-dot]',card);if(dot)dot.classList.toggle('on',on);
+    const status=qs('[data-staff-room-status]',card);if(status){status.className=`room-status-badge status-${display.key}`;status.textContent=display.label;}
+    const thumb=qs('[data-staff-live-thumb]',card);if(thumb)thumb.innerHTML=staffThumb(video);
+    const title=qs('[data-staff-live-title]',card);if(title)title.textContent=st.title||'대기 중';
+    const next=qs('[data-staff-live-next]',card);if(next)next.textContent=st.next_title||'—';
+    const detail=qs('[data-staff-live-detail]',card);if(detail)detail.textContent=on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}${st.error?` · ${st.error}`:''}`:'오프라인';
+  }
+  function paintStaffSummary(){
+    const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','recovering','delayed'].includes(x.key)).length;
+    const set=(sel,val)=>{const el=qs(sel);if(el)el.textContent=String(val);};set('[data-staff-stat-total]',state.rooms.length);set('[data-staff-stat-live]',live);set('[data-staff-stat-issues]',issues);set('[data-staff-stat-offline]',offline);set('[data-staff-stat-online]',state.rooms.length-offline);
+    groupedRooms().forEach(g=>paintStaffGroup(g));
+  }
+  function paintStaffGroup(group){
+    const card=qs(`[data-staff-group="${group.id}"]`);if(!card)return;const x=groupStatusSummary(group.rooms),set=(sel,val)=>{const el=qs(sel,card);if(el)el.textContent=String(val);};
+    card.className=`monitor-group staff-monitor-group group-state-${x.key}`;const badge=qs('[data-staff-group-status]',card);if(badge){badge.className=`group-status-badge status-${x.key}`;badge.textContent=x.label;}set('[data-staff-group-total]',x.total);set('[data-staff-group-live]',x.live);set('[data-staff-group-online]',x.online);set('[data-staff-group-issues]',x.issues);const p=qs('[data-staff-group-summary]',card);if(p)p.textContent=x.key==='live'?`${x.live}곳 송출 중`:x.key==='issue'?`확인 필요한 공간 ${x.issues}곳`:x.key==='offline'?'모든 공간 연결 끊김':'현재 재생 대기';
+  }
+  function mergePlayerLiveStatus(live){
+    if(!live?.room_id)return;const idx=state.rooms.findIndex(r=>r.id===live.room_id);if(idx<0)return;state.rooms[idx]={...state.rooms[idx],last_seen_at:live.last_seen_at||state.rooms[idx].last_seen_at,player_status:live.player_status||state.rooms[idx].player_status,__live_verified_at:Date.now()};updateStaffRoomDom(state.rooms[idx]);paintStaffSummary();
+  }
+  const staleVerifyMeta=new Map();let staleVerifyBusy=false;
+  async function verifyStaleLiveStatuses(){
+    if(staleVerifyBusy||document.hidden)return;const now=Date.now(),ids=[];
+    for(const r of state.rooms){const age=roomAgeMs(r);if(age<LIVE_DELAY_MS-5000)continue;const seen=String(r.last_seen_at||''),meta=staleVerifyMeta.get(r.id)||{};if(meta.seen!==seen){meta.seen=seen;meta.checkedAt=0;}if(now-Number(meta.checkedAt||0)<60000)continue;meta.checkedAt=now;staleVerifyMeta.set(r.id,meta);ids.push(r.id);}
+    if(!ids.length)return;staleVerifyBusy=true;try{const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status').in('room_id',ids);if(!error)(data||[]).forEach(mergePlayerLiveStatus);}catch(_){}finally{staleVerifyBusy=false;}
+  }
+  let stateReloadTimer=null;
+  function scheduleStaffStateReload(){clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(!document.hidden&&!busy)load({background:true}).catch(()=>{});},250);}
+  function startRealtime(){
+    try{
+      liveChannel=db.channel('clinic-staff-live-v2223').on('postgres_changes',{event:'INSERT',schema:'public',table:'player_live_status'},p=>mergePlayerLiveStatus(p.new||{})).on('postgres_changes',{event:'UPDATE',schema:'public',table:'player_live_status'},p=>mergePlayerLiveStatus(p.new||{})).subscribe();
+      signalChannel=db.channel('clinic-staff-signal-v2223').on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals'},scheduleStaffStateReload).subscribe();
+    }catch(_){}
+  }
+
+  try{await load();startRealtime();}catch(e){qs('#staffRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
+  let tick=0;const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();if(++tick%5===0)verifyStaleLiveStatuses();},1000);
+  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);try{if(liveChannel)db.removeChannel(liveChannel);if(signalChannel)db.removeChannel(signalChannel);}catch(_){}});
 })();

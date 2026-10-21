@@ -297,3 +297,27 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
   .group-metric-row{gap:5px 12px}
   .group-metric-row b{font-size:14px}
 }
+
+
+/* v2.22.3 staff dashboard parity */
+.staff-page .staff-monitor-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;align-items:start}
+.staff-page .staff-monitor-group{min-width:0;padding:0}
+.staff-page .staff-monitor-group[open]{grid-column:1/-1}
+.staff-page .staff-monitor-group .monitor-group-summary{min-height:144px}
+.staff-page .staff-monitor-group .monitor-group-body{padding:16px 22px 22px}
+.staff-page .staff-monitor-room-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.staff-page .staff-monitor-room{min-width:0}
+.staff-page .staff-monitor-room .monitor-current-thumb{margin-bottom:14px}
+.staff-page .staff-monitor-room .monitor-now>b{min-height:0}
+.staff-page .staff-room-control-body{display:grid;gap:12px}
+.staff-page .staff-status-primary{margin-bottom:8px}
+.staff-page .staff-status-secondary{margin-bottom:26px}
+.staff-page .staff-status-primary .status-live b{color:var(--primary)}
+.staff-page .staff-status-primary .status-issue b{color:#70551f}
+.staff-page .staff-status-primary .status-offline b{color:var(--danger)}
+.staff-page .staff-monitor-group.group-state-live{border-color:#dddbed}
+.staff-page .staff-monitor-group.group-state-issue{background:#fffdf9;border-color:#ebe0c9}
+.staff-page .staff-monitor-group.group-state-offline{background:#fbfbfc}
+.staff-page .staff-space-status{margin-bottom:28px}
+@media(max-width:900px){.staff-page .staff-monitor-groups{grid-template-columns:1fr}.staff-page .staff-monitor-group[open]{grid-column:auto}}
+@media(max-width:760px){.staff-page .staff-monitor-room-grid{grid-template-columns:1fr}.staff-page .staff-monitor-group .monitor-group-body{padding:12px 16px 16px}.staff-page .staff-monitor-group .monitor-group-summary{min-height:126px}}
