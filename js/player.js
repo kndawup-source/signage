@@ -6,7 +6,11 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = '2.22.8';
+  const APP_VERSION = '2.23.0';
+  const RELEASE_URL='/player-release.json';
+  const UPDATE_CHECK_MS=10*60*1000;
+  const UPDATE_FORCE_MS=30*60*1000;
+  let updatePendingVersion=null,updateDetectedAt=0,lastUpdateCheckAt=0,updateCheckBusy=false;
 
   let state = null;
   let index = 0;
@@ -65,13 +69,38 @@
     const texts=[state?.room?.overlay_text,state?.notice_text].filter(Boolean);
     return texts.length?`<div id="playerBar" class="player-bar"><div class="player-bar-static">${esc(texts.join(' · '))}</div></div>`:'';
   }
+  function versionParts(v){return String(v||'').split('.').map(x=>Number.parseInt(x,10)||0).slice(0,3);}
+  function versionCompare(a,b){const aa=versionParts(a),bb=versionParts(b);for(let i=0;i<3;i++){const d=(aa[i]||0)-(bb[i]||0);if(d)return d;}return 0;}
+  function reloadForUpdate(){
+    if(!updatePendingVersion)return;
+    try{const u=new URL(location.href);u.searchParams.set('_player_release',updatePendingVersion);u.searchParams.set('_reload',String(Date.now()));location.replace(u.toString());}
+    catch(_){location.reload();}
+  }
+  function updateAtSafePoint(){
+    if(!updatePendingVersion)return false;
+    const el=activeVideoEl?.();
+    if(!el||el.ended||el.paused||!list().length||state?.room?.paused){reloadForUpdate();return true;}
+    if(updateDetectedAt&&Date.now()-updateDetectedAt>=UPDATE_FORCE_MS){reloadForUpdate();return true;}
+    return false;
+  }
+  async function checkForPlayerUpdate(force=false){
+    if(updateCheckBusy)return;
+    const now=Date.now();if(!force&&now-lastUpdateCheckAt<UPDATE_CHECK_MS)return;
+    updateCheckBusy=true;lastUpdateCheckAt=now;
+    try{
+      const r=await fetch(`${RELEASE_URL}?t=${now}`,{cache:'no-store'});if(!r.ok)return;
+      const data=await r.json(),latest=String(data?.version||'').trim();if(!latest)return;
+      if(versionCompare(latest,APP_VERSION)>0){if(updatePendingVersion!==latest){updatePendingVersion=latest;updateDetectedAt=Date.now();}updateAtSafePoint();}
+    }catch(_){}finally{updateCheckBusy=false;}
+  }
+
   function ensureSurface(){
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
     root.innerHTML=`<video id="screenVideoA" class="player-video is-active" playsinline preload="auto"></video><video id="screenVideoB" class="player-video" playsinline preload="auto"></video>${bars()}`;
     slots=[qs('#screenVideoA'),qs('#screenVideoB')];
     activeSlot=0;
     slots.forEach((el,slotIndex)=>{
-      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';advanceSeamless();}});
+      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;markRenderedPresence();}});
       el.addEventListener('pause',()=>{
@@ -308,7 +337,7 @@
       if(!data){if(!state){root.innerHTML='<div class="player-message">등록되지 않은 플레이어 주소입니다. 관리자 화면에서 링크를 다시 복사하세요.</div>';slots=[];}return;}
       updateServerClock(data.server_time,requestStarted,Date.now());
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
-      else if(data.room.reload_nonce!==lastNonce){location.reload();return;}
+      else if(data.room.reload_nonce!==lastNonce){try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
       state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();cacheEmergency().catch(()=>{});subscribePlayerRealtime();
       if(playlistChanged){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();queueHeartbeat(true);}
@@ -446,8 +475,9 @@
   }
 
 
-  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible')void fastLivePing();});window.addEventListener('focus',()=>void fastLivePing());fetchState();
+  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){void fastLivePing();void checkForPlayerUpdate(true);}});window.addEventListener('focus',()=>{void fastLivePing();void checkForPlayerUpdate();});fetchState();
   ensureLiveFastChannel();
+  setTimeout(()=>void checkForPlayerUpdate(true),8000);
   const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);
   const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
@@ -457,6 +487,7 @@
   /* Heavier stats/event heartbeat runs less often and is no longer the source of online truth. */
   setInterval(heartbeat,ANALYTICS_HEARTBEAT_MS);
   setInterval(playbackWatchdog,10000);
-  window.addEventListener('online',()=>{fetchState();void fastLivePing();});
+  setInterval(()=>{void checkForPlayerUpdate();if(updatePendingVersion)updateAtSafePoint();},60000);
+  window.addEventListener('online',()=>{fetchState();void fastLivePing();void checkForPlayerUpdate(true);});
   window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);if(liveFastChannel)db?.removeChannel(liveFastChannel);});
 })();
