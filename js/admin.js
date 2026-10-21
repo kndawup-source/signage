@@ -479,11 +479,19 @@
 
   try{const pruneKey='clinic-signage:event-prune-day',today=new Date().toISOString().slice(0,10);if(localStorage.getItem(pruneKey)!==today){db.rpc('admin_prune_player_events',{p_days:30}).then(()=>localStorage.setItem(pruneKey,today)).catch(()=>{});}await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
 
+  let controlSignalReady=false,controlSignalReadyPromise=null;
+  function waitForControlSignal(timeoutMs=1800){
+    if(controlSignalReady)return Promise.resolve(true);
+    if(!controlSignalReadyPromise)return Promise.resolve(false);
+    return Promise.race([controlSignalReadyPromise,new Promise(resolve=>setTimeout(()=>resolve(false),timeoutMs))]);
+  }
   async function sendImmediateControlSignal(){
     try{
-      if(!controlSignalChannel)return;
-      await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString()}});
-    }catch(_){}
+      if(!controlSignalChannel)return false;
+      await waitForControlSignal();
+      const result=await controlSignalChannel.send({type:'broadcast',event:'refresh',payload:{at:new Date().toISOString(),version:'2.21.8'}});
+      return result==='ok'||result===true||result===undefined;
+    }catch(_){return false;}
   }
   async function syncAfterControl(){
     if(document.hidden)return;
@@ -543,9 +551,15 @@
   }
   function startRealtime(){
     try{
-      controlSignalChannel=db.channel('clinic-signage-control');
-      controlSignalChannel.subscribe();
-      db.channel('clinic-admin-live-v2217')
+      controlSignalReadyPromise=new Promise(resolve=>{
+        controlSignalChannel=db.channel('clinic-signage-control',{config:{broadcast:{ack:true}}});
+        controlSignalChannel.subscribe(status=>{
+          controlSignalReady=status==='SUBSCRIBED';
+          if(status==='SUBSCRIBED')resolve(true);
+          else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')resolve(false);
+        });
+      });
+      db.channel('clinic-admin-live-v2218')
         .on('postgres_changes',{event:'INSERT',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
         .on('postgres_changes',{event:'DELETE',schema:'public',table:'rooms'},payload=>removeRealtimeRoom(payload.old?.id))

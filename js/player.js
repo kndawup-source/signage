@@ -282,7 +282,7 @@
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
       else if(data.room.reload_nonce!==lastNonce){location.reload();return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
-      state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();cacheEmergency().catch(()=>{});
+      state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();cacheEmergency().catch(()=>{});subscribePlayerRealtime();
       if(playlistChanged){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();queueHeartbeat(true);}
       else if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}
       lastStateSig=newStateSig;
@@ -327,7 +327,7 @@
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,50).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.21.7',reported_at:new Date().toISOString()};
+    const status={video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state.room.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,50).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,12).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:'2.21.8',reported_at:new Date().toISOString()};
     try{await db.rpc('player_heartbeat',{p_key:key,p_status:status});lastHeartbeatAt=Date.now();}catch(_){}finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
@@ -348,11 +348,36 @@
   function queueHeartbeat(immediate=false){clearTimeout(heartbeatTimer);const wait=immediate?Math.max(0,1200-(Date.now()-lastHeartbeatAt)):1200;heartbeatTimer=setTimeout(heartbeat,wait);}
   async function acquireWake(){try{if(navigator.wakeLock&&document.visibilityState==='visible'){try{await wakeLock?.release();}catch(_){}wakeLock=await navigator.wakeLock.request('screen');}}catch(_){}}
 
-  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',acquireWake);fetchState();
-  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);setInterval(fetchState,PLAYER_FALLBACK_MS);setInterval(heartbeat,Math.max(20000,Signage.cfg.heartbeatMs||20000));setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',clearEmergencyObjectUrl);
-  if(db){
-    const roomChannel=db.channel(`room:${key}`).on('broadcast',{event:'refresh'},()=>fetchState()).subscribe();
-    const controlChannel=db.channel('clinic-signage-control').on('broadcast',{event:'refresh'},()=>fetchState()).subscribe();
-    window.addEventListener('beforeunload',()=>{db.removeChannel(roomChannel);db.removeChannel(controlChannel);});
+  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,controlBroadcastChannel=null,realtimeFetchTimer=null;
+  function requestRealtimeState(){
+    clearTimeout(realtimeFetchTimer);
+    realtimeFetchTimer=setTimeout(()=>fetchState(),25);
   }
+  function subscribePlayerRealtime(){
+    if(!db)return;
+    const roomId=state?.room?.id||null;
+    if(!roomBroadcastChannel){
+      roomBroadcastChannel=db.channel(`room:${key}`).on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
+    }
+    if(!controlBroadcastChannel){
+      controlBroadcastChannel=db.channel('clinic-signage-control').on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
+    }
+    if(!roomId||realtimeRoomId===roomId)return;
+    if(realtimeDbChannel)db.removeChannel(realtimeDbChannel);
+    realtimeRoomId=roomId;
+    realtimeDbChannel=db.channel(`clinic-player-db-${roomId}`)
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'rooms',filter:`id=eq.${roomId}`},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'room_video_rules',filter:`room_id=eq.${roomId}`},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'broadcast'},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'group_broadcasts'},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'playlist_items'},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'playlists'},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'videos'},requestRealtimeState)
+      .on('postgres_changes',{event:'*',schema:'public',table:'broadcast_schedules'},requestRealtimeState)
+      .subscribe();
+  }
+
+
+  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',acquireWake);fetchState();
+  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);setInterval(fetchState,PLAYER_FALLBACK_MS);setInterval(heartbeat,Math.max(20000,Signage.cfg.heartbeatMs||20000));setInterval(playbackWatchdog,10000);window.addEventListener('online',fetchState);window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);});
 })();
