@@ -6,7 +6,12 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.25.1');
+  const PLAYLIST_MEDIA_CACHE = 'clinic-signage-playlist-media-v1';
+  const OFFLINE_READY_KEY = `clinic-signage:offline-ready:${key || 'none'}`;
+  const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
+  const OFFLINE_CACHE_USAGE_RATIO = 0.82;
+  const OFFLINE_CACHE_START_DELAY_MS = 5000;
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.26.0');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -52,11 +57,101 @@
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
   let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
+  let offlineCacheTimer=null,offlineCacheSyncToken=0,offlineCacheBusy=false;
+  let offlineCacheReady=false,offlineCacheCount=0,offlineCacheTotal=0,offlineCacheUpdatedAt=null;
 
   if (!key) { console.error('Clinic Signage: missing player key'); if(root)root.innerHTML='<div class="player-message">플레이어 주소에 key가 없습니다. 관리자 화면의 공간 플레이어 링크를 사용하세요.</div>'; return; }
 
+  async function registerPlayerServiceWorker(){
+    if(!('serviceWorker' in navigator))return null;
+    try{
+      const reg=await navigator.serviceWorker.register('/player-sw.js',{scope:'/'});
+      try{await reg.update();}catch(_){}
+      await navigator.serviceWorker.ready;
+      return reg;
+    }catch(e){console.warn('Clinic Signage service worker unavailable:',e?.message||e);return null;}
+  }
+  function readJsonStorage(storageKey){try{return JSON.parse(localStorage.getItem(storageKey)||'null');}catch(_){return null;}}
+  function writeJsonStorage(storageKey,value){try{localStorage.setItem(storageKey,JSON.stringify(value));return true;}catch(_){return false;}}
+  function offlineReadyState(){const value=readJsonStorage(OFFLINE_READY_KEY);return value?.playlist?.length?value:null;}
+  function cacheablePlaylistItems(s=state){return (s?.playlist||[]).filter(v=>v?.url&&/^https?:\/\//i.test(String(v.url)));}
+  async function storageHasRoomFor(sizeBytes){
+    if(!navigator.storage?.estimate)return true;
+    try{
+      const {quota=0,usage=0}=await navigator.storage.estimate();
+      const need=Math.max(0,Number(sizeBytes||0));
+      if(!quota)return true;
+      return usage+need < quota*OFFLINE_CACHE_USAGE_RATIO;
+    }catch(_){return true;}
+  }
+  async function cachedMediaIsComplete(cache,v){
+    const url=mediaUrl(v);if(!url)return false;
+    const hit=await cache.match(url);if(!hit)return false;
+    const expected=Number(v?.size||0),actual=Number(hit.headers.get('content-length')||0);
+    return !(expected>0&&actual>0&&Math.abs(expected-actual)>1);
+  }
+  async function cacheOnePlaylistVideo(cache,v,token,forceRefresh=false){
+    if(token!==offlineCacheSyncToken)return false;
+    const url=mediaUrl(v);if(!url)return false;
+    if(!forceRefresh&&await cachedMediaIsComplete(cache,v))return true;
+    const size=Number(v?.size||0);
+    if(!(await storageHasRoomFor(size)))throw new Error('offline_cache_quota');
+    const response=await fetch(url,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store'});
+    if(!response.ok)throw new Error(`offline_cache_http_${response.status}`);
+    if(token!==offlineCacheSyncToken)return false;
+    await cache.put(url,response.clone());
+    return true;
+  }
+  async function prunePlaylistCache(cache,keepUrls){
+    const keys=await cache.keys();
+    await Promise.all(keys.filter(req=>!keepUrls.has(req.url)).map(req=>cache.delete(req)));
+  }
+  async function syncOfflinePlaylistCache(){
+    if(offlineCacheBusy||!('caches' in window)||!state?.playlist?.length||!navigator.onLine)return false;
+    offlineCacheBusy=true;const token=++offlineCacheSyncToken;
+    const snapshot=JSON.parse(JSON.stringify(state));
+    const items=cacheablePlaylistItems(snapshot),total=items.length;
+    offlineCacheTotal=total;offlineCacheCount=0;offlineCacheReady=false;
+    try{
+      try{await navigator.storage?.persist?.();}catch(_){}
+      const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
+      const signature=playlistSignature(snapshot),previousMeta=readJsonStorage(OFFLINE_CACHE_META_KEY);
+      const forceRefresh=Boolean(previousMeta?.playlist_signature&&previousMeta.playlist_signature!==signature);
+      let complete=0;
+      for(const v of items){
+        if(token!==offlineCacheSyncToken)return false;
+        try{if(await cacheOnePlaylistVideo(cache,v,token,forceRefresh))complete++;}
+        catch(e){console.warn('Clinic Signage offline cache item failed:',v?.title||v?.id,e?.message||e);}
+        offlineCacheCount=complete;
+        await new Promise(r=>setTimeout(r,120));
+      }
+      const allReady=total>0&&complete===total;
+      if(allReady&&token===offlineCacheSyncToken){
+        const keep=new Set(items.map(v=>new URL(mediaUrl(v),location.href).href));
+        await prunePlaylistCache(cache,keep);
+        writeJsonStorage(OFFLINE_READY_KEY,snapshot);
+        offlineCacheReady=true;offlineCacheUpdatedAt=new Date().toISOString();
+        writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:complete,total,updated_at:offlineCacheUpdatedAt,playlist_signature:playlistSignature(snapshot)});
+        return true;
+      }
+      writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:playlistSignature(snapshot)});
+      return false;
+    }catch(e){
+      console.warn('Clinic Signage offline playlist cache failed:',e?.message||e);
+      return false;
+    }finally{offlineCacheBusy=false;}
+  }
+  function scheduleOfflinePlaylistCache(force=false){
+    clearTimeout(offlineCacheTimer);
+    if(!navigator.onLine||!state?.playlist?.length)return;
+    const meta=readJsonStorage(OFFLINE_CACHE_META_KEY);
+    if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(state)){
+      offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;return;
+    }
+    offlineCacheTimer=setTimeout(()=>void syncOfflinePlaylistCache(),force?250:OFFLINE_CACHE_START_DELAY_MS);
+  }
   function playlistSignature(s) {
-    return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}`).join(',')}`;
+    return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}`).join(',')}`;
   }
   function stateSignature(s) {
     const r=s?.room||{};
@@ -359,7 +454,7 @@
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
       else if(data.room.reload_nonce!==lastNonce){try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
-      state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();cacheEmergency().catch(()=>{});subscribePlayerRealtime();
+      state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);subscribePlayerRealtime();
       const fetchedAt=data.server_time||null;
       lastStateSig=newStateSig;
       if(playlistChanged){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();syncedAt=fetchedAt;queueHeartbeat(true);}
@@ -369,7 +464,11 @@
     finally{fetchInFlight=false;if(fetchQueued){fetchQueued=false;queueMicrotask(fetchState);}}
   }
   function loadSaved(){
-    try{const saved=JSON.parse(localStorage.getItem(savedKey)||'null');if(saved?.playlist){state=saved;lastPlaylistSig=playlistSignature(saved);lastStateSig=stateSignature(saved);renderFull();}}catch(_){}
+    try{
+      const saved=readJsonStorage(savedKey),offline=offlineReadyState();
+      const initial=(!navigator.onLine&&offline)||saved||offline;
+      if(initial?.playlist){state=initial;lastPlaylistSig=playlistSignature(initial);lastStateSig=stateSignature(initial);renderFull();}
+    }catch(_){}
   }
 
   async function cacheEmergency(){
@@ -409,7 +508,7 @@
   function playbackState(){const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(confirmedPlaybackState==='playing'&&!el.ended)return 'playing';if(el.ended)return 'ended';if(el.paused)return confirmedPlaybackState==='playing'?'playing':'paused';if(el.readyState<3)return 'loading';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
   /* Live status report: event-driven + 60s presence. No Realtime broadcast (admin/staff poll). */
   async function reportLive(){
@@ -494,11 +593,12 @@
   const PLAYBACK_PRESENCE_RETRY_MS=10000;
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
 
-  ensureSurface();loadSaved();acquireWake();fetchState();
+  ensureSurface();void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
   document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){scheduleReport();void checkForPlayerUpdate(true);}});
   window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
-  window.addEventListener('online',()=>{fetchState();void checkForPlayerUpdate(true);});
-  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(reportTimer);[realtimeDbChannel,roomBroadcastChannel,controlBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
+  window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
+  window.addEventListener('offline',()=>{const cached=offlineReadyState();if(cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
+  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel,controlBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
   setTimeout(()=>void checkForPlayerUpdate(true),8000);
   /* Fallback only: Realtime wake-ups are the primary path. */
   setInterval(fetchState,PLAYER_FALLBACK_MS);

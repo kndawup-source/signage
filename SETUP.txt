@@ -164,3 +164,12 @@ SQL 실행 순서 (Supabase SQL Editor, 여러 번 실행해도 안전)
 - 관리자/스태프 live status 변경분 조회 60초
 - 제어 직후 해당 공간 ACK 유지
 - schema.sql 중복 함수 정의를 최종 정의 기준으로 정리
+
+
+OFFLINE CACHE (v2.26.0)
+- Player registers /player-sw.js automatically on first online load.
+- The active room playlist is downloaded to browser Cache Storage in the background.
+- A playlist is marked offline-ready only after every current video is cached.
+- If a newer playlist is only partially cached, the previous fully cached playlist is retained as fallback.
+- When internet is unavailable, cached video requests are served locally; when internet returns, the player fetches current state and refreshes the cache automatically.
+- Browser storage may be evicted by the OS under disk pressure. Keep adequate free disk space on signage PCs.
