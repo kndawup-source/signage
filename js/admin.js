@@ -224,16 +224,15 @@
   }
   function buildingDashboardMarkup(){
     const floors=state.groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).sort((a,b)=>floorNumber(b)-floorNumber(a));
-    const byFloor=new Map(floors.map(g=>[floorNumber(g),g]));
-    const site=state.settings.site_name||'CLINIC SIGNAGE',building=state.settings.building_label||'MAIN BUILDING';
-    const periodNav=`<div class="building-period-nav" role="tablist" aria-label="건물 현황 기간"><button class="${buildingPeriod==='live'?'active':''}" data-building-period="live">LIVE</button><button class="${buildingPeriod==='today'?'active':''}" data-building-period="today">TODAY</button><button class="${buildingPeriod==='7d'?'active':''}" data-building-period="7d">7 DAYS</button></div>`;
-    const stack=Array.from({length:14},(_,i)=>14-i).map(n=>{
-      const g=byFloor.get(n),rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',label:'미등록',live:0,issues:0,offline:0,rate:0,errors:0,reconnects:0};
-      const purpose=g?(floorPurposeLine(g)||'송출 목적 미설정'):'미등록 층';
-      const metric=buildingPeriod==='live'?`${sum.live||0}/${sum.total||rooms.length} 송출${sum.issues?` · 문제 ${sum.issues}`:''}`:sum.unavailable?'통계 데이터를 준비 중입니다.':`재생률 ${Number(sum.rate||0).toFixed(0)}%${sum.errors?` · 오류 ${sum.errors}`:''}`;
-      return `<button class="building-stack-floor floor-state-${sum.key}" ${g?`data-open-floor="${g.id}"`: 'disabled'}><span class="building-stack-no">${n}F</span><span class="building-stack-main"><b>${esc(purpose)}</b><small>${esc(metric)}</small></span><span class="building-stack-dot"></span></button>`;
+    const site=state.settings.site_name||'CLINIC SIGNAGE';
+    const visibleFloors=issuesOnly?floors.filter(g=>groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id)).issues>0):floors;
+    const rows=visibleFloors.map(g=>{
+      const rooms=state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),n=floorNumber(g);
+      const purpose=g.signage_purpose||'송출 목적 미설정',audience=g.target_audience||'대상 미설정';
+      const stateText=sum.issues?`문제 ${sum.issues}곳 · 송출 ${sum.live}/${sum.total}`:sum.live?`${sum.live}/${sum.total} 송출 중`:sum.offline?`오프라인 ${sum.offline}곳`:'현재 대기';
+      return `<button class="ops-floor-row floor-state-${sum.key}" data-open-floor="${g.id}"><span class="ops-floor-no">${n}F</span><span class="ops-floor-info"><span class="ops-floor-kind">${esc(careTypeLabel(g.care_type))}</span><b>${esc(purpose)}</b><small>${esc(audience)}</small></span><span class="ops-floor-state"><b>${esc(stateText)}</b><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span></span></button>`;
     }).join('');
-    return `<section class="building-dashboard"><div class="building-stack-card"><div class="building-stack-head"><div><span class="eyebrow">BUILDING</span><h2>${esc(site)}</h2><p>${esc(building)} · 층을 선택하면 공간별 송출 목적과 상태를 확인할 수 있습니다.</p></div>${periodNav}</div><div class="building-stack">${stack}</div></div><div class="building-floor-list">${floors.map(g=>floorSummaryCard(g,state.rooms.filter(r=>r.group_id===g.id))).join('')||'<div class="empty-setting-message">1–14층 그룹을 설정하면 건물 현황이 표시됩니다.</div>'}</div></section>`;
+    return `<section class="ops-floor-board"><div class="ops-floor-board-head"><div><span class="eyebrow">FLOOR STATUS</span><h2>층별 영상 송출</h2><p>${esc(site)} · 각 층에서 <b>누구에게 어떤 목적으로 영상이 송출되는지</b>와 현재 상태를 확인합니다.</p></div><span>${visibleFloors.length}개 층</span></div><div class="ops-floor-list">${rows||`<div class="empty-setting-message">${issuesOnly?'현재 문제 있는 층이 없습니다.':'층 정보를 설정하면 여기에 표시됩니다.'}</div>`}</div></section>`;
   }
   function floorMarker(r){return floorMapMarker(r,false);}
   function floorDashboardMarkup(g){
@@ -247,19 +246,17 @@
     const asset=floorAsset(g);
     return `<section class="floor-dashboard"><div class="floor-context"><div><button class="text-btn floor-back" data-building-view>건물 전체</button><span class="eyebrow">${esc(careTypeLabel(g.care_type))}</span><h2>${esc(floorTitle(g))} · ${esc(g.name)}</h2><p>${esc(purpose)}</p></div><div class="floor-context-facts"><span><small>주요 대상</small><b>${esc(audience)}</b></span><span><small>고객 대기공간</small><b>${esc(waiting)}</b></span><span><small>송출 이유</small><b>${esc(reason)}</b></span><span><small>기본 플레이리스트</small><b>${esc(playlist)}</b></span></div></div><div class="floor-live-summary"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total} 송출 중</b><span>문제 ${sum.issues} · 오프라인 ${sum.offline}</span></div><div class="floor-map-layout"><div class="floor-map-card"><div class="floor-map-head"><div><b>층 평면도</b><small>벽·복도·방 구조만 옅게 표시하고 송출 공간 상태를 위에 표시합니다.</small></div><span>${rooms.length}곳</span></div>${asset?`<div class="floor-plan-stage"><img data-floorplan-img="${asset}" alt="${esc(floorTitle(g))} 미니멀 평면도">${rooms.map(floorMarker).join('')}</div>`:'<div class="floor-plan-empty">등록된 평면도가 없습니다.</div>'}</div><aside class="floor-room-sidebar"><div class="floor-room-sidebar-head"><b>공간 현황</b><span>${rooms.length}곳</span></div>${[...rooms].sort((a,b)=>roomProblemRank(a)-roomProblemRank(b)||(a.sort_order||0)-(b.sort_order||0)).map(r=>{const st=roomDisplayStatus(r),ps=r.player_status||{};return `<button class="floor-room-row" data-floor-room="${r.id}"><span class="room-status-badge status-${st.key}">${esc(st.label)}</span><b>${esc(r.name)}</b><small>${esc(roomModeLabel(r.room_mode))} · 우선순위 ${esc(priorityLabel(ps.priority||ps.mode))}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}</small></button>`;}).join('')||'<span class="muted">등록된 공간이 없습니다.</span>'}${unplaced.length?`<p class="floor-unplaced-note">배치 위치 미설정 ${unplaced.length}곳 · 설정 &gt; 공간 관리에서 위치를 지정하세요.</p>`:''}</aside></div></section>`;
   }
-  function dashboardViewNav(){return `<div class="dashboard-view-nav" role="tablist" aria-label="현황 보기"><button class="${dashboardView==='building'?'active':''}" data-dashboard-view="building">건물</button><button class="${dashboardView==='floor'?'active':''}" data-dashboard-view="floor" ${selectedFloorId?'':'disabled'}>층 상세</button><button class="${dashboardView==='rooms'?'active':''}" data-dashboard-view="rooms">공간 목록</button></div>`;}
+  function dashboardViewNav(){return `<div class="dashboard-view-nav" role="tablist" aria-label="송출 현황 보기"><button class="${dashboardView==='building'?'active':''}" data-dashboard-view="building">층별 현황</button><button class="${dashboardView==='floor'?'active':''}" data-dashboard-view="floor" ${selectedFloorId?'':'disabled'}>층 평면도</button><button class="${dashboardView==='rooms'?'active':''}" data-dashboard-view="rooms">전체 공간</button></div>`;}
   function render(){if(tab==='dashboard')renderDashboard();else if(tab==='videos')renderVideos();else renderSettings();}
 
   function operationalAlerts(){
     const alerts=[];
-    if(storageHealth===false)alerts.push({type:'danger',text:'영상 저장소 설정을 확인하세요.'});
-    const offline=state.rooms.filter(r=>!adminIsOnline(r)); if(offline.length)alerts.push({type:'warn',text:`오프라인 ${offline.length}곳: ${offline.slice(0,6).map(r=>r.name).join(', ')}${offline.length>6?' 외':''}`});
-    const errors=state.rooms.filter(r=>roomDisplayStatus(r).key==='error'); if(errors.length)alerts.push({type:'warn',text:`재생 오류 ${errors.length}곳: ${errors.slice(0,4).map(r=>r.name).join(', ')}${errors.length>4?' 외':''}`});
-    const oldVersion=state.rooms.filter(r=>r.player_status?.app_version&&r.player_status.app_version!==PLAYER_VERSION); if(oldVersion.length)alerts.push({type:'warn',text:`업데이트 필요 ${oldVersion.length}곳: ${oldVersion.slice(0,4).map(r=>r.name).join(', ')}`});
-    const shortages=contentWarnings();if(shortages.length)alerts.push({type:'warn',text:`콘텐츠 확인 ${shortages.length}곳: ${shortages.slice(0,4).join(' · ')}${shortages.length>4?' 외':''}`});
-    const cacheMissing=state.rooms.filter(r=>adminIsOnline(r)&&Number(r.player_status?.offline_cache_total||0)>0&&r.player_status?.offline_cache_ready!==true);if(cacheMissing.length)alerts.push({type:'warn',text:`오프라인 캐시 준비 필요 ${cacheMissing.length}곳: ${cacheMissing.slice(0,5).map(r=>r.name).join(', ')}${cacheMissing.length>5?' 외':''}`});
-    const floorMetaMissing=state.groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14&&(!g.signage_purpose||!g.target_audience||!g.signage_reason));if(floorMetaMissing.length)alerts.push({type:'warn',text:`층 운영 설명 미설정 ${floorMetaMissing.length}층: ${floorMetaMissing.slice(0,6).map(g=>floorTitle(g)).join(', ')}${floorMetaMissing.length>6?' 외':''}`});
-    const mapMissing=state.rooms.filter(r=>r.group_id&&floorNumber(groupById(r.group_id))>=1&&!(Number(r.map_x_pct)>=0&&Number(r.map_x_pct)<=100&&Number(r.map_y_pct)>=0&&Number(r.map_y_pct)<=100));if(mapMissing.length)alerts.push({type:'warn',text:`배치 위치 미설정 ${mapMissing.length}곳: ${mapMissing.slice(0,5).map(r=>r.name).join(', ')}${mapMissing.length>5?' 외':''}`});
+    const errors=state.rooms.filter(r=>roomDisplayStatus(r).key==='error');
+    const offline=state.rooms.filter(r=>roomDisplayStatus(r).key==='offline');
+    const updates=state.rooms.filter(r=>roomDisplayStatus(r).key==='update');
+    if(errors.length)alerts.push({type:'danger',text:`재생 오류 ${errors.length}곳 · ${errors.slice(0,4).map(r=>r.name).join(', ')}${errors.length>4?' 외':''}`});
+    if(offline.length)alerts.push({type:'warn',text:`연결 끊김 ${offline.length}곳 · ${offline.slice(0,5).map(r=>r.name).join(', ')}${offline.length>5?' 외':''}`});
+    if(updates.length)alerts.push({type:'warn',text:`플레이어 업데이트 필요 ${updates.length}곳 · ${updates.slice(0,4).map(r=>r.name).join(', ')}${updates.length>4?' 외':''}`});
     return alerts;
   }
   function alertsHtml(){return `<div id="opsAlerts" class="ops-alerts">${operationalAlerts().map(x=>`<div class="ops-alert ${x.type}">${esc(x.text)}</div>`).join('')}</div>`;}
@@ -276,6 +273,22 @@
     return `<details class="playback-analytics"><summary class="playback-summary-card"><div><span class="eyebrow">PLAYBACK</span><h2>전체 재생률</h2><p>${hours}</p></div><div class="playback-summary-rate"><b>${rate.toFixed(1)}%</b><span>상세보기</span></div><div class="playback-overall-bar"><i style="width:${Math.max(0,Math.min(100,rate))}%"></i></div></summary><div class="playback-detail-body"><div class="stats-period-grid">${periodCard('today','오늘')}${periodCard('week','이번 주')}${periodCard('month','이번 달')}</div><div class="playback-summary"><span>오늘 재생 <b>${hms(overall.playing_seconds)}</b></span><span>오늘 중단 <b>${hms(remaining)}</b></span><span>오류 <b>${overall.error_count||0}</b></span><span>재연결 <b>${overall.reconnect_count||0}</b></span></div><div class="playback-room-section"><div class="playback-room-section-head"><b>공간별 오늘 재생률</b><span>${rooms.length}곳</span></div><div class="playback-room-list">${roomRows}</div></div></div></details>`;
   }
 
+  function operatingNowLabel(){
+    if(state.settings.early_closed_date===localDateKey())return '오늘 운영 종료';
+    const d=new Date().getDay(),key=d===0?'sunday':d===6?'saturday':'weekday';
+    const enabled=state.settings[`operating_${key}_enabled`]!==false;
+    if(!enabled)return '오늘 휴무';
+    const start=state.settings[`operating_${key}_start`]||'09:00',end=state.settings[`operating_${key}_end`]||'20:00';
+    return `${String(start).slice(0,5)}–${String(end).slice(0,5)} 운영`;
+  }
+  function problemBreakdownMarkup(){
+    const offline=state.rooms.filter(r=>roomDisplayStatus(r).key==='offline').length;
+    const updates=state.rooms.filter(r=>roomDisplayStatus(r).key==='update').length;
+    const errors=state.rooms.filter(r=>roomDisplayStatus(r).key==='error').length;
+    if(!offline&&!updates&&!errors)return '<span class="ops-ok-copy">현재 확인이 필요한 공간이 없습니다.</span>';
+    return `<span>연결 끊김 <b>${offline}</b></span><span>업데이트 <b>${updates}</b></span><span>재생 오류 <b>${errors}</b></span>`;
+  }
+
   function renderDashboard(){
     const videos=activeVideos(),selected=state.broadcast?.video_ids||[],online=state.rooms.filter(adminIsOnline).length;
     const grouped=[...state.groups.map(g=>({group:g,rooms:state.rooms.filter(r=>r.group_id===g.id)})),{group:null,rooms:state.rooms.filter(r=>!r.group_id)}].filter(x=>x.rooms.length||x.group);
@@ -290,29 +303,34 @@
     const bPhase=broadcastPhase(),bLive=bPhase==='live',bScheduled=bPhase==='scheduled';
     const bStatus=bLive?'송출 중':bScheduled?'예약 대기':bPhase==='ended'?'종료됨':'기본 상태';
     const bTime=(state.broadcast?.active&&bPhase!=='off')?timeWindowText(state.broadcast?.starts_at,state.broadcast?.ends_at):'';
+    const idleCount=roomStatuses.filter(x=>x.key==='idle').length;
     qs('#adminRoot').innerHTML=`
-      <div class="monitor-head"><div><span class="eyebrow">MONITOR</span><h1>송출 현황</h1></div><div class="monitor-clock-meta"><b id="onlineStat">${online}/${state.rooms.length}</b><span>온라인</span></div></div>
-      <div class="monitor-status-strip monitor-status-primary">
-        <div><span>전체 공간</span><b data-stat-total>${state.rooms.length}</b></div>
-        <div class="status-live"><span>송출 중</span><b data-stat-live>${liveCount}</b></div>
-        <div class="${issueCount?'status-issue':''}"><span>문제 공간</span><b data-stat-issues>${issueCount}</b></div>
-        <div class="${offlineCount?'status-offline':''}"><span>오프라인</span><b data-stat-offline>${offlineCount}</b></div>
-      </div>
-      <div class="monitor-status-secondary"><span>온라인 <b data-stat-online>${online}/${state.rooms.length}</b></span><span>일시정지 <b data-stat-paused>${paused}</b></span><span>그룹 송출 <b>${activeGroups}</b></span><span>저장소 <b class="${storageHealth===false?'danger-text':''}">${storageState}</b></span></div>
-      ${alertsHtml()}
-      ${playbackAnalyticsMarkup()}
-      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${state.settings.early_closed_date===localDateKey()?'<button id="reopenToday" class="btn primary">오늘 송출 재개</button>':'<button id="closeToday" class="btn">오늘 운영 종료</button>'}${outdatedRooms().length?`<button id="reloadOutdatedPlayers" class="btn">업데이트 필요 ${outdatedRooms().length}곳 새로고침</button>`:''}<button id="reloadAllPlayers" class="btn">전체 플레이어 새로고침</button><span>플레이어 기준 ${esc(PLAYER_VERSION)} · 상태 변화 즉시 반영 · ${Math.round((Number(Signage.cfg.livePollMs)||0)/1000)||'수동'}${Number(Signage.cfg.livePollMs)>0?'초 변경분 확인은 안전망':''} · 제어 직후 공간별 ACK</span></div>
-      <section class="monitor-broadcast-strip ${bLive?'is-live':''} ${bScheduled?'is-scheduled':''}">
-        <div class="monitor-broadcast-copy"><span>전체 송출</span><b>${bStatus}</b><em>${esc(broadcastText)}${bTime?` · ${esc(bTime)}`:''}</em></div>
-        <div class="monitor-broadcast-actions"><details><summary>전체 송출 설정</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="output-time-grid"><label><span>시작</span><input id="broadcastStart" type="datetime-local" value="${toLocalInput(bPhase==='ended'?null:state.broadcast?.starts_at)}"><small>비우면 즉시</small></label><label><span>종료</span><input id="broadcastEnd" type="datetime-local" value="${toLocalInput(bPhase==='ended'?null:state.broadcast?.ends_at)}"><small>비우면 직접 중지</small></label></div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active&&bPhase!=='ended'?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active&&bPhase!=='ended'?'danger':'primary'}" ${(!state.broadcast?.active||bPhase==='ended')&&!selected.length?'disabled':''}>${state.broadcast?.active&&bPhase!=='ended'?(bScheduled?'예약 취소':'전체 중지'):'전체 시작'}</button></div>
+      <div class="ops-page-head"><div><span class="eyebrow">LIVE MONITOR</span><h1>영상 송출 관제</h1><p>각 층과 공간에서 <b>어떤 영상이 왜 송출되고 있는지</b>, 그리고 지금 문제가 있는 곳이 어디인지 확인합니다.</p></div><div class="ops-head-meta"><b id="onlineStat">${liveCount}/${state.rooms.length}</b><span>현재 송출</span><em>${esc(operatingNowLabel())}</em></div></div>
+      <section class="ops-now-summary">
+        <div class="ops-now-main"><span>현재 송출</span><b data-stat-live>${liveCount}</b><small>전체 ${state.rooms.length}개 공간</small></div>
+        <div><span>대기</span><b>${idleCount}</b><small>운영시간 외·재생 대기</small></div>
+        <div class="${issueCount?'is-problem':''}"><span>확인 필요</span><b data-stat-issues>${issueCount}</b><small>연결·업데이트·재생 오류</small></div>
       </section>
+      <section class="ops-problem-line ${issueCount?'has-problem':'is-clear'}"><b>${issueCount?'확인 필요한 공간':'운영 상태 정상'}</b><div>${problemBreakdownMarkup()}</div>${issueCount?`<button id="issuesOnly" class="text-btn dark">${issuesOnly?'전체 층 보기':'문제 층만 보기'}</button>`:''}</section>
+      <div class="ops-primary-actions"><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${state.settings.early_closed_date===localDateKey()?'<button id="reopenToday" class="btn primary">오늘 송출 재개</button>':'<button id="closeToday" class="btn">오늘 운영 종료</button>'}</div>
       ${dashboardViewNav()}
       <div id="dashboardSpatialView">${dashboardView==='building'?buildingDashboardMarkup():dashboardView==='floor'?floorDashboardMarkup(groupById(selectedFloorId)):`<div class="monitor-groups">${grouped.map(({group,rooms})=>groupSection(group,rooms,videos)).join('')}</div>`}</div>
-      <details class="monitor-batch"><summary>여러 공간 한 번에 바꾸기</summary><div class="monitor-batch-body"><select id="batchVideo" class="grow">${videoOptions()}</select><button id="batchSend" class="btn primary">보내기</button><button id="batchAuto" class="btn">기본으로</button><button id="reloadSelectedPlayers" class="btn">선택 플레이어 새로고침</button><button id="clearRoomChecks" class="btn">선택 해제</button></div></details>
+      <details class="ops-control-panel">
+        <summary><span><b>전체 송출 · 고급 제어</b><small>전체 병원 일괄 송출, 플레이어 새로고침, 여러 공간 일괄 변경</small></span><em>${bLive?'전체 송출 중':bScheduled?'예약 대기':'필요할 때만 사용'}</em></summary>
+        <div class="ops-control-body">
+          <section class="monitor-broadcast-strip ${bLive?'is-live':''} ${bScheduled?'is-scheduled':''}">
+            <div class="monitor-broadcast-copy"><span>병원 전체 일괄 송출</span><b>${bStatus}</b><em>${esc(broadcastText)}${bTime?` · ${esc(bTime)}`:''}</em></div>
+            <div class="monitor-broadcast-actions"><details><summary>영상 선택</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="output-time-grid"><label><span>시작</span><input id="broadcastStart" type="datetime-local" value="${toLocalInput(bPhase==='ended'?null:state.broadcast?.starts_at)}"><small>비우면 즉시</small></label><label><span>종료</span><input id="broadcastEnd" type="datetime-local" value="${toLocalInput(bPhase==='ended'?null:state.broadcast?.ends_at)}"><small>비우면 직접 중지</small></label></div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active&&bPhase!=='ended'?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active&&bPhase!=='ended'?'danger':'primary'}" ${(!state.broadcast?.active||bPhase==='ended')&&!selected.length?'disabled':''}>${state.broadcast?.active&&bPhase!=='ended'?(bScheduled?'예약 취소':'전체 중지'):'전체 시작'}</button></div>
+          </section>
+          <div class="ops-player-actions">${outdatedRooms().length?`<button id="reloadOutdatedPlayers" class="btn">업데이트 필요 ${outdatedRooms().length}곳 새로고침</button>`:''}<button id="reloadAllPlayers" class="btn">전체 플레이어 새로고침</button><span>플레이어 ${esc(PLAYER_VERSION)} · Realtime + ACK</span></div>
+          <details class="monitor-batch"><summary>여러 공간 한 번에 바꾸기</summary><div class="monitor-batch-body"><select id="batchVideo" class="grow">${videoOptions()}</select><button id="batchSend" class="btn primary">보내기</button><button id="batchAuto" class="btn">기본으로</button><button id="reloadSelectedPlayers" class="btn">선택 플레이어 새로고침</button><button id="clearRoomChecks" class="btn">선택 해제</button></div></details>
+        </div>
+      </details>
+      <details class="ops-analytics-panel"><summary><span><b>운영 통계</b><small>재생률과 기간별 기록은 실시간 관제와 분리해서 확인합니다.</small></span><em>오늘 · 주 · 월</em></summary><div class="ops-analytics-body">${playbackAnalyticsMarkup()}</div></details>
       <div class="dashboard-secondary-grid">
         <details class="dashboard-secondary"><summary><span><b>예약 송출</b><small>정해진 시간에 전체 또는 그룹 영상 송출</small></span><em>${state.schedules.filter(s=>new Date(s.ends_at)>new Date()).length}건</em></summary><div class="dashboard-secondary-body">${schedulePanel(videos)}</div></details>
         <details class="dashboard-secondary"><summary><span><b>송출 기록</b><small>최근 변경 확인 및 되돌리기</small></span><em>${state.history.length}건</em></summary><div class="dashboard-secondary-body">${historyPanel()}</div></details>
-      </div>`;
+      </div>`
     bindDashboard();
     hydrateFloorplanImages();
   }

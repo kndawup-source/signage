@@ -109,7 +109,7 @@
   }
   function staffBuildingOverview(groups){
     const floors=groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).sort((a,b)=>floorNumber(b)-floorNumber(a));
-    return `<section class="staff-building-board"><div class="staff-building-head"><span class="eyebrow">BUILDING</span><h2>층별 송출 목적</h2><p>각 층의 대상, 송출 목적과 현재 상태를 한 번에 확인합니다.</p></div><div class="staff-building-stack">${floors.map(g=>{const st=groupStatusSummary(g.rooms),purpose=g.signage_purpose||'송출 목적 미설정';return `<button class="staff-floor-purpose floor-state-${st.key}" data-scroll-group="${g.id}"><span>${floorNumber(g)}F</span><div><b>${esc(careTypeLabel(g.care_type))} · ${esc(purpose)}</b><small>${esc(g.target_audience||'대상 미설정')} · ${esc(g.signage_reason||'송출 이유 미설정')} · ${st.live}/${st.total} 송출 중${st.issues?` · 문제 ${st.issues}`:''}</small></div><em class="room-status-badge status-${st.key}">${esc(st.label)}</em></button>`;}).join('')}</div></section>`;
+    return `<section class="staff-building-board"><div class="staff-building-head"><span class="eyebrow">FLOOR STATUS</span><h2>층별 영상 송출</h2><p>층별 대상과 송출 목적, 현재 상태를 확인합니다.</p></div><div class="staff-building-stack">${floors.map(g=>{const st=groupStatusSummary(g.rooms),purpose=g.signage_purpose||'송출 목적 미설정';return `<button class="staff-floor-purpose floor-state-${st.key}" data-scroll-group="${g.id}"><span>${floorNumber(g)}F</span><div><b>${esc(careTypeLabel(g.care_type))} · ${esc(purpose)}</b><small>${esc(g.target_audience||'대상 미설정')} · ${esc(g.signage_reason||'송출 이유 미설정')} · ${st.live}/${st.total} 송출 중${st.issues?` · 문제 ${st.issues}`:''}</small></div><em class="room-status-badge status-${st.key}">${esc(st.label)}</em></button>`;}).join('')}</div></section>`;
   }
 
 
@@ -124,14 +124,12 @@
     const groups=groupedRooms();
     qs('#staffRoot').innerHTML=`
       ${state.broadcast?.active?'<div class="broadcast-strip">전체 송출 중 · 맞춤 설정은 저장되며 전체 송출 종료 후 자동 적용됩니다.</div>':''}
-      <div class="reception-head reception-head-board"><div><span class="eyebrow">RECEPTION</span><h1>송출 현황</h1><p>어드민과 같은 기준으로 실제 송출 상태를 확인하고 각 공간의 플레이리스트와 영상을 관리합니다.</p></div><button id="staffStatusRefresh" class="btn">상태 새로고침</button></div>
-      <div class="monitor-status-strip monitor-status-primary staff-status-primary">
-        <div><span>전체 공간</span><b data-staff-stat-total>${state.rooms.length}</b></div>
-        <div class="status-live"><span>송출 중</span><b data-staff-stat-live>${live}</b></div>
-        <div class="${issues?'status-issue':''}"><span>문제 공간</span><b data-staff-stat-issues>${issues}</b></div>
-        <div class="${offline?'status-offline':''}"><span>오프라인</span><b data-staff-stat-offline>${offline}</b></div>
+      <div class="reception-head reception-head-board"><div><span class="eyebrow">LIVE MONITOR</span><h1>영상 송출 현황</h1><p>각 층과 공간에서 현재 어떤 영상이 송출되고 있는지 확인하고 필요한 공간만 관리합니다.</p></div><button id="staffStatusRefresh" class="btn">상태 새로고침</button></div>
+      <div class="staff-ops-summary">
+        <div class="is-live"><span>현재 송출</span><b data-staff-stat-live>${live}</b><small>전체 ${state.rooms.length}개 공간</small></div>
+        <div><span>대기</span><b>${Math.max(0,state.rooms.length-live-issues)}</b><small>운영시간 외·재생 대기</small></div>
+        <div class="${issues?'is-problem':''}"><span>확인 필요</span><b data-staff-stat-issues>${issues}</b><small>${offline?`연결 끊김 ${offline}곳`:'연결 정상'}</small></div>
       </div>
-      <div class="monitor-status-secondary staff-status-secondary"><span>온라인 <b data-staff-stat-online>${online}</b></span><span>맞춤 송출 <b>${custom}</b></span><span>빠른 설정 <b>${quick}</b></span><span>등록 환자 <b>${assigned.length+inProgress.length}</b></span><span>대기 <b>${waiting.length}</b></span></div>
 
       ${staffBuildingOverview(groups)}
       <section class="reception-rooms reception-rooms-first staff-space-status">
