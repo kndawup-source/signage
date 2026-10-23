@@ -1,18 +1,21 @@
 'use strict';
-const { requireMember, json } = require('./_lib/auth');
+const { requireMember, resolveSite, json } = require('./_lib/auth');
 const { getFloorplan, buildFloorplanSvg } = require('./_lib/floorplans');
 const { signedFetch } = require('./_lib/r2');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   try {
-    await requireMember(req);
+    const session = await requireMember(req);
+    const siteId = resolveSite(session, req.query?.siteId);
     const floor = Math.trunc(Number(req.query?.floor));
     if (!Number.isInteger(floor) || floor < 1 || floor > 14) return json(res, 400, { error: 'INVALID_FLOOR' });
     const key = String(req.query?.key || '').trim();
     let image = null;
     if (key) {
-      if (!/^floorplans\/[0-9]{2}\/[A-Za-z0-9._-]+\.(?:png|jpg|webp)$/i.test(key) || key.includes('..')) return json(res, 400, { error: 'INVALID_OBJECT_KEY' });
+      const modern = new RegExp(`^floorplans/${siteId.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}/[0-9]{2}/[A-Za-z0-9._-]+\\.(?:png|jpg|webp)$`,'i');
+      const legacy = /^floorplans\/[0-9]{2}\/[A-Za-z0-9._-]+\.(?:png|jpg|webp)$/i;
+      if (key.includes('..') || (!modern.test(key) && !(session.role==='admin' && legacy.test(key)))) return json(res, 400, { error: 'INVALID_OBJECT_KEY' });
       const response = await signedFetch('GET', key);
       if (!response.ok) return json(res, response.status === 404 ? 404 : 502, { error: response.status === 404 ? 'FLOORPLAN_NOT_FOUND' : `R2_FLOORPLAN_${response.status}` });
       const mime = String(response.headers.get('content-type') || 'image/png').split(';')[0].trim();

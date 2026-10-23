@@ -87,11 +87,12 @@ function floorplanExtension(filename, contentType) {
   if (type === 'image/webp' || name.endsWith('.webp')) return '.webp';
   return '';
 }
-function makeFloorplanObjectKey(floor, filename, contentType) {
+function makeFloorplanObjectKey(floor, filename, contentType, siteId = 'default') {
   const n = Math.trunc(Number(floor));
   const ext = floorplanExtension(filename, contentType);
   if (!Number.isInteger(n) || n < 1 || n > 99 || !ext) throw new Error('INVALID_FLOORPLAN_FILE');
-  return `floorplans/${String(n).padStart(2,'0')}/${crypto.randomUUID()}${ext}`;
+  const site = String(siteId || 'default').replace(/[^A-Za-z0-9_-]/g,'').slice(0,64) || 'default';
+  return `floorplans/${site}/${String(n).padStart(2,'0')}/${crypto.randomUUID()}${ext}`;
 }
 
 function sanitizeFilename(name) {

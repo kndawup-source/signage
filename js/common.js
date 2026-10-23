@@ -105,7 +105,7 @@
 
   function storePinSession(session) {
     if (!session?.token || !session?.role || !session?.expires_at) throw new Error('INVALID_PIN_SESSION');
-    localStorage.setItem(PIN_SESSION_KEY, JSON.stringify({ token: session.token, role: session.role, expires_at: session.expires_at }));
+    localStorage.setItem(PIN_SESSION_KEY, JSON.stringify({ token: session.token, role: session.role, site_id: session.site_id || null, expires_at: session.expires_at }));
   }
 
   function clearPinSession() { localStorage.removeItem(PIN_SESSION_KEY); }
@@ -118,7 +118,7 @@
       clearPinSession();
       return null;
     }
-    return { role: data.role, expires_at: data.expires_at };
+    return { role: data.role, site_id: data.site_id || null, expires_at: data.expires_at };
   }
 
   async function requireAuth(requiredRole) {

@@ -1,186 +1,132 @@
-CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
+CLINIC SIGNAGE v2.33.0 · SUPER ADMIN / HOSPITAL ADMIN · SITE-READY
 
-[구조]
-- Supabase: PIN 인증 / 제어 / 환자 맞춤 조건 / 송출 명령 / 플레이어 상태
-- 내부 서버 PC: 실제 영상 파일 + 정적 HTML/CSS/JS + HTTP Range 스트리밍
-- 환자 화면: 내부 서버 영상을 전체화면 재생
-- Supabase Storage에는 영상 파일을 저장하지 않음
+[배포 순서]
+1. 기존 v2.32.3 운영 DB라면 Supabase SQL Editor에서 아래 파일을 1회 실행
+   supabase/v2.33.0-product-foundation.sql
+2. 신규 설치 또는 전체 canonical 재구축은
+   supabase/schema.sql
+   하나를 실행
+3. 프런트/서버 파일 배포
+4. 관리자 페이지 강력 새로고침
 
-1. Supabase + PIN 설정
-- Supabase SQL Editor에서 supabase/schema.sql 전체 실행
-- 기존 v2.x 데이터는 유지되는 마이그레이션형
-- 이메일/비밀번호 계정은 더 이상 로그인에 사용하지 않음
-- schema.sql 실행 직후 SQL Editor에서 아래 명령을 1회 실행
-  select public.configure_signage_pins('123456','4321');
-- 첫 번째 값: 관리자 PIN, 정확히 숫자 6자리
-- 두 번째 값: 스텝 PIN, 숫자 4~6자리
-- 위 예시 번호를 그대로 사용하지 말고 실제 사용할 번호로 반드시 변경
-- PIN은 원문으로 저장되지 않고 pgcrypto bcrypt 해시로 저장
-- 초기 설정 후에는 관리자 > 설정 > PIN 관리에서 관리자/스텝 PIN을 변경할 수 있음
-- SQL Editor의 configure_signage_pins(...)를 다시 실행해도 둘 다 변경 가능하며 기존 로그인 세션은 모두 종료됨
-- 로그인 5회 연속 실패 시 해당 기기에서 5분 잠금
-- 로그인 세션 유효시간 12시간, 로그아웃 시 서버 세션도 즉시 폐기
+README는 사용하지 않습니다.
 
-2. 웹 설정
-- js/config.js에 Supabase URL / anon key 입력
-- 현재 기준값: pollMs 120000 / heartbeatMs 60000 / livePresenceMs 60000 / livePollMs 30000 / onlineThresholdMs 180000
+[권한]
+- SUPER ADMIN (/admin.html)
+  전체 병원/지점, 도면, 공간, 디스플레이, 공용 콘텐츠, 상태, 백업/감사 관리
+- HOSPITAL ADMIN (/staff.html)
+  자신의 병원만 조회/수정. 병원명, 도면, 공간 구분, 디스플레이 위치/운영방식, 병원 전용 플레이리스트 관리
+- PLAYER (/player.html)
+  실제 REMOTE/HYBRID 디스플레이 플레이어
 
-3. 영상 서버 PC
-- Node.js LTS 설치
-- server/config.example.json -> server/config.json 복사
-- 서버 PC 자체 영상폴더 권장: C:\Users\Public\Videos
-- 다른 PC에서 파일 복사: \\12F-MSO0\Users\Public\Videos
-- server/start-media-server.bat 실행
-- TCP 8080 인바운드 허용
-- 서버 PC 고정 IP 또는 DHCP 예약
-- 서버 PC는 유선 Gigabit LAN + SSD 권장
+[기존 단일 병원 호환]
+- migration 실행 시 현재 운영 데이터는 자동으로 default site에 연결됩니다.
+- 기존 영상/플레이리스트는 site_id=NULL인 공용 콘텐츠로 유지됩니다.
+- 기존 player_key, player_report, signage_live_status, player_control_signals, ACK, frame presence, offline cache, timed output은 유지됩니다.
+- player release는 기존 2.30.0을 유지합니다. 이번 버전은 운영/관리 계층 확장입니다.
 
-4. Supabase JS 고정
-- v2.5.2는 @supabase/supabase-js 2.118.0으로 고정
-- 서버 최초 온라인 실행 때 server/cache/supabase.js로 1회 저장
-- 이후 인터넷 장애 시에도 내부 서버가 로컬 파일 제공
+[병원 추가]
+- SUPER ADMIN > 설정 > 병원 / 지점에서 추가
+- 각 병원은 고유 Hospital Admin PIN을 사용합니다.
+- PIN 로그인 화면은 하나이며 PIN으로 병원을 식별합니다.
+- 다른 병원에서 이미 사용 중인 Hospital Admin PIN은 사용할 수 없습니다.
 
-5. 영상 등록
-- 영상 폴더에 MP4/WebM/M4V 복사
-- 관리자 > 영상 관리 > 서버 영상 동기화
-- Supabase에는 경로/크기/수정시각/조건만 저장
-- 동일 파일명 덮어쓰기도 수정시각 버전값으로 즉시 반영
+[초기 설치 권장 흐름]
+1. 병원명 / 건물명
+2. 층/구역 생성
+3. 층별 도면 업로드
+4. 도면 위에서 공간 영역 드래그 지정
+5. 디스플레이 운영 방식 지정
+   REMOTE / MANUAL / HYBRID
+6. 도면 클릭으로 디스플레이 위치 점 배치
+7. 병원/공용 플레이리스트 연결
 
-6. 비상 로컬 영상
-- 관리자 > 설정 > 비상 로컬 영상에서 1개 지정
-- 권장: 짧은 H.264 MP4, 약 50~200MB
-- 비상영상 최대 지정 크기: 250MB
-- 각 플레이어가 서버 정상 시 이 파일을 브라우저 로컬 캐시에 미리 저장
-- 내부 영상 서버가 끊기면 자동으로 비상영상을 반복 재생
-- 서버 복구 감지 후 정상 송출로 자동 복귀
-- 환자 PC는 start-player-kiosk.bat로 실행해야 LAN HTTP 주소도 secure context로 취급되어 Cache API/Wake Lock을 안정적으로 사용 가능
+[도면]
+- PNG / JPG / WebP, 층별 최대 12MB
+- 모든 층은 동일한 가로형 1440×632 작업 캔버스로 표시됩니다.
+- 업로드 이미지는 contain 방식으로 왜곡 없이 들어갑니다.
+- 기본 제공 진료층 도면: 3F / 7F / 8F / 9F / 10F는 같은 3F 진료층 구조를 공유합니다.
+- 4F는 별도 진료층 도면입니다.
+- 사용자 업로드 도면은 해당 층만 덮어씁니다.
+- 층별 최근 5개 업로드 버전을 보관하며 이전 버전으로 복원할 수 있습니다.
+- 오래된 비활성 버전은 R2에서 자동 정리합니다.
+- 도면 URL은 PIN 세션 검증을 거치는 /api/floorplan을 통해서만 제공합니다.
 
-7. 환자 맞춤 자동송출
-- 영상별 연령 / 성별 / 진료유형 지정
-- 스텝 일반 사용: 진료유형 1번 터치
-- 세분화 필요: 대상 1번 + 진료유형 1번, 최대 2번
-- 우선순위: 전체 송출 > 관리자 개별 송출 > 환자 맞춤 > 기본 영상
+[공간 구분]
+- 도면은 배경입니다. 시스템이 공간을 임의 추정하지 않습니다.
+- 관리자가 도면 위에서 사각형/직사각형으로 필요한 공간만 직접 지정합니다.
+- 공간 유형: 진료실 / 상담실 / 대기 / 라운지 / 접수·안내 / 로비 / 스탭 / 지원 / 공용 / 기타
 
-8. 전체 동기 송출
-- 관리자가 전체 송출 시작 시 DB 서버시각 기준 3초 뒤 effective_at 예약
-- 30개 플레이어는 같은 시작시각을 기준으로 재생
-- 명령을 늦게 받은 플레이어는 서버시각과 재생 위치를 보정
-- 전체 송출 중 영상을 변경하면 새 revision + 새 effective_at으로 다시 동기 시작
+[디스플레이 위치]
+- 자동/임의 위치 생성 없음
+- 설정에서 디스플레이를 선택하고 도면을 클릭하면 점으로 저장됩니다.
+- 저장된 점은 드래그로 재배치할 수 있습니다.
+- 위치 지우기 시 map_x_pct / map_y_pct는 NULL로 초기화됩니다.
 
-9. 실제 송출 상태
-- 상태 변경은 즉시 player_report, presence/통계 heartbeat는 60초 기준
-- 관리자에는 명령값이 아니라 실제 재생 영상/모드/상태/위치/음소거/오류 표시
-- heartbeat JSON은 DB에서 최대 크기 및 허용 필드만 정규화하여 저장
+[디스플레이 운영 방식]
+REMOTE
+- 중앙 송출 제어 가능
+- heartbeat / ACK / offline cache / update / 재생 오류 상태 관리
 
-10. 관리자 운영 경고
-- 내부 영상 서버 OFFLINE
-- 디스크 여유가 설정 기준 이하
-- 오프라인 진료실
-- 플레이어 재생 오류
-- 설정 > 디스크 경고 기준 기본 20GB
-- 연결 테스트에서 영상 수 / 디스크 여유 / 현재 스트림 / 고정 Supabase JS 버전 확인
+MANUAL
+- 현장에서 USB/로컬 등으로 직접 운영
+- heartbeat/ACK/오프라인 판정 대상이 아님
+- 수동 운영 / 수동 확인 필요 / 확인 완료 상태로 관리
+- 중앙 플레이어 URL이 남아 있어도 서버에서 검정 대기(closed) 상태를 반환해 원격 송출하지 않음
 
-11. 자동 실행
-- 서버: server/install-server-startup.bat
-- 플레이어: player/install-player-startup.bat
-- 플레이어 URL은 player/player-url.example.txt -> player-url.txt 복사 후 입력
-- start-player-kiosk.bat는 kiosk / autoplay / secure-origin 옵션을 자동 적용
-- Windows AC 화면꺼짐/절전/최대절전 비활성화
+HYBRID
+- 원격 송출 가능 + 현장 수동 운영 가능
+- 원격 연결 상태와 중앙 제어를 유지
 
-12. 30개 진료실 기준
-- HTTP server maxConnections 200
-- 영상은 HTTP Range Streaming
-- 영상 전체를 서버 RAM에 적재하지 않음
-- 1080p H.264 4~6Mbps × 30실 = 약 120~180Mbps 수준
-- 서버 및 스위치는 Gigabit 유선 권장
-- 30실 전체를 Wi-Fi만으로 운영하는 것은 권장하지 않음
+[병원 전용 플레이리스트]
+- Hospital Admin은 SUPER ADMIN이 제공한 공용 영상 또는 자기 병원 범위 영상을 조합해 병원 전용 플레이리스트를 만들 수 있습니다.
+- 다른 병원의 site playlist는 조회/수정할 수 없습니다.
+- 공용 콘텐츠는 site_id=NULL, 병원 전용 콘텐츠/플레이리스트는 site_id=<병원 UUID> 구조입니다.
 
-13. 장애 시 동작
-- 관리자/스태프 상태 보정: 화면이 보일 때 60초 변경분 조회 + 제어 직후 해당 공간 ACK
-- Supabase 일시 장애: 열린 플레이어는 마지막 상태 유지
-- 영상 서버 장애: 현재 플레이리스트 1회 확인 후 로컬 비상영상 전환
-- 서버 복구: 15초 간격 확인 후 정상 영상 자동 복귀
-- 전체송출 영상 삭제/비활성: 개별 > 맞춤 > 기본으로 fallback
-- 폴더에서 영상 삭제: 동기화 후 available=false
+[실시간 상태 / 부하]
+- Realtime wake-up + 해당 room만 즉시 갱신
+- 관리자/병원 관리자 변경분 안전망은 최소 30초
+- 플레이어 상태 fallback은 운영 중 최소 60초
+- 운영시간 외 플레이어 fallback은 10분
+- 5초/10초 전체 DB polling 없음
+- 플레이어의 10초 watchdog은 로컬 영상 정체 감지이며 DB polling이 아닙니다.
 
-14. 보안
-- 8080 인터넷 포트포워딩 금지
-- player_key URL 외부 공유 금지
-- staff는 player_key 원본 조회 불가
-- heartbeat는 허용 필드/크기 제한 후 저장
+[수동 디스플레이와 통계]
+- MANUAL 디스플레이는 player playback 통계와 online/offline 통계에서 제외됩니다.
+- REMOTE/HYBRID만 admin_playback_today / admin_building_period_stats의 재생률 대상입니다.
+- 수동 점검 완료 여부는 별도로 기록합니다.
 
-15. v2.4 QA 리팩토링
-- 플레이어 상태조회/heartbeat 중복 요청 직렬화
-- 영상 서버 health 스캔 캐시 + 영상 동기화 시에만 강제 재스캔
-- 영상 폴더 동기화 Realtime refresh 1회로 축소
-- 비활성 전체송출 후보 선택은 플레이어 refresh 생략
-- 정적 서버는 HTML/CSS/JS만 허용하여 설정/키 파일 노출 방지
-- 로그인 next는 동일 origin 내부 경로만 허용
+[보안 / site scope]
+- Hospital Admin의 조회/제어 RPC는 자신의 site_id로 제한됩니다.
+- 다른 병원의 room UUID를 직접 넣어도 조작되지 않습니다.
+- MANUAL room은 원격 환자 배정/플레이리스트/영상 추가/Realtime signal 대상에서 제외됩니다.
+- player_key는 bearer credential이므로 외부 공유 금지
+- R2 도면 object key는 site별 경로로 분리됩니다.
 
-16. v2.5 PIN 로그인
-- 로그인 화면에는 이메일/비밀번호가 없고 PIN 입력만 표시
-- PIN 값에 따라 ADMIN / STAFF 권한 자동 판별 후 해당 화면으로 이동
-- PIN 원문은 js/config.js, HTML, localStorage에 저장하지 않음
-- 브라우저에는 12시간짜리 임의 세션 토큰만 저장
-- RLS는 Supabase Auth 이메일 계정이 아니라 PIN 세션 헤더를 검증
-- 관리자/스태프 상태 화면은 테이블 Realtime 구독 대신 60초 변경분 조회와 제어 직후 공간별 ACK를 사용
-- 전체/개별 송출 명령은 기존 realtime.send 경로를 그대로 사용하므로 플레이어 전환 속도에는 영향 없음
+[감사 로그]
+- 도면/공간/디스플레이/병원 설정/병원 관리자 PIN/수동 확인 등 사람의 설정 변경을 audit_log에 기록합니다.
+- heartbeat raw 로그는 감사 로그에 넣지 않습니다.
+- player_events 상태 이벤트는 30일 정책, room_playback_daily는 장기 보관을 유지합니다.
 
+[백업]
+- SUPER ADMIN 설정에서 현재 병원 설정 JSON 내보내기/복원 가능
+- 병원 기본정보, 도면 active pointer, 층/공간, 디스플레이 위치/운영방식 등 운영 설정을 복원합니다.
+- player_key를 재발급하거나 플레이어를 교체하지 않습니다.
 
-[Supabase JS 로딩]
-- Vercel/HTTPS: jsDelivr의 @supabase/supabase-js 2.118.0 고정 버전을 직접 사용합니다.
-- 내부 미디어 서버/HTTP: /vendor/supabase.js 로컬 캐시를 사용합니다.
-- 따라서 Vercel에는 vendor/supabase.js 파일이 없어도 정상입니다.
+[Supabase JS]
+- document.write 로더를 사용하지 않습니다.
+- HTTPS/Vercel: boot.js가 @supabase/supabase-js 2.118.0 고정 CDN을 Promise 방식으로 로드
+- 내부 HTTP: /vendor/supabase.js 로컬 캐시 사용
 
-[v2.6 그룹/공간 운영]
-- 관리자 > 공간 / 그룹에서 10F, 11F, 12F, 상담실, 대기실, VIP 등 그룹을 자유롭게 만듭니다.
-- 공간 유형은 진료실 / 상담실 / 대기실 / 기타 중 선택합니다.
-- 진료실·상담실: 스텝 환자 맞춤 송출 사용 가능.
-- 대기실: 환자 맞춤 없이 전체/그룹/기본 송출 중심.
-- 송출 우선순위: 전체 병원 > 전체 예약 > 개별 공간 > 층·구역 > 그룹 예약 > 환자 맞춤 > 기본.
-- 대시보드에서 여러 공간을 체크해 한 번에 송출/자동복귀할 수 있습니다.
-- 전체 병원/그룹 예약 송출과 최근 제어 이력의 직전 상태 복귀를 지원합니다.
-- 전체 송출 종료 시 '이전 상태' 또는 '모두 기본영상'을 선택할 수 있습니다.
+[운영시간 / 캐시]
+- 기존 평일/토요일/일요일 반복 운영시간, 공간별 override, 오늘 운영 종료, 저활동 모드 유지
+- 운영시간 밖: 검정 대기 / 영상·preload·cache refresh·재생통계 중지 / 저빈도 presence
+- 다음 정상 시작시간 자동 재개
+- offline cache: 준비 완료 x/x / 캐시 부족 / 오프라인 재생 중 / 캐시 오류 표시
 
-[v2.30.0 CANONICAL DEPLOY]
-- DB는 Supabase SQL Editor에서 supabase/schema.sql 하나만 실행합니다. 신규/기존 환경 모두 재실행 안전성을 기준으로 작성되어 있습니다.
-- 과거 버전별 SQL 파일은 이력/참조용입니다. 최신 배포에 순차 실행하지 않습니다.
-- player_report / signage_live_status / player_control_signals / signal_signage_rooms / frame-presence 기반 ACK 구조를 유지합니다.
-- 관리자/스텝 상태 조회는 화면이 보일 때 30초마다 변경분만 조회합니다. Realtime 상태 변화 즉시 반영이 기본이고, 30초 변경분 조회는 이벤트 유실 대비 안전망입니다. 5초/10초 전체 polling은 사용하지 않습니다.
-- 제어 직후 ACK는 영향을 받은 공간만 짧게 확인하고 완료 시 즉시 종료합니다.
-
-OPERATING HOURS
-- 관리자 설정에서 평일 / 토요일 / 일요일 반복 운영시간을 지정합니다.
-- 공간별로 전체 기본 운영시간을 따르거나 별도 운영시간을 사용할 수 있습니다.
-- 운영시간 밖에는 검정 화면 저활동 모드로 전환합니다: 영상/preload/cache refresh/statistics 중지, presence/heartbeat 저빈도.
-- 다음 정상 시작시간에는 next_transition_at 타이머 또는 Realtime/포커스 복구로 자동 재개합니다.
-- 송출 현황의 '오늘 운영 종료'는 당일 남은 송출을 즉시 종료하고 다음 정상 운영 시작시간에 자동 복귀합니다.
-
-PLAYER / OFFLINE CACHE
-- 브라우저 Cache Storage에 현재 플레이리스트를 백그라운드 저장합니다.
-- 관리자 카드 표시: 준비 완료 x/x / 캐시 부족 x/x / 오프라인 재생 중 x/x / 캐시 오류.
-- 운영시간 외에는 캐시 갱신을 시작하지 않습니다. 이미 운영 종료 상태를 받은 플레이어는 네트워크가 끊겨도 캐시 영상을 임의 재생하지 않습니다.
-- Windows player/start-player-kiosk.bat는 Chrome 종료 시 5초 후 재실행하며, install-player-startup.bat로 로그인 자동실행을 등록합니다.
-
-VIDEO STANDARD
-- 업로드 허용: .mp4 / video/mp4.
-- 등록 전 브라우저 재생 가능 여부, H.264(avc1/avc3), AAC(mp4a), duration, 해상도, 파일 크기를 확인합니다.
-- 2GB 초과, 2시간 초과, 4K 초과, 코덱 기준 미충족은 R2 업로드 전에 차단합니다. 저해상도는 관리자 화면에 경고 상태로 저장합니다.
-
-STATUS / PRIORITY
-- 사용자-facing 상태는 송출 중 / 대기 / 오프라인 / 오류 / 업데이트 필요로 통일합니다.
-- 문제 공간은 관리자/스텝 카드에서 우선 표시할 수 있으며 관리자는 '문제 공간만 보기'를 사용할 수 있습니다.
-- 카드에 현재 송출 우선순위(전체 / 예약 / 개별 / 층·구역 / 기본 등)를 표시합니다.
-
-BUILDING / FLOOR DASHBOARD
-- 관리자 송출 현황 기본 화면은 실제 병원 건물 기반 Building View입니다. 1F–14F 층을 선택하면 해당 실제 평면도 Floor View로 전환됩니다.
-- 층별로 진료/운영 성격(일반진료 / MINISH / 공용 / 지원), 송출 목적, 주요 대상, 고객 대기공간, 송출 이유, 층 기본 플레이리스트를 관리합니다.
-- 공간별 도면 위치는 설정 > 공간 관리에서 공간을 선택하고 평면도를 클릭해 저장합니다. 좌표는 0–100% 비율로 저장되어 반응형에서도 같은 위치를 유지합니다.
-- 공간별 기본 플레이리스트가 없으면 층 기본 플레이리스트를 사용하고, 층 기본값도 없으면 병원 기본 플레이리스트를 사용합니다.
-- 내부 평면도는 공개 정적 URL로 노출하지 않고 유효한 PIN 세션을 확인하는 /api/floorplan 경유로만 제공합니다.
-- 스태프 화면에도 실제 건물 이미지와 층별 송출 목적/대상/문제 상태를 표시해 처음 보는 사용자도 각 층의 운영 의도를 이해할 수 있게 합니다.
-
-LOG RETENTION
-- player_events 상태 이벤트: 30일 보관 후 관리자 화면 진입 시 일 1회 정리합니다.
-- room_playback_daily 재생 통계: 장기 보관합니다.
-- heartbeat 자체를 raw 로그로 누적하지 않고 상태 변화만 player_events에 기록합니다.
+[영상 표준]
+- MP4 / H.264 / AAC 기준
+- duration / 해상도 / 파일 크기 검사
+- 2GB 초과 / 2시간 초과 / 4K 초과 / 기준 코덱 미충족은 등록 전 차단
+- 저해상도는 경고
+- 반복 재생 실패 영상은 자동 건너뛰며 전체 플레이리스트는 계속 진행
