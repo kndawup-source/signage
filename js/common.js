@@ -236,7 +236,7 @@
       stop();
       intervalMs = Number(ms) || 0;
       if (intervalMs <= 0) return;
-      timer = setInterval(() => void poll('poll'), Math.max(10000, intervalMs));
+      timer = setInterval(() => void poll('poll'), Math.max(60000, intervalMs));
       document.addEventListener('visibilitychange', onVisible);
       window.addEventListener('focus', onVisible);
     }
@@ -300,7 +300,9 @@
   }
   function roomHealth(room, now = Date.now()) {
     const st = room?.player_status || {}, age = roomAgeMs(room, now);
-    if (age > LIVE_OFFLINE_MS) return 'offline';
+    const closed = st.operating_active === false || String(st.mode || '').toLowerCase() === 'closed';
+    const offlineMs = closed ? Math.max(LIVE_OFFLINE_MS, 7 * 60 * 1000) : LIVE_OFFLINE_MS;
+    if (age > offlineMs) return 'offline';
     if (st.error || String(st.playback_state || '').toLowerCase() === 'error') return 'error';
     if (st.recovery_stage) return 'recovering';
     if (age > LIVE_DELAY_MS) return 'delayed';

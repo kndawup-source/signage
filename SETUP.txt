@@ -137,58 +137,42 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 공간 유형은 진료실 / 상담실 / 대기실 / 기타 중 선택합니다.
 - 진료실·상담실: 스텝 환자 맞춤 송출 사용 가능.
 - 대기실: 환자 맞춤 없이 전체/그룹/기본 송출 중심.
-- 송출 우선순위: 전체 병원 > 개별 공간 > 그룹 > 환자 맞춤 > 기본.
+- 송출 우선순위: 전체 병원 > 전체 예약 > 개별 공간 > 층·구역 > 그룹 예약 > 환자 맞춤 > 기본.
 - 대시보드에서 여러 공간을 체크해 한 번에 송출/자동복귀할 수 있습니다.
 - 전체 병원/그룹 예약 송출과 최근 제어 이력의 직전 상태 복귀를 지원합니다.
 - 전체 송출 종료 시 '이전 상태' 또는 '모두 기본영상'을 선택할 수 있습니다.
 
-[v2.24 비용/보안 리팩토링]
-SQL 실행 순서 (Supabase SQL Editor, 여러 번 실행해도 안전)
-  1) supabase/v2.24.0-security-hotfix.sql   ← 반드시 먼저. PIN 없이 admin_*/staff_* RPC가 실행되던 문제 수정
-  2) supabase/v2.24.1-live-status-lite.sql  ← 상태 보고/조회 RPC, 썸네일 없는 플레이어 상태
-  3) supabase/v2.24.2-pin-ip-throttle.sql   ← (권장) PIN 무차별 대입 IP 기준 잠금
-  4) supabase/v2.25.0-canonical-refactor.sql ← 현재 코드가 사용하는 player_control_signals 보장 (재실행 안전)
-  * schema.sql 끝에도 같은 내용이 붙어 있어 신규 설치는 schema.sql 하나로 됩니다.
-  * 프론트는 새 RPC가 없으면 기존 RPC로 자동 fallback → SQL/프론트 배포 순서 무관.
+[v2.29.0 CANONICAL DEPLOY]
+- DB는 Supabase SQL Editor에서 supabase/schema.sql 하나만 실행합니다. 신규/기존 환경 모두 재실행 안전성을 기준으로 작성되어 있습니다.
+- 과거 버전별 SQL 파일은 이력/참조용입니다. 최신 배포에 순차 실행하지 않습니다.
+- player_report / signage_live_status / player_control_signals / signal_signage_rooms / frame-presence 기반 ACK 구조를 유지합니다.
+- 관리자/스텝 상태 조회는 화면이 보일 때 60초마다 변경분만 조회합니다. 5초/10초 전체 polling은 사용하지 않습니다.
+- 제어 직후 ACK는 영향을 받은 공간만 짧게 확인하고 완료 시 즉시 종료합니다.
 
-송출 상태 확인 방식
-- 플레이어: 영상 전환·재생/정지/오류·상태 수신 시 즉시 보고 + 변화 없으면 60초 presence 1회
-- 관리자/스텝: 화면이 보일 때만 60초마다 "변경된 행만" 조회 (config.js livePollMs, 0이면 수동)
-- 제어 직후: 해당 공간만 0.8~20초 사이 최대 8회 조회 → 플레이어가 새 상태를 실제 재생하면 즉시 종료
-  카드 배지: 적용 확인 중 → 송출 중 / 적용 미확인 / 적용 오류
-- Realtime은 "플레이어 깨우기"(room:{key}, player_control_signals, 전체 송출 브로드캐스트)에만 사용
+OPERATING HOURS
+- 관리자 설정에서 평일 / 토요일 / 일요일 반복 운영시간을 지정합니다.
+- 공간별로 전체 기본 운영시간을 따르거나 별도 운영시간을 사용할 수 있습니다.
+- 운영시간 밖에는 검정 화면 저활동 모드로 전환합니다: 영상/preload/cache refresh/statistics 중지, presence/heartbeat 저빈도.
+- 다음 정상 시작시간에는 next_transition_at 타이머 또는 Realtime/포커스 복구로 자동 재개합니다.
+- 송출 현황의 '오늘 운영 종료'는 당일 남은 송출을 즉시 종료하고 다음 정상 운영 시작시간에 자동 복귀합니다.
 
+PLAYER / OFFLINE CACHE
+- 브라우저 Cache Storage에 현재 플레이리스트를 백그라운드 저장합니다.
+- 관리자 카드 표시: 준비 완료 x/x / 캐시 부족 x/x / 오프라인 재생 중 x/x / 캐시 오류.
+- 운영시간 외에는 캐시 갱신을 시작하지 않습니다. 이미 운영 종료 상태를 받은 플레이어는 네트워크가 끊겨도 캐시 영상을 임의 재생하지 않습니다.
+- Windows player/start-player-kiosk.bat는 Chrome 종료 시 5초 후 재실행하며, install-player-startup.bat로 로그인 자동실행을 등록합니다.
 
-[v2.25.0 canonical refactor]
-- 앱/플레이어/정적자산 버전 2.25.0 통일
-- 관리자/스태프 live status 변경분 조회 60초
-- 제어 직후 해당 공간 ACK 유지
-- schema.sql 중복 함수 정의를 최종 정의 기준으로 정리
+VIDEO STANDARD
+- 업로드 허용: .mp4 / video/mp4.
+- 등록 전 브라우저 재생 가능 여부, H.264(avc1/avc3), AAC(mp4a), duration, 해상도, 파일 크기를 확인합니다.
+- 2GB 초과, 2시간 초과, 4K 초과, 코덱 기준 미충족은 R2 업로드 전에 차단합니다. 저해상도는 관리자 화면에 경고 상태로 저장합니다.
 
+STATUS / PRIORITY
+- 사용자-facing 상태는 송출 중 / 대기 / 오프라인 / 오류 / 업데이트 필요로 통일합니다.
+- 문제 공간은 관리자/스텝 카드에서 우선 표시할 수 있으며 관리자는 '문제 공간만 보기'를 사용할 수 있습니다.
+- 카드에 현재 송출 우선순위(전체 / 예약 / 개별 / 층·구역 / 기본 등)를 표시합니다.
 
-OFFLINE CACHE (v2.28.0)
-- Player registers /player-sw.js automatically on first online load.
-- The active room playlist is downloaded to browser Cache Storage in the background.
-- A playlist is marked offline-ready only after every current video is cached.
-- If a newer playlist is only partially cached, the previous fully cached playlist is retained as fallback.
-- When internet is unavailable, cached video requests are served locally; when internet returns, the player fetches current state and refreshes the cache automatically.
-- Browser storage may be evicted by the OS under disk pressure. Keep adequate free disk space on signage PCs.
-
-TIMED OUTPUT (v2.28.0)
-- Admin > 송출 > 전체 송출 설정: 시작/종료 시간을 지정할 수 있습니다.
-  - 시작을 비우면 즉시 시작합니다.
-  - 종료를 비우면 직접 중지할 때까지 유지합니다.
-  - 미래 시작시간을 지정하면 예약 대기 후 자동 시작합니다.
-- 각 공간 카드 > 개별 송출 시간: 영상 또는 플레이리스트를 선택해 시작/종료 시간을 지정할 수 있습니다.
-- 종료 시에는 해당 시간 송출만 해제되고 다음 우선순위(그룹/환자맞춤/기본 등)로 자동 복귀합니다.
-- 기존 '예약 송출'은 여러 전체/그룹 예약을 관리하는 고급 예약 기능으로 유지됩니다.
-- DB 업데이트: supabase/v2.28.0-timed-output.sql 을 1회 실행합니다.
-
-
-OPERATIONS (v2.28.0)
-- 평일/토요일/일요일 운영시간은 실제 송출 ON/OFF 기준입니다.
-- 운영시간 밖에는 플레이어가 검정 화면 저활동 모드로 대기하고 다음 시작시간에 자동 재생합니다.
-- 공간별로 전체 운영시간을 따르거나 별도 운영시간을 지정할 수 있습니다.
-- 송출 화면의 '오늘 운영 종료'는 당일 남은 송출을 종료하고 다음 운영일에 자동 복귀합니다.
-- 오프라인 캐시는 공간 카드에서 준비 상태를 확인할 수 있습니다.
-- DB 업데이트: supabase/v2.28.0-operations.sql 을 1회 실행합니다.
+LOG RETENTION
+- player_events 상태 이벤트: 30일 보관 후 관리자 화면 진입 시 일 1회 정리합니다.
+- room_playback_daily 재생 통계: 장기 보관합니다.
+- heartbeat 자체를 raw 로그로 누적하지 않고 상태 변화만 player_events에 기록합니다.

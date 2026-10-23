@@ -11,7 +11,7 @@ module.exports = async (req, res) => {
     const filename = String(body.filename || '').trim();
     const contentType = String(body.contentType || '');
     const size = Number(body.size || 0);
-    if (!filename || !['video/mp4','video/webm'].includes(contentType)) return json(res, 400, { error: 'MP4_OR_WEBM_ONLY' });
+    if (!filename || contentType !== 'video/mp4' || !filename.toLowerCase().endsWith('.mp4')) return json(res, 400, { error: 'MP4_ONLY' });
     if (!Number.isFinite(size) || size <= 0 || size > 2 * 1024 * 1024 * 1024) return json(res, 400, { error: 'INVALID_FILE_SIZE' });
     const key = makeObjectKey(filename);
     const signed = presignPut(key, 900);

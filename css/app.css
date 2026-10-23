@@ -335,3 +335,7 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 .room-operating-days{display:grid;gap:8px}.room-operating-days.is-disabled{opacity:.45;pointer-events:none}
 .operating-day-row.compact{padding:8px 0}.operating-day-row.compact .operating-time-fields{min-width:0}
 @media(max-width:760px){.operating-day-row.compact{grid-template-columns:1fr}.operating-day-row.compact .operating-time-fields{width:100%}}
+
+/* v2.29 operational states */
+.room-status-badge.status-update,.group-status-badge.status-update{border-color:currentColor;font-weight:800}
+.player-root.is-closed,.player-root.is-closed video{background:#000!important}
