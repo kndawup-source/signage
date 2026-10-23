@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.27.0');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.28.0');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -131,10 +131,10 @@
         await prunePlaylistCache(cache,keep);
         writeJsonStorage(OFFLINE_READY_KEY,snapshot);
         offlineCacheReady=true;offlineCacheUpdatedAt=new Date().toISOString();
-        writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:complete,total,updated_at:offlineCacheUpdatedAt,playlist_signature:playlistSignature(snapshot)});
+        writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:complete,total,updated_at:offlineCacheUpdatedAt,playlist_signature:playlistSignature(snapshot)});scheduleReport(0);
         return true;
       }
-      writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:playlistSignature(snapshot)});
+      writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:playlistSignature(snapshot)});scheduleReport(0);
       return false;
     }catch(e){
       console.warn('Clinic Signage offline playlist cache failed:',e?.message||e);
@@ -460,7 +460,7 @@
       if(playlistChanged){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();syncedAt=fetchedAt;queueHeartbeat(true);}
       else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}syncedAt=fetchedAt;}
       reportNow();
-    }catch(e){lastError=e?.message||String(e);queueHeartbeat(true);}
+    }catch(e){lastError=e?.message||String(e);if(state?.mode==='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
     finally{fetchInFlight=false;if(fetchQueued){fetchQueued=false;queueMicrotask(fetchState);}}
   }
   function loadSaved(){
@@ -505,10 +505,10 @@
 
   function scheduleExpiry(){clearTimeout(expireTimer);if(!state?.session_expires_at)return;const ms=new Date(state.session_expires_at).getTime()-serverNow();if(ms>0)expireTimer=setTimeout(fetchState,ms+1200);}
   function scheduleTransition(){clearTimeout(transitionTimer);if(!state?.next_transition_at)return;const ms=new Date(state.next_transition_at).getTime()-serverNow();if(ms>0)transitionTimer=setTimeout(fetchState,ms+500);}
-  function playbackState(){const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(confirmedPlaybackState==='playing'&&!el.ended)return 'playing';if(el.ended)return 'ended';if(el.paused)return confirmedPlaybackState==='playing'?'playing':'paused';if(el.readyState<3)return 'loading';return 'playing';}
+  function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(confirmedPlaybackState==='playing'&&!el.ended)return 'playing';if(el.ended)return 'ended';if(el.paused)return confirmedPlaybackState==='playing'?'playing':'paused';if(el.readyState<3)return 'loading';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,operating_active:state?.operating?.active!==false,app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
   /* Live status report: event-driven + 60s presence. No Realtime broadcast (admin/staff poll). */
   async function reportLive(){
@@ -527,9 +527,9 @@
   function scheduleReport(delay=250){if(reportTimer)return;reportTimer=setTimeout(()=>{reportTimer=null;void reportLive();},delay);}
   function reportNow(){clearTimeout(reportTimer);reportTimer=null;void reportLive();}
   function pushLiveStatusNow(){scheduleReport();}
-  function presenceTick(){if(Date.now()-lastReportAt>=LIVE_PRESENCE_MS*0.8)void reportLive();}
+  function presenceTick(){const limit=state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS*0.8;if(Date.now()-lastReportAt>=limit)void reportLive();}
   async function heartbeat(){
-    if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
+    if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;if(state?.mode==='closed'&&Date.now()-lastHeartbeatAt<5*60*1000)return;heartbeatInFlight=true;
     try{
       const {error}=await db.rpc('player_heartbeat',{p_key:key,p_status:buildLiveStatus()});
       if(error)throw error;
@@ -542,7 +542,7 @@
   }
 
   async function playbackWatchdog(){
-    const el=activeVideoEl();if(!el||!state||state.room?.paused||emergencyPlaying||document.hidden)return;
+    const el=activeVideoEl();if(state?.mode==='closed')return;if(!el||!state||state.room?.paused||emergencyPlaying||document.hidden)return;
     if(el.paused||el.ended||el.readyState<2)return;
     if(Date.now()-lastProgressAt<25000||stallRecovering)return;
     stallRecovering=true;recoveryAttempts++;recoveryStage=Math.min(5,recoveryAttempts);lastError=`재생 정체 자동 복구 ${recoveryStage}단계`;queueHeartbeat(true);

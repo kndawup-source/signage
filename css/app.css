@@ -325,3 +325,13 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 /* v2.27.0 — timed hospital / room output */
 .output-time-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}.output-time-grid label{display:grid;gap:5px;padding:12px;background:var(--surface,#f7f8fa);border-radius:12px}.output-time-grid label>span{font-size:11px;font-weight:800;color:var(--ink,#101114)}.output-time-grid label>small{font-size:10px;color:var(--muted,#858b94)}.output-time-grid input{width:100%;min-width:0}.output-time-grid.compact{margin:0}.room-timed-output{margin-top:10px;padding:0;border-top:1px solid var(--line,#e7e9ed)}.room-timed-output>summary{list-style:none;cursor:pointer;padding:14px 0 6px;font-size:12px;font-weight:800;color:var(--primary,#232176)}.room-timed-output>summary::-webkit-details-marker{display:none}.room-timed-output-body{display:grid;grid-template-columns:minmax(180px,1fr) minmax(300px,1.4fr) auto auto;gap:10px;align-items:end;padding:8px 0 12px}.monitor-broadcast-strip.is-scheduled{border-color:rgba(35,33,118,.24);background:rgba(35,33,118,.035)}
 @media(max-width:900px){.room-timed-output-body{grid-template-columns:1fr}.output-time-grid{grid-template-columns:1fr}}
+
+
+/* v2.28.0 — recurring operating hours / cache health */
+.room-operating-editor{margin-top:14px;border-top:1px solid var(--line,#e7e9ed);padding-top:12px}
+.room-operating-editor>summary{cursor:pointer;font-weight:800;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.room-operating-editor>summary span{font-size:11px;color:var(--muted,#858b94);font-weight:700}
+.room-operating-body{padding-top:12px;display:grid;gap:12px}
+.room-operating-days{display:grid;gap:8px}.room-operating-days.is-disabled{opacity:.45;pointer-events:none}
+.operating-day-row.compact{padding:8px 0}.operating-day-row.compact .operating-time-fields{min-width:0}
+@media(max-width:760px){.operating-day-row.compact{grid-template-columns:1fr}.operating-day-row.compact .operating-time-fields{width:100%}}
