@@ -196,7 +196,7 @@
   const careTypeLabel=(v)=>CARE_TYPES.find(([id])=>id===v)?.[1]||'미설정';
   const floorNumber=(g)=>Number(g?.floor_number||(/^\d+$/.test(String(g?.name||'').trim())?String(g.name).trim():String(g?.name||'').match(/(\d+)/)?.[1]||0));
   const floorTitle=(g)=>{const n=floorNumber(g);return n?`${n}F`:groupDisplayName(g);};
-  function roomMapPlaced(r){const x=Number(r.map_x_pct),y=Number(r.map_y_pct);return x>=0&&x<=100&&y>=0&&y<=100;}
+  function roomMapPlaced(r){if(r?.map_x_pct==null||r?.map_y_pct==null||r.map_x_pct===''||r.map_y_pct==='')return false;const x=Number(r.map_x_pct),y=Number(r.map_y_pct);return Number.isFinite(x)&&Number.isFinite(y)&&x>=0&&x<=100&&y>=0&&y<=100;}
   const FLOORPLAN_FLOORS=new Set([1,2,3,4,6,7,8,9,10,11,12,13,14]);
   const floorAsset=(g)=>{const n=floorNumber(g);return FLOORPLAN_FLOORS.has(n)?n:null;};
   const floorplanTextCache=new Map();
@@ -213,7 +213,7 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.32.0`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.32.2`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -634,9 +634,10 @@
     const cards=floors.map((g,idx)=>{
       const rooms=state.rooms.filter(r=>r.group_id===g.id),missing=rooms.filter(r=>!roomMapPlaced(r)).length;
       if(!rooms.length)return '';
-      return `<details class="display-setup-floor" ${missing&&idx<3?'open':''}><summary><span><b>${esc(floorTitle(g))} · ${esc(g.name)}</b><small>디스플레이 ${rooms.length}대${missing?` · 위치 미설정 ${missing}대`:' · 설정 완료'}</small></span><em>${missing?'설정 필요':'완료'}</em></summary><div class="display-setup-body"><div class="display-setup-toolbar"><label><span>배치할 디스플레이</span><select data-map-room-select="${g.id}">${rooms.map(r=>`<option value="${r.id}" ${!roomMapPlaced(r)?'data-unplaced="1"':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label><p>디스플레이를 선택하고 평면도를 클릭하세요. 배치된 아이콘은 드래그해서 위치를 조정할 수 있습니다.</p><button class="btn small" data-clear-display-position="${g.id}">선택 위치 지우기</button></div><div class="settings-map-stage display-setup-stage" data-map-stage="${g.id}"><div class="floorplan-svg-host" data-floorplan-svg="${floorAsset(g)}"></div>${rooms.map(r=>floorMapMarker(r,true)).join('')}</div></div></details>`;
+      const ordered=[...rooms].sort((a,b)=>Number(roomMapPlaced(a))-Number(roomMapPlaced(b))||String(a.name||'').localeCompare(String(b.name||''),'ko'));
+      return `<details class="display-setup-floor" ${missing&&idx<3?'open':''}><summary><span><b>${esc(floorTitle(g))} · ${esc(g.name)}</b><small>디스플레이 ${rooms.length}대${missing?` · 위치 미설정 ${missing}대`:' · 설정 완료'}</small></span><em>${missing?'설정 필요':'완료'}</em></summary><div class="display-setup-body"><div class="display-setup-toolbar"><label><span>배치할 디스플레이</span><select data-map-room-select="${g.id}">${ordered.map(r=>`<option value="${r.id}" ${!roomMapPlaced(r)?'data-unplaced="1"':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label><p>위치는 자동으로 만들지 않습니다. 디스플레이를 선택한 뒤 실제 설치 위치를 클릭하세요. 배치 후에는 아이콘을 드래그해 수정할 수 있습니다.</p><button class="btn small" data-clear-display-position="${g.id}">선택 위치 지우기</button></div><div class="settings-map-stage display-setup-stage" data-map-stage="${g.id}"><div class="floorplan-svg-host" data-floorplan-svg="${floorAsset(g)}"></div>${rooms.map(r=>floorMapMarker(r,true)).join('')}</div></div></details>`;
     }).join('');
-    return `<section class="settings-section display-position-setup"><div class="settings-section-head"><div><span class="eyebrow">DISPLAY MAP</span><h2>디스플레이 위치 설정</h2><p>초기 설치 때 각 층의 실제 디스플레이 위치를 지정합니다. 설정한 위치가 송출 관제 평면도에 그대로 표시됩니다.</p></div><div class="settings-count">${total}대 · 미설정 ${unplaced}대</div></div><div class="display-setup-guide"><b>초기 설정 순서</b><span>1. 층 열기</span><span>2. 디스플레이 선택</span><span>3. 평면도 클릭</span><span>4. 필요하면 아이콘 드래그</span></div><div class="display-setup-list">${cards||'<span class="muted empty-setting-message">먼저 층과 공간을 등록하세요.</span>'}</div></section>`;
+    return `<section class="settings-section display-position-setup"><div class="settings-section-head"><div><span class="eyebrow">DISPLAY MAP</span><h2>디스플레이 위치 설정</h2><p>모든 위치는 미설정이 기본입니다. 실제 설치 후 이 화면에서 직접 지정하거나 수정합니다.</p></div><div class="settings-count">${total}대 · 미설정 ${unplaced}대</div></div><div class="display-setup-guide"><b>설정 순서</b><span>1. 층 열기</span><span>2. 디스플레이 선택</span><span>3. 실제 위치 클릭</span><span>4. 드래그로 수정</span><button class="btn small" type="button" data-reset-all-display-positions ${total?'':'disabled'}>전체 위치 초기화</button></div><div class="display-setup-list">${cards||'<span class="muted empty-setting-message">먼저 층과 공간을 등록하세요.</span>'}</div></section>`;
   }
 
   function roomSettingsMarkup(){
@@ -674,6 +675,13 @@
       const {error}=await db.from('rooms').update({map_x_pct:null,map_y_pct:null}).eq('id',roomId);if(error)return toast(displayMapSaveError(error),'error');
       const room=state.rooms.find(r=>r.id===roomId);if(room){room.map_x_pct=null;room.map_y_pct=null;}toast('디스플레이 위치를 지웠습니다.');renderSettings();
     }));
+    qs('[data-reset-all-display-positions]')?.addEventListener('click',async()=>{
+      if(!confirm('모든 디스플레이 위치를 초기화할까요? 실제 위치를 다시 설정해야 합니다.'))return;
+      const {error}=await db.from('rooms').update({map_x_pct:null,map_y_pct:null}).not('id','is',null);
+      if(error)return toast(displayMapSaveError(error),'error');
+      state.rooms.forEach(r=>{r.map_x_pct=null;r.map_y_pct=null;});
+      toast('모든 디스플레이 위치를 초기화했습니다.');renderSettings();
+    });
     qsa('[data-display-marker]').forEach(marker=>{
       marker.addEventListener('pointerdown',e=>{
         e.preventDefault();e.stopPropagation();const stage=marker.closest('[data-map-stage]');if(!stage)return;marker.setPointerCapture?.(e.pointerId);marker.classList.add('is-dragging');
@@ -708,7 +716,7 @@
     qsa('[data-copy-address]').forEach(b=>b.addEventListener('click',()=>copyAddress(b.dataset.copyAddress,b.dataset.copyLabel||'주소')));
     qs('#saveSiteIdentity')?.addEventListener('click',saveSiteIdentity);qs('#saveOperatingHours')?.addEventListener('click',saveOperatingHours);qs('#testStorage')?.addEventListener('click',async()=>{await checkStorageHealth(true);renderSettings();});qs('#saveEmergency')?.addEventListener('click',saveEmergency);qs('#changeAdminPin')?.addEventListener('click',()=>changePin('admin'));qs('#changeStaffPin')?.addEventListener('click',()=>changePin('staff'));qsa('#newAdminPin,#newStaffPin').forEach(i=>i.addEventListener('input',()=>{i.value=i.value.replace(/\D/g,'').slice(0,6);}));
   }
-  async function saveSiteIdentity(){const site=(qs('#siteName')?.value||'').trim()||'CLINIC SIGNAGE',building=(qs('#buildingLabel')?.value||'').trim()||'MAIN BUILDING';const {error}=await db.from('app_settings').update({site_name:site,building_label:building,updated_at:new Date().toISOString()}).eq('id',1);if(error)return toast(error.message,'error');state.settings.site_name=site;state.settings.building_label=building;toast('관제 화면 이름 저장 완료');}
+  async function saveSiteIdentity(){const site=(qs('#siteName')?.value||'').trim()||'CLINIC SIGNAGE',building=(qs('#buildingLabel')?.value||'').trim()||'MAIN BUILDING';const {error}=await db.from('app_settings').update({site_name:site,building_label:building,updated_at:new Date().toISOString()}).eq('id',1);if(error){const msg=String(error.message||'');if(/site_name|building_label|schema cache|column/i.test(msg))return toast('건물 이름 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.32.2 runtime migration을 먼저 실행하세요.','error');return toast(msg||'건물 이름 저장에 실패했습니다.','error');}state.settings.site_name=site;state.settings.building_label=building;toast('관제 화면 이름 저장 완료');}
   async function saveOperatingHours(){
     const patch={};
     for(const key of ['weekday','saturday','sunday']){
