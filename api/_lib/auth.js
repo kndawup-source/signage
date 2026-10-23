@@ -20,6 +20,25 @@ async function requireAdmin(req) {
   return data;
 }
 
+async function requireMember(req) {
+  const token = String(req.headers['x-signage-session'] || '');
+  if (!token) throw Object.assign(new Error('AUTH_REQUIRED'), { statusCode: 401 });
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/pin_session_info`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      'x-signage-session': token
+    },
+    body: '{}'
+  });
+  if (!response.ok) throw Object.assign(new Error('AUTH_CHECK_FAILED'), { statusCode: 401 });
+  const data = await response.json();
+  if (!data?.valid) throw Object.assign(new Error('AUTH_REQUIRED'), { statusCode: 401 });
+  return data;
+}
+
 function json(res, status, body) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -35,4 +54,4 @@ function parseBody(req) {
   return {};
 }
 
-module.exports = { requireAdmin, json, parseBody };
+module.exports = { requireAdmin, requireMember, json, parseBody };

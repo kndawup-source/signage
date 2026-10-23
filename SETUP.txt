@@ -23,7 +23,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 
 2. 웹 설정
 - js/config.js에 Supabase URL / anon key 입력
-- 현재 기준값: pollMs 120000 / heartbeatMs 60000 / livePresenceMs 60000 / livePollMs 60000 / onlineThresholdMs 180000
+- 현재 기준값: pollMs 120000 / heartbeatMs 60000 / livePresenceMs 60000 / livePollMs 30000 / onlineThresholdMs 180000
 
 3. 영상 서버 PC
 - Node.js LTS 설치
@@ -142,11 +142,11 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 전체 병원/그룹 예약 송출과 최근 제어 이력의 직전 상태 복귀를 지원합니다.
 - 전체 송출 종료 시 '이전 상태' 또는 '모두 기본영상'을 선택할 수 있습니다.
 
-[v2.29.1 CANONICAL DEPLOY]
+[v2.30.0 CANONICAL DEPLOY]
 - DB는 Supabase SQL Editor에서 supabase/schema.sql 하나만 실행합니다. 신규/기존 환경 모두 재실행 안전성을 기준으로 작성되어 있습니다.
 - 과거 버전별 SQL 파일은 이력/참조용입니다. 최신 배포에 순차 실행하지 않습니다.
 - player_report / signage_live_status / player_control_signals / signal_signage_rooms / frame-presence 기반 ACK 구조를 유지합니다.
-- 관리자/스텝 상태 조회는 화면이 보일 때 60초마다 변경분만 조회합니다. 5초/10초 전체 polling은 사용하지 않습니다.
+- 관리자/스텝 상태 조회는 화면이 보일 때 30초마다 변경분만 조회합니다. Realtime 상태 변화 즉시 반영이 기본이고, 30초 변경분 조회는 이벤트 유실 대비 안전망입니다. 5초/10초 전체 polling은 사용하지 않습니다.
 - 제어 직후 ACK는 영향을 받은 공간만 짧게 확인하고 완료 시 즉시 종료합니다.
 
 OPERATING HOURS
@@ -171,6 +171,14 @@ STATUS / PRIORITY
 - 사용자-facing 상태는 송출 중 / 대기 / 오프라인 / 오류 / 업데이트 필요로 통일합니다.
 - 문제 공간은 관리자/스텝 카드에서 우선 표시할 수 있으며 관리자는 '문제 공간만 보기'를 사용할 수 있습니다.
 - 카드에 현재 송출 우선순위(전체 / 예약 / 개별 / 층·구역 / 기본 등)를 표시합니다.
+
+BUILDING / FLOOR DASHBOARD
+- 관리자 송출 현황 기본 화면은 실제 병원 건물 기반 Building View입니다. 1F–14F 층을 선택하면 해당 실제 평면도 Floor View로 전환됩니다.
+- 층별로 진료/운영 성격(일반진료 / MINISH / 공용 / 지원), 송출 목적, 주요 대상, 고객 대기공간, 송출 이유, 층 기본 플레이리스트를 관리합니다.
+- 공간별 도면 위치는 설정 > 공간 관리에서 공간을 선택하고 평면도를 클릭해 저장합니다. 좌표는 0–100% 비율로 저장되어 반응형에서도 같은 위치를 유지합니다.
+- 공간별 기본 플레이리스트가 없으면 층 기본 플레이리스트를 사용하고, 층 기본값도 없으면 병원 기본 플레이리스트를 사용합니다.
+- 내부 평면도는 공개 정적 URL로 노출하지 않고 유효한 PIN 세션을 확인하는 /api/floorplan 경유로만 제공합니다.
+- 스태프 화면에도 실제 건물 이미지와 층별 송출 목적/대상/문제 상태를 표시해 처음 보는 사용자도 각 층의 운영 의도를 이해할 수 있게 합니다.
 
 LOG RETENTION
 - player_events 상태 이벤트: 30일 보관 후 관리자 화면 진입 시 일 1회 정리합니다.

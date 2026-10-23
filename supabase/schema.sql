@@ -1,5 +1,5 @@
 -- =====================================================================
--- Clinic Signage v2.29.1 · Canonical full schema
+-- Clinic Signage v2.30.0 · Canonical full schema
 -- 신규/기존 환경 모두 이 파일 하나를 재실행할 수 있는 canonical 기준본.
 -- 영상 파일 자체는 Supabase Storage에 저장하지 않는다.
 -- =====================================================================
@@ -236,6 +236,8 @@ create table if not exists public.rooms (
   reload_nonce int not null default 0,
   last_seen_at timestamptz,
   player_status jsonb,
+  map_x_pct numeric(5,2),
+  map_y_pct numeric(5,2),
   created_at timestamptz not null default now()
 );
 alter table public.rooms add column if not exists session_age_group text;
@@ -259,6 +261,12 @@ alter table public.rooms add column if not exists manual_active boolean not null
 alter table public.rooms add column if not exists manual_video_ids uuid[] not null default '{}';
 alter table public.rooms add column if not exists manual_updated_at timestamptz;
 alter table public.rooms add column if not exists heartbeat_rejected_count int not null default 0;
+alter table public.rooms add column if not exists map_x_pct numeric(5,2);
+alter table public.rooms add column if not exists map_y_pct numeric(5,2);
+alter table public.rooms drop constraint if exists rooms_map_x_pct_check;
+alter table public.rooms add constraint rooms_map_x_pct_check check(map_x_pct is null or map_x_pct between 0 and 100);
+alter table public.rooms drop constraint if exists rooms_map_y_pct_check;
+alter table public.rooms add constraint rooms_map_y_pct_check check(map_y_pct is null or map_y_pct between 0 and 100);
 create index if not exists rooms_sort_idx on public.rooms(sort_order,created_at);
 create index if not exists rooms_last_seen_idx on public.rooms(last_seen_at desc);
 
@@ -622,17 +630,38 @@ end $$;
 create table if not exists public.signage_groups (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
-  kind text not null default 'floor' check(kind in ('floor','consultation','waiting','vip','other')),
+  kind text not null default 'floor' check(kind in ('floor','zone','consultation','waiting','vip','other')),
+  floor_number smallint,
+  care_type text not null default 'other' check(care_type in ('general','minish','common','support','other')),
+  signage_purpose text,
+  target_audience text,
+  waiting_area_note text,
+  signage_reason text,
+  default_playlist_id uuid,
   sort_order int not null default 0,
   created_at timestamptz not null default now()
 );
+alter table public.signage_groups add column if not exists floor_number smallint;
+alter table public.signage_groups add column if not exists care_type text not null default 'other';
+alter table public.signage_groups add column if not exists signage_purpose text;
+alter table public.signage_groups add column if not exists target_audience text;
+alter table public.signage_groups add column if not exists waiting_area_note text;
+alter table public.signage_groups add column if not exists signage_reason text;
+alter table public.signage_groups add column if not exists default_playlist_id uuid;
+alter table public.signage_groups drop constraint if exists signage_groups_kind_check;
+alter table public.signage_groups add constraint signage_groups_kind_check check(kind in ('floor','zone','consultation','waiting','vip','other'));
+alter table public.signage_groups drop constraint if exists signage_groups_care_type_check;
+alter table public.signage_groups add constraint signage_groups_care_type_check check(care_type in ('general','minish','common','support','other'));
+alter table public.signage_groups drop constraint if exists signage_groups_floor_number_check;
+alter table public.signage_groups add constraint signage_groups_floor_number_check check(floor_number is null or floor_number between 1 and 99);
+update public.signage_groups set floor_number=(regexp_match(trim(name),'^([0-9]+)(?:F|층)?$'))[1]::smallint where floor_number is null and trim(name) ~ '^([0-9]+)(?:F|층)?$';
 create index if not exists signage_groups_sort_idx on public.signage_groups(sort_order,created_at);
 
 alter table public.rooms add column if not exists group_id uuid references public.signage_groups(id) on delete set null;
 alter table public.rooms add column if not exists room_mode text not null default 'treatment';
 alter table public.rooms add column if not exists force_mute boolean not null default false;
 alter table public.rooms drop constraint if exists rooms_room_mode_check;
-alter table public.rooms add constraint rooms_room_mode_check check(room_mode in ('treatment','consultation','waiting','other'));
+alter table public.rooms add constraint rooms_room_mode_check check(room_mode in ('treatment','consultation','waiting','lobby','vip','other'));
 create index if not exists rooms_group_idx on public.rooms(group_id,sort_order,created_at);
 
 create table if not exists public.group_broadcasts (
@@ -887,6 +916,8 @@ create table if not exists public.playlists (
 );
 create unique index if not exists playlists_name_uidx on public.playlists(lower(name));
 create index if not exists playlists_target_treatment_idx on public.playlists using gin(target_treatment);
+alter table public.signage_groups drop constraint if exists signage_groups_default_playlist_fk;
+alter table public.signage_groups add constraint signage_groups_default_playlist_fk foreign key(default_playlist_id) references public.playlists(id) on delete set null;
 
 create table if not exists public.playlist_items (
   playlist_id uuid not null references public.playlists(id) on delete cascade,
@@ -1020,16 +1051,17 @@ end $$;
 
 create or replace function public.staff_reception_state()
 returns jsonb language plpgsql stable security definer set search_path=public as $$
-declare v_rooms jsonb; v_patients jsonb; v_broadcast jsonb; v_playlists jsonb; v_videos jsonb; v_items jsonb; v_rules jsonb;
+declare v_rooms jsonb; v_groups jsonb; v_patients jsonb; v_broadcast jsonb; v_playlists jsonb; v_videos jsonb; v_items jsonb; v_rules jsonb;
 begin
   if not public.is_member() then raise exception 'not allowed'; end if;
   select coalesce(jsonb_agg(jsonb_build_object(
     'id',r.id,'name',r.name,'sort_order',r.sort_order,'group_id',r.group_id,'group_name',g.name,'room_mode',r.room_mode,
     'last_seen_at',r.last_seen_at,'player_status',coalesce(r.player_status,'{}'::jsonb),'session_timeout_min',r.session_timeout_min,
     'session_started_at',r.session_started_at,'session_age_group',r.session_age_group,'session_gender',r.session_gender,'session_treatment',r.session_treatment,
-    'default_playlist_id',r.default_playlist_id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids
+    'default_playlist_id',r.default_playlist_id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids,'map_x_pct',r.map_x_pct,'map_y_pct',r.map_y_pct
   ) order by coalesce(g.sort_order,2147483647),r.sort_order,r.created_at),'[]'::jsonb) into v_rooms
   from public.rooms r left join public.signage_groups g on g.id=r.group_id;
+  select coalesce(jsonb_agg(jsonb_build_object('id',g.id,'name',g.name,'kind',g.kind,'floor_number',g.floor_number,'care_type',g.care_type,'signage_purpose',g.signage_purpose,'target_audience',g.target_audience,'waiting_area_note',g.waiting_area_note,'signage_reason',g.signage_reason,'default_playlist_id',g.default_playlist_id,'sort_order',g.sort_order) order by g.sort_order,g.floor_number,g.created_at),'[]'::jsonb) into v_groups from public.signage_groups g;
   select coalesce(jsonb_agg(to_jsonb(x) order by case x.status when 'in_progress' then 0 when 'assigned' then 1 when 'waiting' then 2 else 3 end,x.waiting_started_at),'[]'::jsonb) into v_patients
   from (select * from public.patient_sessions where (status in ('waiting','assigned','in_progress')) or (status='completed' and completed_at>=date_trunc('day',clock_timestamp())) ) x;
   select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'kind',p.kind,'active',p.active,'sort_order',p.sort_order,'target_treatment',p.target_treatment,'target_age',p.target_age,'target_gender',p.target_gender) order by p.sort_order,p.created_at),'[]'::jsonb) into v_playlists from public.playlists p where p.active;
@@ -1037,7 +1069,7 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object('playlist_id',pi.playlist_id,'video_id',pi.video_id,'sort_order',pi.sort_order) order by pi.playlist_id,pi.sort_order,pi.created_at),'[]'::jsonb) into v_items from public.playlist_items pi;
   select coalesce(jsonb_agg(jsonb_build_object('room_id',rr.room_id,'video_id',rr.video_id,'enabled',rr.enabled,'sort_order',rr.sort_order,'starts_at',rr.starts_at,'ends_at',rr.ends_at,'updated_at',rr.updated_at)),'[]'::jsonb) into v_rules from public.room_video_rules rr;
   select jsonb_build_object('active',active,'notice_text',notice_text) into v_broadcast from public.broadcast where id=1;
-  return jsonb_build_object('rooms',v_rooms,'patients',v_patients,'playlists',v_playlists,'videos',v_videos,'playlist_items',v_items,'room_video_rules',v_rules,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
+  return jsonb_build_object('rooms',v_rooms,'groups',v_groups,'patients',v_patients,'playlists',v_playlists,'videos',v_videos,'playlist_items',v_items,'room_video_rules',v_rules,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
 end $$;
 
 revoke all on function public.staff_create_patient(text,text,text,text) from public;
@@ -2023,6 +2055,7 @@ begin
   if v_mode is null then
     v_mode:='default';v_expires:=null;
     v_playlist_id:=r.default_playlist_id;
+    if v_playlist_id is null and r.group_id is not null then select default_playlist_id into v_playlist_id from public.signage_groups where id=r.group_id; end if;
     if v_playlist_id is null then select id into v_playlist_id from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
     if v_playlist_id is not null then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available); end if;
     if jsonb_array_length(v_playlist)=0 then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags; end if;
