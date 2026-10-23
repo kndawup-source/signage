@@ -11,14 +11,15 @@
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['lobby','로비'],['vip','VIP'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
   // Single source of truth: /player-release.json (the same file players poll for updates).
-  const PLAYER_VERSION=(await Signage.fetchPlayerRelease())||String(window.CLINIC_SIGNAGE_VERSION||'2.29.0');
+  const PLAYER_VERSION=(await Signage.fetchPlayerRelease())||String(window.CLINIC_SIGNAGE_VERSION||'2.29.1');
   // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
   const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
   let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false;
   const localDateKey=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   let state={rooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null};
-  let controlSignalChannel=null;
+  let controlSignalChannel=null,statusWakeChannel=null;
+  const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
   const ackState=new Map();
   const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res)});
@@ -208,7 +209,7 @@
       <div class="monitor-status-secondary"><span>온라인 <b data-stat-online>${online}/${state.rooms.length}</b></span><span>일시정지 <b data-stat-paused>${paused}</b></span><span>그룹 송출 <b>${activeGroups}</b></span><span>저장소 <b class="${storageHealth===false?'danger-text':''}">${storageState}</b></span></div>
       ${alertsHtml()}
       ${playbackAnalyticsMarkup()}
-      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${state.settings.early_closed_date===localDateKey()?'<button id="reopenToday" class="btn primary">오늘 송출 재개</button>':'<button id="closeToday" class="btn">오늘 운영 종료</button>'}${outdatedRooms().length?`<button id="reloadOutdatedPlayers" class="btn">업데이트 필요 ${outdatedRooms().length}곳 새로고침</button>`:''}<button id="reloadAllPlayers" class="btn">전체 플레이어 새로고침</button><span>플레이어 기준 ${esc(PLAYER_VERSION)} · 상태는 ${Math.round((Number(Signage.cfg.livePollMs)||0)/1000)||'수동'}${Number(Signage.cfg.livePollMs)>0?'초마다 변경분만':''} 확인 · 제어 직후 공간별 적용 확인</span></div>
+      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${state.settings.early_closed_date===localDateKey()?'<button id="reopenToday" class="btn primary">오늘 송출 재개</button>':'<button id="closeToday" class="btn">오늘 운영 종료</button>'}${outdatedRooms().length?`<button id="reloadOutdatedPlayers" class="btn">업데이트 필요 ${outdatedRooms().length}곳 새로고침</button>`:''}<button id="reloadAllPlayers" class="btn">전체 플레이어 새로고침</button><span>플레이어 기준 ${esc(PLAYER_VERSION)} · 상태 변화 즉시 반영 · ${Math.round((Number(Signage.cfg.livePollMs)||0)/1000)||'수동'}${Number(Signage.cfg.livePollMs)>0?'초 변경분 확인은 안전망':''} · 제어 직후 공간별 ACK</span></div>
       <section class="monitor-broadcast-strip ${bLive?'is-live':''} ${bScheduled?'is-scheduled':''}">
         <div class="monitor-broadcast-copy"><span>전체 송출</span><b>${bStatus}</b><em>${esc(broadcastText)}${bTime?` · ${esc(bTime)}`:''}</em></div>
         <div class="monitor-broadcast-actions"><details><summary>전체 송출 설정</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="output-time-grid"><label><span>시작</span><input id="broadcastStart" type="datetime-local" value="${toLocalInput(bPhase==='ended'?null:state.broadcast?.starts_at)}"><small>비우면 즉시</small></label><label><span>종료</span><input id="broadcastEnd" type="datetime-local" value="${toLocalInput(bPhase==='ended'?null:state.broadcast?.ends_at)}"><small>비우면 직접 중지</small></label></div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active&&bPhase!=='ended'?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active&&bPhase!=='ended'?'danger':'primary'}" ${(!state.broadcast?.active||bPhase==='ended')&&!selected.length?'disabled':''}>${state.broadcast?.active&&bPhase!=='ended'?(bScheduled?'예약 취소':'전체 중지'):'전체 시작'}</button></div>
@@ -701,10 +702,18 @@
       liveControlSig=sig;
     }catch(_){}finally{liveControlBusy=false;}
   }
+
+  async function refreshLiveRoom(roomId){
+    if(!roomId||document.hidden)return;
+    try{const res=await monitor.fetchStatus({roomIds:[roomId]});applyLiveResult(res);}catch(e){console.warn('Clinic Signage room status refresh failed:',e?.message||e);}
+  }
+  function queueLiveRoomRefresh(roomId){
+    if(!roomId)return;clearTimeout(statusWakeTimers.get(roomId));
+    statusWakeTimers.set(roomId,setTimeout(()=>{statusWakeTimers.delete(roomId);void refreshLiveRoom(roomId);},80));
+  }
   function startRealtime(){
-    // Only the outgoing control channel. Player status is polled (see Signage.createLiveMonitor):
-    // table postgres_changes cannot pass PIN-session RLS inside Realtime, and status broadcasts
-    // were billed once per listening client.
+    // Controls wake players immediately. Player status uses a lightweight broadcast wake-up;
+    // the admin then fetches only that room through signage_live_status (no status payload leak).
     try{
       controlSignalReadyPromise=new Promise(resolve=>{
         controlSignalChannel=db.channel('clinic-signage-control',{config:{broadcast:{ack:true}}});
@@ -714,6 +723,9 @@
           else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')resolve(false);
         });
       });
+      statusWakeChannel=db.channel('clinic-signage-status')
+        .on('broadcast',{event:'changed'},({payload})=>queueLiveRoomRefresh(payload?.room_id))
+        .subscribe();
     }catch(_){}
   }
   async function runMaintenance(){try{const key='clinic-signage:last-maintenance',last=Number(localStorage.getItem(key)||0);if(Date.now()-last<24*60*60*1000)return;const {error}=await db.rpc('admin_prune_signage_logs',{p_event_days:30,p_daily_days:400});if(!error)localStorage.setItem(key,String(Date.now()));}catch(_){}}
@@ -722,5 +734,6 @@
   checkStorageHealth();
   monitor.start(Signage.cfg.livePollMs);
   // Local-only clock/progress repaint. No network.
-  setInterval(()=>{if(!document.hidden)paintAllLive();},1000);
+  const livePaintTimer=setInterval(()=>{if(!document.hidden)paintAllLive();},1000);
+  window.addEventListener('beforeunload',()=>{clearInterval(livePaintTimer);statusWakeTimers.forEach(clearTimeout);monitor.stop();try{if(controlSignalChannel)db.removeChannel(controlSignalChannel);if(statusWakeChannel)db.removeChannel(statusWakeChannel);}catch(_){}});
 })();

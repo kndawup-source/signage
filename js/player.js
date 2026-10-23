@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.29.0');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.29.1');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -522,24 +522,34 @@
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
     return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
-  /* Live status report: event-driven + 60s presence. No Realtime broadcast (admin/staff poll). */
-  async function reportLive(){
+  /* Live status report: meaningful changes wake admin/staff immediately; presence stays low-frequency. */
+  async function broadcastStatusWake(){
+    if(!statusBroadcastChannel||!statusBroadcastReady||!state?.room?.id)return false;
+    try{
+      const result=await statusBroadcastChannel.send({type:'broadcast',event:'changed',payload:{room_id:state.room.id,at:new Date().toISOString()}});
+      return result==='ok'||result===true||result===undefined;
+    }catch(_){return false;}
+  }
+  async function reportLive({wake=false}={}){
+    if(wake)reportWakePending=true;
     if(reportInFlight){reportQueued=true;return;}if(!db||!state?.room)return;reportInFlight=true;
     clearTimeout(reportTimer);reportTimer=null;
+    const shouldWake=reportWakePending;reportWakePending=false;
     try{
       const status=buildLiveStatus();
       let {error}=await db.rpc(reportRpc,{p_key:key,p_status:status});
       if(error&&reportRpc!=='player_live_ping'&&Signage.isMissingFunction(error)){reportRpc='player_live_ping';({error}=await db.rpc(reportRpc,{p_key:key,p_status:status}));}
       if(error)throw error;
       lastReportAt=Date.now();
-    }catch(e){console.warn('Clinic Signage live report failed:',e?.message||e);}
-    finally{reportInFlight=false;if(reportQueued){reportQueued=false;scheduleReport();}}
+      if(shouldWake)void broadcastStatusWake();
+    }catch(e){console.warn('Clinic Signage live report failed:',e?.message||e);if(shouldWake)reportWakePending=true;}
+    finally{reportInFlight=false;if(reportQueued){reportQueued=false;scheduleReport(250,reportWakePending);}}
   }
   /* Coalesce bursts (playing + heartbeat + transition) into one write. */
-  function scheduleReport(delay=250){if(reportTimer)return;reportTimer=setTimeout(()=>{reportTimer=null;void reportLive();},delay);}
-  function reportNow(){clearTimeout(reportTimer);reportTimer=null;void reportLive();}
-  function pushLiveStatusNow(){scheduleReport();}
-  function presenceTick(){const limit=state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS*0.8;if(Date.now()-lastReportAt>=limit)void reportLive();}
+  function scheduleReport(delay=250,wake=true){if(wake)reportWakePending=true;if(reportTimer)return;reportTimer=setTimeout(()=>{reportTimer=null;void reportLive({wake:reportWakePending});},delay);}
+  function reportNow(){clearTimeout(reportTimer);reportTimer=null;void reportLive({wake:true});}
+  function pushLiveStatusNow(){scheduleReport(100,true);}
+  function presenceTick(){const limit=state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS*0.8;if(Date.now()-lastReportAt>=limit)void reportLive({wake:false});}
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;if(state?.mode==='closed'&&Date.now()-lastHeartbeatAt<5*60*1000)return;heartbeatInFlight=true;
     try{
@@ -571,7 +581,8 @@
   function queueHeartbeat(immediate=false){clearTimeout(heartbeatTimer);const wait=immediate?Math.max(0,1200-(Date.now()-lastHeartbeatAt)):1200;heartbeatTimer=setTimeout(heartbeat,wait);}
   async function acquireWake(){try{if(navigator.wakeLock&&document.visibilityState==='visible'){try{await wakeLock?.release();}catch(_){}wakeLock=await navigator.wakeLock.request('screen');}}catch(_){}}
 
-  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,controlBroadcastChannel=null,realtimeFetchTimer=null,statePollTimer=null;
+  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,controlBroadcastChannel=null,statusBroadcastChannel=null,statusBroadcastReady=false,realtimeFetchTimer=null,statePollTimer=null;
+  let reportWakePending=false;
   function requestRealtimeState(){
     clearTimeout(realtimeFetchTimer);
     /* room:{key} trigger, player_control_signals and the control broadcast can all fire
@@ -587,6 +598,10 @@
     if(!controlBroadcastChannel){
       controlBroadcastChannel=db.channel('clinic-signage-control').on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
     }
+    if(!statusBroadcastChannel){
+      statusBroadcastChannel=db.channel('clinic-signage-status',{config:{broadcast:{ack:false}}});
+      statusBroadcastChannel.subscribe(status=>{statusBroadcastReady=status==='SUBSCRIBED';});
+    }
     if(!roomId||realtimeRoomId===roomId)return;
     if(realtimeDbChannel)db.removeChannel(realtimeDbChannel);
     realtimeRoomId=roomId;
@@ -599,7 +614,7 @@
   }
 
 
-  const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);
+  const PLAYER_FALLBACK_MS=Math.max(60000,Number(Signage.cfg.pollMs)||0);
   const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
   const PLAYBACK_PRESENCE_STALE_MS=25000;
   const PLAYBACK_PRESENCE_RETRY_MS=10000;
@@ -616,7 +631,7 @@
   window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
   window.addEventListener('offline',()=>{const cached=offlineReadyState();if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
-  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel,controlBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
+  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel,controlBroadcastChannel,statusBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
   setTimeout(()=>void checkForPlayerUpdate(true),8000);
   /* Fallback only: Realtime wake-ups are primary. Closed rooms back off to 10 minutes. */
   scheduleStatePoll();

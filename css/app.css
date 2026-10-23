@@ -327,7 +327,7 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 @media(max-width:900px){.room-timed-output-body{grid-template-columns:1fr}.output-time-grid{grid-template-columns:1fr}}
 
 
-/* v2.28.0 — recurring operating hours / cache health */
+/* v2.29.1 — recurring operating hours / cache health */
 .room-operating-editor{margin-top:14px;border-top:1px solid var(--line,#e7e9ed);padding-top:12px}
 .room-operating-editor>summary{cursor:pointer;font-weight:800;display:flex;justify-content:space-between;gap:12px;align-items:center}
 .room-operating-editor>summary span{font-size:11px;color:var(--muted,#858b94);font-weight:700}

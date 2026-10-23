@@ -7,7 +7,8 @@
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null;
+  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null;
+  const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
   const ackState=new Map();
   const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res)});
@@ -314,15 +315,27 @@
   }
   let stateReloadTimer=null;
   function scheduleStaffStateReload(){clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(!document.hidden&&!busy)load({background:true}).catch(()=>{});},250);}
+
+  async function refreshLiveRoom(roomId){
+    if(!roomId||document.hidden)return;
+    try{applyLiveResult(await monitor.fetchStatus({roomIds:[roomId]}));}catch(e){console.warn('Clinic Signage staff room status refresh failed:',e?.message||e);}
+  }
+  function queueLiveRoomRefresh(roomId){
+    if(!roomId)return;clearTimeout(statusWakeTimers.get(roomId));
+    statusWakeTimers.set(roomId,setTimeout(()=>{statusWakeTimers.delete(roomId);void refreshLiveRoom(roomId);},80));
+  }
   function startRealtime(){
-    // player_control_signals has a public SELECT policy, so this postgres_changes subscription
-    // works without the PIN header. Player status itself is polled (Signage.createLiveMonitor).
+    // Control changes reload staff configuration. Status changes wake a one-room RPC refresh;
+    // the 30s delta poll remains only as loss recovery.
     try{
       signalChannel=db.channel('clinic-staff-signal-v2223').on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals'},scheduleStaffStateReload).subscribe();
+      statusWakeChannel=db.channel('clinic-signage-status')
+        .on('broadcast',{event:'changed'},({payload})=>queueLiveRoomRefresh(payload?.room_id))
+        .subscribe();
     }catch(_){}
   }
 
   try{await load();startRealtime();monitor.start(Signage.cfg.livePollMs);}catch(e){qs('#staffRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
   const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();},1000);
-  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);monitor.stop();try{if(signalChannel)db.removeChannel(signalChannel);}catch(_){}});
+  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);monitor.stop();try{if(signalChannel)db.removeChannel(signalChannel);if(statusWakeChannel)db.removeChannel(statusWakeChannel);}catch(_){}});
 })();

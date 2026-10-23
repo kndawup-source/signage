@@ -5,10 +5,10 @@
   const DEFAULT_CONFIG = Object.freeze({
     supabaseUrl: '',
     supabaseAnonKey: '',
-    pollMs: 120000,
+    pollMs: 60000,
     heartbeatMs: 60000,
     livePresenceMs: 60000,
-    livePollMs: 60000,
+    livePollMs: 30000,
     onlineThresholdMs: 180000
   });
   const suppliedConfig = window.CLINIC_SIGNAGE_CONFIG && typeof window.CLINIC_SIGNAGE_CONFIG === 'object'
@@ -152,7 +152,8 @@
   //  - No Realtime subscription for player status: PIN-session RLS cannot be evaluated
   //    by Realtime (no request headers there) and every status write would otherwise be
   //    billed once per listening tab.
-  //  - Background: one small delta query while the page is visible (changed rows only).
+  //  - Background: one small 30s delta query while the page is visible (changed rows only).
+  //  - Realtime status wake-ups fetch only the changed room; delta polling is loss recovery.
   //  - After a control action: poll only the affected rooms until each player reports
   //    `synced_at >= issuedAt` (the server time of the state it is actually playing).
   // ---------------------------------------------------------------------------
@@ -236,7 +237,7 @@
       stop();
       intervalMs = Number(ms) || 0;
       if (intervalMs <= 0) return;
-      timer = setInterval(() => void poll('poll'), Math.max(60000, intervalMs));
+      timer = setInterval(() => void poll('poll'), Math.max(30000, intervalMs));
       document.addEventListener('visibilitychange', onVisible);
       window.addEventListener('focus', onVisible);
     }

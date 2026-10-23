@@ -142,7 +142,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 전체 병원/그룹 예약 송출과 최근 제어 이력의 직전 상태 복귀를 지원합니다.
 - 전체 송출 종료 시 '이전 상태' 또는 '모두 기본영상'을 선택할 수 있습니다.
 
-[v2.29.0 CANONICAL DEPLOY]
+[v2.29.1 CANONICAL DEPLOY]
 - DB는 Supabase SQL Editor에서 supabase/schema.sql 하나만 실행합니다. 신규/기존 환경 모두 재실행 안전성을 기준으로 작성되어 있습니다.
 - 과거 버전별 SQL 파일은 이력/참조용입니다. 최신 배포에 순차 실행하지 않습니다.
 - player_report / signage_live_status / player_control_signals / signal_signage_rooms / frame-presence 기반 ACK 구조를 유지합니다.
