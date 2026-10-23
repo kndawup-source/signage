@@ -259,19 +259,19 @@
   }
   function buildingSvgFloor(n,g){
     const rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',issues:0,offline:0,live:0,total:0,label:'비운영'};
-    const y=42+(14-n)*34,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
+    const y=52+(14-n)*42,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
     const rawName=String(g?.name||'').trim(),shortName=(rawName&& !/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
     const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 필요 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출 중`:'대기'):(sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
     const cls=`svg-building-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}${selectedFloorId===g?.id?' is-selected':''}`;
     const attr=g?`data-building-select-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
     return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}">
       <title>${n}F · ${esc(shortName)} · ${esc(status)}</title>
-      <polygon class="svg-building-topline" points="36,${y} 338,${y} 362,${y-10} 60,${y-10}"></polygon>
-      <rect class="svg-building-slab" x="36" y="${y}" width="302" height="28" rx="2"></rect>
-      <polygon class="svg-building-side" points="338,${y} 362,${y-10} 362,${y+18} 338,${y+28}"></polygon>
-      <text class="svg-building-floor-no" x="50" y="${y+19}">${n}F</text>
-      <text class="svg-building-purpose" x="98" y="${y+19}">${esc(shortName)}</text>
-      <circle class="svg-building-status-dot" cx="318" cy="${y+14}" r="4.2"></circle>
+      <polygon class="svg-building-topline" points="40,${y} 336,${y} 350,${y-8} 54,${y-8}"></polygon>
+      <rect class="svg-building-slab" x="40" y="${y}" width="296" height="30" rx="3"></rect>
+      <polygon class="svg-building-side" points="336,${y} 350,${y-8} 350,${y+22} 336,${y+30}"></polygon>
+      <text class="svg-building-floor-no" x="54" y="${y+20}">${n}F</text>
+      <text class="svg-building-purpose" x="102" y="${y+20}">${esc(shortName)}</text>
+      <circle class="svg-building-status-dot" cx="316" cy="${y+15}" r="4.2"></circle>
     </g>`;
   }
   function buildingFloorPanelMarkup(g){
@@ -307,7 +307,7 @@
       <div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>왼쪽에서 층을 선택하고 오른쪽 실제 평면도에서 디스플레이 위치를 확인하세요.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
       <div class="building-command-grid">
         <aside class="building-nav-pane">
-          <svg class="svg-building compact" viewBox="0 0 400 535" role="img" aria-label="1층부터 14층까지 건물 송출 현황">${floorSvg}</svg>
+          <svg class="svg-building compact" viewBox="0 0 400 650" role="img" aria-label="1층부터 14층까지 건물 송출 현황">${floorSvg}</svg>
           <div class="building-inline-legend" aria-label="상태 안내"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div>
         </aside>
         ${buildingFloorPanelMarkup(selected)}
@@ -387,8 +387,25 @@
   }
   function hospitalPortfolioMarkup(){
     if(!state.sites.length)return '';
-    const cards=state.sites.map(site=>{const stats=sitePortfolioStats(site),active=site.id===state.currentSite?.id;return `<article class="super-site-card ${active?'is-active':''} ${site.active===false?'is-disabled':''}"><button type="button" class="super-site-select" data-select-site="${site.id}"><span class="super-site-card-top"><b>${esc(site.name)}</b><em>${site.active===false?'비활성':active?'관리 중':'선택'}</em></span><code>/${esc(siteSlug(site))}</code><span class="super-site-stats"><span><strong>${stats.total}</strong><small>디스플레이</small></span><span><strong>${stats.live}</strong><small>송출 중</small></span><span class="${stats.issues?'has-issue':''}"><strong>${stats.issues}</strong><small>확인 필요</small></span></span></button>${siteAddressLinksMarkup(site)}</article>`;}).join('');
-    return `<section class="super-sites"><div class="super-sites-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>관리 병원</h2><p>병원을 선택해 관제로 전환하거나 관리자·환자 송출 화면 주소를 바로 열고 복사할 수 있습니다.</p></div><span>${state.sites.length}개 병원</span></div><div class="super-site-grid">${cards}</div></section>`;
+    const totals=state.sites.reduce((a,site)=>{const x=sitePortfolioStats(site);a.displays+=x.total;a.live+=x.live;a.issues+=x.issues;return a;},{displays:0,live:0,issues:0});
+    const rows=state.sites.map(site=>{
+      const stats=sitePortfolioStats(site),active=site.id===state.currentSite?.id,players=sitePlayerRooms(site),adminPath=siteAdminPath(site);
+      return `<article class="hospital-row ${active?'is-active':''} ${site.active===false?'is-disabled':''}">
+        <button type="button" class="hospital-row-main" data-select-site="${site.id}">
+          <span class="hospital-row-identity"><b>${esc(site.name)}</b><code>/${esc(siteSlug(site))}</code></span>
+          <span class="hospital-row-stat"><b>${stats.total}</b><small>디스플레이</small></span>
+          <span class="hospital-row-stat"><b>${stats.live}</b><small>송출 중</small></span>
+          <span class="hospital-row-stat ${stats.issues?'has-issue':''}"><b>${stats.issues}</b><small>확인 필요</small></span>
+          <span class="hospital-row-state">${site.active===false?'비활성':active?'관제 중':'관리'}</span>
+        </button>
+        <details class="hospital-row-links"><summary>접속 주소</summary><div class="hospital-row-links-body">
+          <div><span><b>병원 관리자</b><code>${esc(absoluteAddress(adminPath))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(adminPath)}">열기</button><button type="button" data-copy-address="${esc(adminPath)}" data-copy-label="${esc(site.name)} 관리자 주소">복사</button></span></div>
+          <div><span><b>환자 화면</b><small>${players.length}개 웹 송출 화면</small></span>${players.length?`<span class="hospital-player-count">${players.length}</span>`:'<small>없음</small>'}</div>
+          ${players.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="hospital-player-link"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(path)}">열기</button><button type="button" data-copy-address="${esc(path)}" data-copy-label="${esc(site.name)} ${esc(r.name)} 환자 화면 주소">복사</button></span></div>`;}).join('')}
+        </div></details>
+      </article>`;
+    }).join('');
+    return `<section class="hospital-portfolio"><div class="hospital-portfolio-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>병원 전체 현황</h2><p>병원을 선택하면 아래 관제가 해당 병원으로 전환됩니다.</p></div><div class="hospital-portfolio-total"><span><b>${state.sites.length}</b><small>병원</small></span><span><b>${totals.displays}</b><small>디스플레이</small></span><span class="${totals.issues?'has-issue':''}"><b>${totals.issues}</b><small>확인 필요</small></span></div></div><div class="hospital-list">${rows}</div></section>`;
   }
 
   function renderDashboard(){
