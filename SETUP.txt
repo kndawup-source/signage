@@ -141,3 +141,18 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 대시보드에서 여러 공간을 체크해 한 번에 송출/자동복귀할 수 있습니다.
 - 전체 병원/그룹 예약 송출과 최근 제어 이력의 직전 상태 복귀를 지원합니다.
 - 전체 송출 종료 시 '이전 상태' 또는 '모두 기본영상'을 선택할 수 있습니다.
+
+[v2.24 비용/보안 리팩토링]
+SQL 실행 순서 (Supabase SQL Editor, 여러 번 실행해도 안전)
+  1) supabase/v2.24.0-security-hotfix.sql   ← 반드시 먼저. PIN 없이 admin_*/staff_* RPC가 실행되던 문제 수정
+  2) supabase/v2.24.1-live-status-lite.sql  ← 상태 보고/조회 RPC, 썸네일 없는 플레이어 상태
+  3) supabase/v2.24.2-pin-ip-throttle.sql   ← (권장) PIN 무차별 대입 IP 기준 잠금
+  * schema.sql 끝에도 같은 내용이 붙어 있어 신규 설치는 schema.sql 하나로 됩니다.
+  * 프론트는 새 RPC가 없으면 기존 RPC로 자동 fallback → SQL/프론트 배포 순서 무관.
+
+송출 상태 확인 방식
+- 플레이어: 영상 전환·재생/정지/오류·상태 수신 시 즉시 보고 + 변화 없으면 60초 presence 1회
+- 관리자/스텝: 화면이 보일 때만 30초마다 "변경된 행만" 조회 (config.js livePollMs, 0이면 수동)
+- 제어 직후: 해당 공간만 0.8~20초 사이 최대 8회 조회 → 플레이어가 새 상태를 실제 재생하면 즉시 종료
+  카드 배지: 적용 확인 중 → 송출 중 / 적용 미확인 / 적용 오류
+- Realtime은 "플레이어 깨우기"(room:{key}, player_control_signals, 전체 송출 브로드캐스트)에만 사용

@@ -7,14 +7,11 @@
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, liveChannel=null, signalChannel=null, liveFastChannel=null;
-  const LIVE_DELAY_MS=70000, LIVE_OFFLINE_MS=180000;
+  let state={patients:[],rooms:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null;
+  // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
+  const ackState=new Map();
+  const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res)});
   async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
-  async function refreshRoomLiveStatus(room){
-    if(!room)return;
-    try{const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status,updated_at').eq('room_id',room).maybeSingle();if(!error&&data)mergePlayerLiveStatus(data);}catch(_){}
-  }
-  function scheduleRoomLiveAck(room){[120,350,800,1600,3000].forEach(delay=>window.setTimeout(()=>refreshRoomLiveStatus(room),delay));}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
@@ -31,19 +28,14 @@
   function staffRoomOutputItems(r){const ids=staffBaseIds(r),rules=new Map(roomRules(r.id).map(x=>[x.video_id,x]));return ids.map((id,idx)=>({id,video:state.videos.find(v=>v.id===id),rule:rules.get(id),idx})).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.idx+1)*10))-(b.rule?.sort_order??((b.idx+1)*10)));}
   function staffThumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
   function staffOutputList(r){const items=staffRoomOutputItems(r);return `<div class="staff-output-list">${items.map((x,i)=>`<div class="staff-output-item ${x.rule?.enabled===false?'is-disabled':''}"><div class="staff-output-thumb">${staffThumb(x.video)}</div><b>${esc(x.video.title)}</b><label class="switch"><input type="checkbox" data-staff-video-toggle="${r.id}" data-video-id="${x.id}" ${x.rule?.enabled===false?'':'checked'} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;}
-  function roomAgeMs(r){const ts=r?.last_seen_at?new Date(r.last_seen_at).getTime():0;return ts>0?Math.max(0,Date.now()-ts):Infinity;}
-  function roomHealth(r){
-    const st=r.player_status||{},age=roomAgeMs(r);
-    if(age>LIVE_OFFLINE_MS)return 'offline';
-    if(st.error||String(st.playback_state||'').toLowerCase()==='error')return 'error';
-    if(st.recovery_stage)return 'recovering';
-    if(age>LIVE_DELAY_MS)return 'delayed';
-    return 'normal';
-  }
+  const roomHealth=(r)=>Signage.roomHealth(r,monitor.serverNow());
   const staffIsOnline=(r)=>roomHealth(r)!=='offline';
   function roomDisplayStatus(r){
-    const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase();
+    const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase(),ack=ackState.get(r.id);
     if(h==='offline')return {key:'offline',label:'오프라인'};
+    if(ack?.status==='pending')return {key:'delayed',label:'적용 확인 중'};
+    if(ack?.status==='error')return {key:'error',label:'적용 오류'};
+    if(ack?.status==='unconfirmed')return {key:'error',label:'적용 미확인'};
     if(h==='error')return {key:'error',label:'오류'};
     if(h==='recovering')return {key:'recovering',label:'복구 중'};
     if(h==='delayed')return {key:'delayed',label:'확인 중'};
@@ -79,12 +71,12 @@
   async function load({background=false}={}){
     const [reception,liveStatuses]=await Promise.all([
       db.rpc('staff_reception_state'),
-      db.from('player_live_status').select('*')
+      monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error}))
     ]);
     if(reception.error)throw reception.error;
     if(liveStatuses.error)throw liveStatuses.error;
-    const data=reception.data||{},liveByRoom=new Map((liveStatuses.data||[]).map(x=>[x.room_id,x]));
-    const rooms=(data.rooms||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status,__live_verified_at:Date.now()}:r;});
+    const data=reception.data||{},liveByRoom=new Map((liveStatuses.data?.rows||[]).map(x=>[x.room_id,x]));
+    const rooms=(data.rooms||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;});
     state={patients:data.patients||[],rooms,playlists:data.playlists||[],videos:data.videos||[],playlistItems:data.playlist_items||[],roomRules:data.room_video_rules||[],broadcast:data.broadcast||{active:false}};
     if(background&&isInteracting())return;
     renderPreservingUi(background);
@@ -230,54 +222,88 @@
     qsa('[data-cancel]').forEach(b=>b.addEventListener('click',()=>{if(confirm('이 환자 대기를 취소할까요?'))action('staff_cancel_patient',b.dataset.cancel,'취소했습니다.');}));
   }
 
+  const OVERRIDE_MODES=['broadcast','broadcast_schedule','group','group_schedule','emergency'];
+  const isOverridden=(room)=>OVERRIDE_MODES.includes(String(roomById(room)?.player_status?.mode||''));
+  /* One staff action on one room: capture server time before the write, write, wake the
+     player, reload reception state, then confirm the player is actually playing the new state. */
+  async function staffControl(room,op,okMessage,{signal=true}={}){
+    if(busy)return false;busy=true;
+    const issuedAt=monitor.markIssue();
+    let result;try{result=await op();}catch(e){result={error:e};}finally{busy=false;}
+    if(result?.error){toast(result.error.message||String(result.error),'error');return false;}
+    if(signal&&room)await signalRoom(room);
+    if(okMessage)toast(okMessage);
+    await load().catch(e=>toast(e.message||String(e),'error'));
+    if(room)void confirmDelivery(room,issuedAt);
+    return true;
+  }
+  async function confirmDelivery(room,issuedAt){
+    const r=roomById(room);if(!r||roomHealth(r)==='offline')return;
+    if(!monitor.rpcSupported){await monitor.awaitAck([room],issuedAt);return;}
+    ackState.set(room,{status:'pending',at:issuedAt});updateStaffRoomDom(r);paintStaffSummary();
+    const {result}=await monitor.awaitAck([room],issuedAt);
+    const a=ackState.get(room);if(a&&a.at!==issuedAt)return;
+    const v=result.get(room);
+    if(v==='ok')ackState.delete(room);else if(a)a.status=v==='error'?'error':'unconfirmed';
+    const cur=roomById(room);if(cur){updateStaffRoomDom(cur);paintStaffSummary();}
+    if(v!=='ok')toast(`${cur?.name||'공간'} · 화면 적용을 확인하지 못했습니다.`,'error');
+  }
+  function applyLiveResult(res){
+    if(!res)return;
+    const seen=new Map((res.seen||[]).map(x=>[x.room_id,x.last_seen_at]));
+    (res.rows||[]).forEach(row=>{seen.delete(row.room_id);const a=ackState.get(row.room_id);if(a&&monitor.verdict(row,a.at)==='ok')ackState.delete(row.room_id);mergePlayerLiveStatus(row);});
+    seen.forEach((lastSeen,roomId)=>{const r=roomById(roomId);if(r&&lastSeen)r.last_seen_at=lastSeen;});
+  }
+  const roomForPatient=(id)=>state.patients.find(p=>p.id===id)?.room_id||null;
+
   async function setRoomPlaylist(room){
-    if(busy)return; const playlist=qs(`[data-staff-playlist="${room}"]`)?.value; if(!playlist)return toast('플레이리스트를 선택하세요.','error');
-    busy=true; const {error}=await db.rpc('staff_set_room_playlist',{p_room:room,p_playlist:playlist}); busy=false;
-    if(error)return toast(error.message,'error'); await signalRoom(room); toast('공간 플레이리스트를 변경했습니다.'); await load();
+    const playlist=qs(`[data-staff-playlist="${room}"]`)?.value; if(!playlist)return toast('플레이리스트를 선택하세요.','error');
+    await staffControl(room,()=>db.rpc('staff_set_room_playlist',{p_room:room,p_playlist:playlist}),'공간 플레이리스트를 변경했습니다.');
   }
   async function addRoomVideo(room){
-    if(busy)return; const video=qs(`[data-staff-video="${room}"]`)?.value; if(!video)return toast('추가할 영상을 선택하세요.','error');
-    busy=true; const {error}=await db.rpc('staff_add_room_video',{p_room:room,p_video:video}); busy=false;
-    if(error)return toast(error.message,'error'); await signalRoom(room); toast('이 공간에 영상 1개를 추가했습니다.'); await load();
+    const video=qs(`[data-staff-video="${room}"]`)?.value; if(!video)return toast('추가할 영상을 선택하세요.','error');
+    await staffControl(room,()=>db.rpc('staff_add_room_video',{p_room:room,p_video:video}),'이 공간에 영상 1개를 추가했습니다.');
   }
   async function clearRoomManual(room){
-    if(busy)return; busy=true; const {error}=await db.rpc('staff_clear_room_manual',{p_room:room}); busy=false;
-    if(error)return toast(error.message,'error'); await signalRoom(room); toast('선택한 기본 플레이리스트로 돌아갑니다.'); await load();
+    await staffControl(room,()=>db.rpc('staff_clear_room_manual',{p_room:room}),'선택한 기본 플레이리스트로 돌아갑니다.');
   }
-
-  async function staffToggleVideo(room,video,enabled){const r=state.rooms.find(x=>x.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');if(busy)return;busy=true;const {error}=await db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled});busy=false;if(error)return toast(error.message,'error');await signalRoom(room);await load();scheduleRoomLiveAck(room);}
-  async function staffMoveVideo(room,video,dir){const r=state.rooms.find(x=>x.id===room),items=staffRoomOutputItems(r||{});if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await signalRoom(room);await load();scheduleRoomLiveAck(room);}
-
+  async function staffToggleVideo(room,video,enabled){
+    if(isOverridden(room))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');
+    await staffControl(room,()=>db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled}));
+  }
+  async function staffMoveVideo(room,video,dir){
+    if(isOverridden(room))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');
+    const items=staffRoomOutputItems(roomById(room)||{}),from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;
+    [items[from],items[to]]=[items[to],items[from]];
+    await staffControl(room,()=>db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)}));
+  }
   async function quickSet(room,treatment){
-    if(busy)return; busy=true;
     const age=qs(`[data-quick-age="${room}"]`)?.value||null;
     const gender=qs(`[data-quick-gender="${room}"]`)?.value||null;
-    const {error}=await db.rpc('staff_quick_set_room',{p_room:room,p_treatment:treatment,p_age_group:age,p_gender:gender});
-    busy=false; if(error)return toast(error.message,'error'); toast(`${treatmentLabel(treatment)} 맞춤 영상을 적용했습니다.`); await load();
+    await staffControl(room,()=>db.rpc('staff_quick_set_room',{p_room:room,p_treatment:treatment,p_age_group:age,p_gender:gender}),`${treatmentLabel(treatment)} 맞춤 영상을 적용했습니다.`,{signal:false});
   }
   async function quickClear(room){
-    if(busy)return; busy=true;
-    const {error}=await db.rpc('staff_quick_clear_room',{p_room:room});
-    busy=false; if(error)return toast(error.message,'error'); toast('기본 영상으로 돌아갑니다.'); await load();
+    await staffControl(room,()=>db.rpc('staff_quick_clear_room',{p_room:room}),'기본 영상으로 돌아갑니다.',{signal:false});
   }
   async function createPatient(){
-    if(busy)return; busy=true;
-    const {error}=await db.rpc('staff_create_patient',{p_label:qs('#patientLabel').value.trim()||null,p_age_group:qs('#patientAge').value||null,p_gender:qs('#patientGender').value||null,p_treatment:qs('#patientTreatment').value});
-    busy=false; if(error)return toast(error.message,'error'); toast('대기 환자를 등록했습니다.'); await load();
+    await staffControl(null,()=>db.rpc('staff_create_patient',{p_label:qs('#patientLabel').value.trim()||null,p_age_group:qs('#patientAge').value||null,p_gender:qs('#patientGender').value||null,p_treatment:qs('#patientTreatment').value}),'대기 환자를 등록했습니다.',{signal:false});
   }
   async function assignPatient(id){
     const room=qs(`[data-room-select="${id}"]`)?.value; if(!room)return toast('진료실을 선택하세요.','error');
-    const {error}=await db.rpc('staff_assign_patient',{p_patient:id,p_room:room}); if(error)return toast(error.message,'error'); toast('진료실에 배정했습니다.'); await load();
+    await staffControl(room,()=>db.rpc('staff_assign_patient',{p_patient:id,p_room:room}),'진료실에 배정했습니다.',{signal:false});
   }
-  async function action(fn,id,msg){const {error}=await db.rpc(fn,{p_patient:id});if(error)return toast(error.message,'error');toast(msg);await load();}
+  async function action(fn,id,msg){
+    const room=roomForPatient(id);
+    await staffControl(room,()=>db.rpc(fn,{p_patient:id}),msg,{signal:false});
+  }
 
   function updateStaffRoomDom(r){
     const card=qs(`[data-room-card="${r.id}"]`);if(!card)return;
-    const health=roomHealth(r),display=roomDisplayStatus(r),st=r.player_status||{},on=staffIsOnline(r),video=currentVideoForRoom(r),progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
+    const health=roomHealth(r),display=roomDisplayStatus(r),st=r.player_status||{},on=staffIsOnline(r),video=currentVideoForRoom(r),progress=st.duration?`${formatDuration(Signage.estimatedCurrentTime(r,monitor.serverNow()))} / ${formatDuration(st.duration)}`:'';
     card.dataset.health=health;card.className=`monitor-room staff-monitor-room health-${health}`;
     const dot=qs('[data-staff-live-dot]',card);if(dot)dot.classList.toggle('on',on);
     const status=qs('[data-staff-room-status]',card);if(status){status.className=`room-status-badge status-${display.key}`;status.textContent=display.label;}
-    const thumb=qs('[data-staff-live-thumb]',card);if(thumb)thumb.innerHTML=staffThumb(video);
+    const thumb=qs('[data-staff-live-thumb]',card),thumbKey=String(video?.id||'');if(thumb&&thumb.dataset.videoId!==thumbKey){thumb.innerHTML=staffThumb(video);thumb.dataset.videoId=thumbKey;}
     const title=qs('[data-staff-live-title]',card);if(title)title.textContent=st.title||'대기 중';
     const next=qs('[data-staff-live-next]',card);if(next)next.textContent=st.next_title||'—';
     const detail=qs('[data-staff-live-detail]',card);if(detail)detail.textContent=on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}${st.error?` · ${st.error}`:''}`:'오프라인';
@@ -292,25 +318,19 @@
     card.className=`monitor-group staff-monitor-group group-state-${x.key}`;const badge=qs('[data-staff-group-status]',card);if(badge){badge.className=`group-status-badge status-${x.key}`;badge.textContent=x.label;}set('[data-staff-group-total]',x.total);set('[data-staff-group-live]',x.live);set('[data-staff-group-online]',x.online);set('[data-staff-group-issues]',x.issues);const p=qs('[data-staff-group-summary]',card);if(p)p.textContent=x.key==='live'?`${x.live}곳 송출 중`:x.key==='issue'?`확인 필요한 공간 ${x.issues}곳`:x.key==='offline'?'모든 공간 연결 끊김':'현재 재생 대기';
   }
   function mergePlayerLiveStatus(live){
-    if(!live?.room_id)return;const idx=state.rooms.findIndex(r=>r.id===live.room_id);if(idx<0)return;state.rooms[idx]={...state.rooms[idx],last_seen_at:live.last_seen_at||state.rooms[idx].last_seen_at,player_status:live.player_status||state.rooms[idx].player_status,__live_verified_at:Date.now()};updateStaffRoomDom(state.rooms[idx]);paintStaffSummary();
-  }
-  const staleVerifyMeta=new Map();let staleVerifyBusy=false;
-  async function verifyStaleLiveStatuses(){
-    if(staleVerifyBusy||document.hidden)return;const now=Date.now(),ids=[];
-    for(const r of state.rooms){const age=roomAgeMs(r);if(age<LIVE_DELAY_MS-5000)continue;const seen=String(r.last_seen_at||''),meta=staleVerifyMeta.get(r.id)||{};if(meta.seen!==seen){meta.seen=seen;meta.checkedAt=0;}if(now-Number(meta.checkedAt||0)<60000)continue;meta.checkedAt=now;staleVerifyMeta.set(r.id,meta);ids.push(r.id);}
-    if(!ids.length)return;staleVerifyBusy=true;try{const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status').in('room_id',ids);if(!error)(data||[]).forEach(mergePlayerLiveStatus);}catch(_){}finally{staleVerifyBusy=false;}
+    if(!live?.room_id)return;const idx=state.rooms.findIndex(r=>r.id===live.room_id);if(idx<0)return;state.rooms[idx]={...state.rooms[idx],last_seen_at:live.last_seen_at||state.rooms[idx].last_seen_at,player_status:live.player_status||state.rooms[idx].player_status};updateStaffRoomDom(state.rooms[idx]);paintStaffSummary();
   }
   let stateReloadTimer=null;
   function scheduleStaffStateReload(){clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(!document.hidden&&!busy)load({background:true}).catch(()=>{});},250);}
   function startRealtime(){
+    // player_control_signals has a public SELECT policy, so this postgres_changes subscription
+    // works without the PIN header. Player status itself is polled (Signage.createLiveMonitor).
     try{
-      liveFastChannel=db.channel('clinic-staff-live-fast-v2226').on('broadcast',{event:'changed'},msg=>refreshRoomLiveStatus(msg?.payload?.room_id)).subscribe();
-      liveChannel=db.channel('clinic-staff-live-v2223').on('postgres_changes',{event:'INSERT',schema:'public',table:'player_live_status'},p=>mergePlayerLiveStatus(p.new||{})).on('postgres_changes',{event:'UPDATE',schema:'public',table:'player_live_status'},p=>mergePlayerLiveStatus(p.new||{})).subscribe();
       signalChannel=db.channel('clinic-staff-signal-v2223').on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals'},scheduleStaffStateReload).subscribe();
     }catch(_){}
   }
 
-  try{await load();startRealtime();}catch(e){qs('#staffRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
-  let tick=0;const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();if(++tick%5===0)verifyStaleLiveStatuses();},1000);
-  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);try{if(liveChannel)db.removeChannel(liveChannel);if(signalChannel)db.removeChannel(signalChannel);if(liveFastChannel)db.removeChannel(liveFastChannel);}catch(_){}});
+  try{await load();startRealtime();monitor.start(Signage.cfg.livePollMs);}catch(e){qs('#staffRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
+  const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();},1000);
+  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);monitor.stop();try{if(signalChannel)db.removeChannel(signalChannel);}catch(_){}});
 })();

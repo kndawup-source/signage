@@ -6,7 +6,7 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = '2.23.0';
+  const APP_VERSION = '2.24.0';
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -31,12 +31,16 @@
   let fetchQueued = false;
   let heartbeatInFlight = false;
   let heartbeatQueued = false;
-  let livePingInFlight = false;
-  let livePingQueued = false;
-  let liveFastChannel = null;
-  let liveFastReady = false;
-  const FRAME_PRESENCE_MS = 15000;
-  let lastFramePresenceAt = 0;
+  let reportInFlight = false;
+  let reportQueued = false;
+  let reportTimer = null;
+  let lastReportAt = 0;
+  // Server time (player_get_state.server_time) of the state that is actually on screen.
+  // Admin/staff compare this against the moment a control was issued to confirm delivery.
+  let syncedAt = null;
+  let renderSeq = 0;
+  let stateRpc = 'player_get_state_lite';
+  let reportRpc = 'player_report';
   let syncStartTimer = null;
   let transitionTimer = null;
   let activeSlot = 0;
@@ -102,7 +106,7 @@
     slots.forEach((el,slotIndex)=>{
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;markRenderedPresence();}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
@@ -225,7 +229,6 @@
         const remain=duration-time;
         if(remain<=1.25&&remain>0.02){prerollNext();}
       }
-      markRenderedPresence();
       if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
       else requestAnimationFrame(tick);
     };
@@ -263,7 +266,7 @@
       confirmedPlaybackState=emergencyPlaying?'emergency':'playing';
       requestAnimationFrame(()=>{
         if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
-        transitionInProgress=false;prepareNext();queueHeartbeat(true);
+        transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
       });
       return true;
     }
@@ -280,7 +283,7 @@
     currentEl?.classList.remove('is-active');
     requestAnimationFrame(()=>{
       if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
-      transitionInProgress=false;prepareNext();queueHeartbeat(true);
+      transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
     });
     return true;
   }
@@ -310,7 +313,10 @@
     const v=current();
     if(!v||!mediaUrl(v)){blankPlayer();renderBarsOnly();return;}
     ensureSurface();renderBarsOnly();
-    await switchToIndex(index,{sync:true});
+    const mySeq=++renderSeq;
+    const ok=await switchToIndex(index,{sync:true});
+    if(!ok&&mySeq===renderSeq&&!emergencyPlaying&&!state?.room?.paused)await handleMediaFailure(current());
+    return ok;
   }
   function enableSound(){
     if(state?.room?.force_mute)return;
@@ -332,7 +338,8 @@
     if(!db)return;
     fetchInFlight=true;const requestStarted=Date.now();
     try{
-      const {data,error}=await db.rpc('player_get_state',{p_key:key});
+      let {data,error}=await db.rpc(stateRpc,{p_key:key});
+      if(error&&stateRpc!=='player_get_state'&&Signage.isMissingFunction(error)){stateRpc='player_get_state';({data,error}=await db.rpc(stateRpc,{p_key:key}));}
       if(error)throw error;
       if(!data){if(!state){root.innerHTML='<div class="player-message">등록되지 않은 플레이어 주소입니다. 관리자 화면에서 링크를 다시 복사하세요.</div>';slots=[];}return;}
       updateServerClock(data.server_time,requestStarted,Date.now());
@@ -340,9 +347,11 @@
       else if(data.room.reload_nonce!==lastNonce){try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
       state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();cacheEmergency().catch(()=>{});subscribePlayerRealtime();
-      if(playlistChanged){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();queueHeartbeat(true);}
-      else if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}
+      const fetchedAt=data.server_time||null;
       lastStateSig=newStateSig;
+      if(playlistChanged){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();syncedAt=fetchedAt;queueHeartbeat(true);}
+      else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}syncedAt=fetchedAt;}
+      reportNow();
     }catch(e){lastError=e?.message||String(e);queueHeartbeat(true);}
     finally{fetchInFlight=false;if(fetchQueued){fetchQueued=false;queueMicrotask(fetchState);}}
   }
@@ -367,7 +376,7 @@
       try{nextEl.pause();}catch(_){}nextEl.loop=true;nextEl.dataset.videoId=String(state?.emergency_video?.id||'emergency');nextEl.dataset.mediaUrl=emergencyObjectUrl;nextEl.src=emergencyObjectUrl;applyAudio(nextEl);nextEl.load();
       if(!(await waitUntilPlayable(nextEl,switchToken)))return false;
       if(!(await playElement(nextEl)))return false;
-      nextEl.classList.add('is-active');currentEl?.classList.remove('is-active');activeSlot=target;emergencyPlaying=true;transitionInProgress=false;confirmedPlaybackState='emergency';lastError='네트워크 장애 · 비상영상 재생 중';pushHeartbeatNow();scheduleRecovery();return true;
+      nextEl.classList.add('is-active');currentEl?.classList.remove('is-active');activeSlot=target;emergencyPlaying=true;transitionInProgress=false;confirmedPlaybackState='emergency';lastError='네트워크 장애 · 비상영상 재생 중';pushHeartbeatNow();pushLiveStatusNow();scheduleRecovery();return true;
     }catch(_){return false;}
   }
   async function probeMedia(){
@@ -387,30 +396,26 @@
   function playbackState(){const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(confirmedPlaybackState==='playing'&&!el.ended)return 'playing';if(el.ended)return 'ended';if(el.paused)return confirmedPlaybackState==='playing'?'playing':'paused';if(el.readyState<3)return 'loading';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',thumbnail:v?.thumbnail||null,recovery_stage:recoveryStage||null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':'cloud-r2',recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
-  async function publishLiveChanged(){
-    if(!liveFastChannel||!liveFastReady||!state?.room?.id)return;
-    try{await liveFastChannel.send({type:'broadcast',event:'changed',payload:{room_id:state.room.id,at:new Date().toISOString()}});}catch(_){}
-  }
-  async function fastLivePing(){
-    if(livePingInFlight){livePingQueued=true;return;}if(!db||!state?.room)return;livePingInFlight=true;
+  /* Live status report: event-driven + 60s presence. No Realtime broadcast (admin/staff poll). */
+  async function reportLive(){
+    if(reportInFlight){reportQueued=true;return;}if(!db||!state?.room)return;reportInFlight=true;
+    clearTimeout(reportTimer);reportTimer=null;
     try{
-      const {error}=await db.rpc('player_live_ping',{p_key:key,p_status:buildLiveStatus()});
+      const status=buildLiveStatus();
+      let {error}=await db.rpc(reportRpc,{p_key:key,p_status:status});
+      if(error&&reportRpc!=='player_live_ping'&&Signage.isMissingFunction(error)){reportRpc='player_live_ping';({error}=await db.rpc(reportRpc,{p_key:key,p_status:status}));}
       if(error)throw error;
-      await publishLiveChanged();
-    }catch(e){console.warn('Clinic Signage live status ping failed:',e?.message||e);}
-    finally{livePingInFlight=false;if(livePingQueued){livePingQueued=false;queueMicrotask(fastLivePing);}}
+      lastReportAt=Date.now();
+    }catch(e){console.warn('Clinic Signage live report failed:',e?.message||e);}
+    finally{reportInFlight=false;if(reportQueued){reportQueued=false;scheduleReport();}}
   }
-  function pushLiveStatusNow(){void fastLivePing();}
-  function markRenderedPresence(){
-    const now=Date.now();
-    if(now-lastFramePresenceAt<FRAME_PRESENCE_MS)return;
-    const el=activeVideoEl();
-    if(!el||el.paused||el.ended||el.readyState<2||state?.room?.paused)return;
-    lastFramePresenceAt=now;
-    void fastLivePing();
-  }
+  /* Coalesce bursts (playing + heartbeat + transition) into one write. */
+  function scheduleReport(delay=250){if(reportTimer)return;reportTimer=setTimeout(()=>{reportTimer=null;void reportLive();},delay);}
+  function reportNow(){clearTimeout(reportTimer);reportTimer=null;void reportLive();}
+  function pushLiveStatusNow(){scheduleReport();}
+  function presenceTick(){if(Date.now()-lastReportAt>=LIVE_PRESENCE_MS*0.8)void reportLive();}
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;heartbeatInFlight=true;
     try{
@@ -420,7 +425,7 @@
     }catch(e){
       console.warn('Clinic Signage heartbeat failed:',e?.message||e);
       /* Live presence must never depend on the heavier analytics heartbeat. */
-      void fastLivePing();
+      scheduleReport();
     }finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
@@ -445,14 +450,9 @@
   let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,controlBroadcastChannel=null,realtimeFetchTimer=null;
   function requestRealtimeState(){
     clearTimeout(realtimeFetchTimer);
-    realtimeFetchTimer=setTimeout(()=>fetchState(),25);
-  }
-  function ensureLiveFastChannel(){
-    if(liveFastChannel)return;
-    try{
-      liveFastChannel=db.channel('clinic-signage-live-fast');
-      liveFastChannel.subscribe(status=>{liveFastReady=status==='SUBSCRIBED';});
-    }catch(_){}
+    /* room:{key} trigger, player_control_signals and the control broadcast can all fire
+       for one action; 150ms coalesces them into a single player_get_state call. */
+    realtimeFetchTimer=setTimeout(()=>fetchState(),150);
   }
   function subscribePlayerRealtime(){
     if(!db)return;
@@ -475,19 +475,22 @@
   }
 
 
-  ensureSurface();loadSaved();acquireWake();document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){void fastLivePing();void checkForPlayerUpdate(true);}});window.addEventListener('focus',()=>{void fastLivePing();void checkForPlayerUpdate();});fetchState();
-  ensureLiveFastChannel();
-  setTimeout(()=>void checkForPlayerUpdate(true),8000);
   const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);
   const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
+
+  ensureSurface();loadSaved();acquireWake();fetchState();
+  document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){scheduleReport();void checkForPlayerUpdate(true);}});
+  window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
+  window.addEventListener('online',()=>{fetchState();void checkForPlayerUpdate(true);});
+  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(reportTimer);[realtimeDbChannel,roomBroadcastChannel,controlBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
+  setTimeout(()=>void checkForPlayerUpdate(true),8000);
+  /* Fallback only: Realtime wake-ups are the primary path. */
   setInterval(fetchState,PLAYER_FALLBACK_MS);
-  /* Lightweight persisted presence: keeps player_live_status fresh even with no playback state changes. */
-  setInterval(fastLivePing,LIVE_PRESENCE_MS);
-  /* Heavier stats/event heartbeat runs less often and is no longer the source of online truth. */
+  /* Presence: skipped when an event-driven report already went out recently. */
+  setInterval(presenceTick,LIVE_PRESENCE_MS);
+  /* Analytics heartbeat (재생률 통계). Not the source of online truth. */
   setInterval(heartbeat,ANALYTICS_HEARTBEAT_MS);
   setInterval(playbackWatchdog,10000);
   setInterval(()=>{void checkForPlayerUpdate();if(updatePendingVersion)updateAtSafePoint();},60000);
-  window.addEventListener('online',()=>{fetchState();void fastLivePing();void checkForPlayerUpdate(true);});
-  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);if(realtimeDbChannel)db?.removeChannel(realtimeDbChannel);if(roomBroadcastChannel)db?.removeChannel(roomBroadcastChannel);if(controlBroadcastChannel)db?.removeChannel(controlBroadcastChannel);if(liveFastChannel)db?.removeChannel(liveFastChannel);});
 })();

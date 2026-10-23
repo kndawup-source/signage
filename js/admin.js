@@ -10,13 +10,18 @@
   const GROUP_KINDS=[['floor','층'],['zone','구역'],['consultation','구역'],['waiting','구역'],['vip','VIP'],['other','기타']];
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['lobby','로비'],['vip','VIP'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
-  const PLAYER_VERSION='2.23.0';
+  // Single source of truth: /player-release.json (the same file players poll for updates).
+  const PLAYER_VERSION=(await Signage.fetchPlayerRelease())||'2.24.0';
   // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
   const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
   let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false;
   let state={rooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null};
   let controlSignalChannel=null;
+  // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
+  const ackState=new Map();
+  const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res)});
+  let liveRefreshBusy=false,liveControlBusy=false,liveControlSig='';
 
   qsa('.nav-btn').forEach((b)=>b.addEventListener('click',()=>{tab=b.dataset.tab;qsa('.nav-btn').forEach((x)=>x.classList.toggle('active',x===b));render();}));
 
@@ -24,7 +29,7 @@
     const seq=++loadSeq;
     const [rooms,liveStatuses,videos,playlists,playlistItems,roomRules,groups,groupBroadcasts,schedules,history,broadcast,settings,playbackToday]=await Promise.all([
       db.from('rooms').select('*').order('sort_order').order('created_at'),
-      db.from('player_live_status').select('*'),
+      monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error})),
       db.from('videos').select('*').order('created_at',{ascending:false}),
       db.from('playlists').select('*').order('sort_order').order('created_at'),
       db.from('playlist_items').select('*').order('sort_order').order('created_at'),
@@ -39,8 +44,8 @@
     ]);
     const errors=[rooms.error,liveStatuses.error,videos.error,playlists.error,playlistItems.error,roomRules.error,groups.error,groupBroadcasts.error,schedules.error,history.error,broadcast.error,settings.error,playbackToday.error].filter(Boolean);
     if(errors.length)throw errors[0]; if(seq!==loadSeq)return;
-    const liveByRoom=new Map((liveStatuses.data||[]).map(x=>[x.room_id,x]));
-    const mergedRooms=(rooms.data||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status,__live_received_at:Date.now(),__live_verified_at:Date.now()}:r;});
+    const liveByRoom=new Map((liveStatuses.data?.rows||[]).map(x=>[x.room_id,x]));
+    const mergedRooms=(rooms.data||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;});
     state={rooms:mergedRooms,videos:videos.data||[],playlists:playlists.data||[],playlistItems:playlistItems.data||[],roomRules:roomRules.data||[],groups:groups.data||[],groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:settings.data||{emergency_video_id:null},playbackToday:playbackToday.data||null};
     render();
   }
@@ -98,19 +103,7 @@
   function optionChips(kind,selected=[],options=[]){const allLabel=kind==='target_treatment'?'공통':'전체';return `<button type="button" class="chip ${!selected.length?'on':''}" data-target-kind="${kind}" data-target-value="">${allLabel}</button>${options.map(([v,l])=>`<button type="button" class="chip ${selected.includes(v)?'on':''}" data-target-kind="${kind}" data-target-value="${v}">${esc(l)}</button>`).join('')}`;}
   const videoOptions=(selected='')=>`<option value="">영상 선택</option>${activeVideos().map(v=>`<option value="${v.id}" ${selected===v.id?'selected':''}>${esc(v.title)}</option>`).join('')}`;
   const roomRules=(roomId)=>state.roomRules.filter(x=>x.room_id===roomId);
-  const LIVE_DELAY_MS=70000, LIVE_OFFLINE_MS=180000;
-  function roomAgeMs(r){
-    const ts=r?.last_seen_at?new Date(r.last_seen_at).getTime():0;
-    return ts>0?Math.max(0,Date.now()-ts):Infinity;
-  }
-  function roomHealth(r){
-    const st=r.player_status||{},age=roomAgeMs(r);
-    if(age>LIVE_OFFLINE_MS)return 'offline';
-    if(st.error||String(st.playback_state||'').toLowerCase()==='error')return 'error';
-    if(st.recovery_stage)return 'recovering';
-    if(age>LIVE_DELAY_MS)return 'delayed';
-    return 'normal';
-  }
+  const roomHealth=(r)=>Signage.roomHealth(r,monitor.serverNow());
   const healthLabel=(h)=>({normal:'정상',delayed:'확인 중',offline:'오프라인',error:'오류',recovering:'복구 중'})[h]||h;
   const adminIsOnline=(r)=>roomHealth(r)!=='offline';
   const playerVersion=(r)=>String(r?.player_status?.app_version||'').trim();
@@ -121,8 +114,11 @@
     catch(_){return Math.floor(Math.random()*0x7fffffff);}
   }
   function roomDisplayStatus(r){
-    const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase();
+    const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase(),ack=ackState.get(r.id);
     if(h==='offline')return {key:'offline',label:'오프라인'};
+    if(ack?.status==='pending')return {key:'delayed',label:'적용 확인 중'};
+    if(ack?.status==='error')return {key:'error',label:'적용 오류'};
+    if(ack?.status==='unconfirmed')return {key:'error',label:'적용 미확인'};
     if(h==='error')return {key:'error',label:'오류'};
     if(h==='recovering')return {key:'recovering',label:'복구 중'};
     if(h==='delayed')return {key:'delayed',label:'확인 중'};
@@ -208,7 +204,7 @@
       <div class="monitor-status-secondary"><span>온라인 <b data-stat-online>${online}/${state.rooms.length}</b></span><span>일시정지 <b data-stat-paused>${paused}</b></span><span>그룹 송출 <b>${activeGroups}</b></span><span>저장소 <b class="${storageHealth===false?'danger-text':''}">${storageState}</b></span></div>
       ${alertsHtml()}
       ${playbackAnalyticsMarkup()}
-      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${outdatedRooms().length?`<button id="reloadOutdatedPlayers" class="btn">업데이트 필요 ${outdatedRooms().length}곳 새로고침</button>`:''}<button id="reloadAllPlayers" class="btn">전체 플레이어 새로고침</button><span>플레이어 기준 ${esc(PLAYER_VERSION)} · 평상시 전체 polling 없이 Realtime으로 반영합니다.</span></div>
+      <div class="monitor-tools"><button id="issuesOnly" class="btn ${issuesOnly?'primary':''}">${issuesOnly?'전체 공간 보기':'문제 공간만 보기'}</button><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${outdatedRooms().length?`<button id="reloadOutdatedPlayers" class="btn">업데이트 필요 ${outdatedRooms().length}곳 새로고침</button>`:''}<button id="reloadAllPlayers" class="btn">전체 플레이어 새로고침</button><span>플레이어 기준 ${esc(PLAYER_VERSION)} · 상태는 ${Math.round((Number(Signage.cfg.livePollMs)||0)/1000)||'수동'}${Number(Signage.cfg.livePollMs)>0?'초마다 변경분만':''} 확인 · 제어 직후 공간별 적용 확인</span></div>
       <section class="monitor-broadcast-strip ${state.broadcast?.active?'is-live':''}">
         <div class="monitor-broadcast-copy"><span>전체 송출</span><b>${state.broadcast?.active?'송출 중':'기본 상태'}</b><em>${esc(broadcastText)}</em></div>
         <div class="monitor-broadcast-actions"><details><summary>전체 송출 설정</summary><div class="monitor-broadcast-panel"><div id="broadcastPicks" class="pick-list">${videos.map(v=>`<button class="pick ${selected.includes(v.id)?'on':''}" data-video-id="${v.id}">${selected.includes(v.id)?`<span>${selected.indexOf(v.id)+1}</span>`:''}${esc(v.title)}</button>`).join('')||'<span class="muted">사용 가능한 영상이 없습니다.</span>'}</div><div class="inline top-gap"><input id="notice" class="grow" placeholder="공지 문구" value="${esc(state.broadcast?.notice_text||'')}"><button id="noticeSave" class="btn">공지 저장</button></div></div></details><button class="btn" data-undo-scope="hospital">되돌리기</button>${state.broadcast?.active?'<select id="broadcastResume"><option value="previous">종료 후 이전 상태</option><option value="default">종료 후 기본 영상</option></select>':''}<button id="broadcastToggle" class="btn ${state.broadcast?.active?'danger':'primary'}" ${!state.broadcast?.active&&!selected.length?'disabled':''}>${state.broadcast?.active?'전체 중지':'전체 시작'}</button></div>
@@ -242,25 +238,14 @@
   }
   function historyPanel(){return `<section class="panel"><div class="panel-head"><div><h2>기록</h2></div></div><div class="history-list">${state.history.slice(0,15).map(h=>`<div class="history-row"><span><b>${esc(h.label||h.scope_type)}</b><small>${esc(h.action)} · ${new Date(h.created_at).toLocaleString('ko-KR')}</small></span>${h.before_state&&['hospital','group','rooms'].includes(h.scope_type)?`<button class="btn small" data-undo-history="${h.id}">되돌리기</button>`:''}</div>`).join('')||'<p class="muted">이력이 없습니다.</p>'}</div></section>`;}
 
-  function renderOperations(){
-    const videos=activeVideos();
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><h1>운영</h1></div><div class="stat">예약 ${state.schedules.filter(s=>new Date(s.ends_at)>new Date()).length}건</div></div>${schedulePanel(videos)}${historyPanel()}`;
-    bindOperations();
-  }
-  function bindOperations(){
-    qs('#addSchedule')?.addEventListener('click',addSchedule);
-    qsa('[data-delete-schedule]').forEach(b=>b.addEventListener('click',()=>deleteSchedule(b.dataset.deleteSchedule)));
-    qsa('[data-undo-history]').forEach(b=>b.addEventListener('click',()=>undoHistory(Number(b.dataset.undoHistory))));
-  }
-
   function bindDashboard(){
-    qs('#issuesOnly')?.addEventListener('click',()=>{issuesOnly=!issuesOnly;renderDashboard();});qs('#refreshLiveStatus')?.addEventListener('click',async()=>{const b=qs('#refreshLiveStatus');if(b){b.disabled=true;b.textContent='확인 중…';}lastRoomSyncAt=0;lastControlSyncAt=0;await Promise.all([refreshLiveRooms(true),refreshLiveControls(true)]);try{const {data}=await db.rpc('admin_playback_today');if(data)state.playbackToday=data;}catch{}if(tab==='dashboard')renderDashboard();if(b){b.disabled=false;b.textContent='상태 새로고침';}toast('송출 상태를 다시 확인했습니다.');});
+    qs('#issuesOnly')?.addEventListener('click',()=>{issuesOnly=!issuesOnly;renderDashboard();});qs('#refreshLiveStatus')?.addEventListener('click',refreshAllLiveStatus);
     qs('#reloadOutdatedPlayers')?.addEventListener('click',()=>reloadPlayers(outdatedRooms().map(r=>r.id),'업데이트가 필요한 플레이어'));
     qs('#reloadAllPlayers')?.addEventListener('click',()=>reloadPlayers(state.rooms.map(r=>r.id),'전체 플레이어',true));
     qs('#reloadSelectedPlayers')?.addEventListener('click',()=>{const ids=qsa('[data-room-check]:checked').map(i=>i.dataset.roomCheck);if(!ids.length)return toast('새로고침할 공간을 선택하세요.','error');reloadPlayers(ids,'선택한 플레이어');});
-    qs('#broadcastPicks')?.addEventListener('click',async(e)=>{const b=e.target.closest('[data-video-id]');if(!b)return;let ids=[...(state.broadcast.video_ids||[])],id=b.dataset.videoId;ids=ids.includes(id)?ids.filter(x=>x!==id):[...ids,id];const result=state.broadcast.active?await db.rpc('admin_set_broadcast',{p_active:ids.length>0,p_video_ids:ids,p_notice:state.broadcast.notice_text||null,p_delay_ms:0}):await db.from('broadcast').update({video_ids:ids,updated_at:new Date().toISOString()}).eq('id',1);if(result.error)return toast(result.error.message,'error');await syncAfterControl({all:true});});
-    qs('#broadcastToggle')?.addEventListener('click',async()=>{const next=!state.broadcast.active;if(next&&!state.broadcast.video_ids?.length)return;const result=next?await db.rpc('admin_set_broadcast',{p_active:true,p_video_ids:state.broadcast.video_ids||[],p_notice:state.broadcast.notice_text||null,p_delay_ms:0}):await db.rpc('admin_stop_broadcast',{p_resume:qs('#broadcastResume')?.value||'previous'});if(result.error)return toast(result.error.message,'error');toast(next?'전체 송출 시작':'전체 송출 종료');await syncAfterControl({all:true});});
-    qs('#noticeSave')?.addEventListener('click',async()=>{const {error}=await db.from('broadcast').update({notice_text:qs('#notice').value.trim()||null,updated_at:new Date().toISOString()}).eq('id',1);if(error)toast(error.message,'error');else{toast('공지 적용 완료');await syncAfterControl({all:true});}});
+    qs('#broadcastPicks')?.addEventListener('click',async(e)=>{const b=e.target.closest('[data-video-id]');if(!b)return;let ids=[...(state.broadcast.video_ids||[])],id=b.dataset.videoId;ids=ids.includes(id)?ids.filter(x=>x!==id):[...ids,id];const live=state.broadcast.active;await runControl({all:true},()=>live?db.rpc('admin_set_broadcast',{p_active:ids.length>0,p_video_ids:ids,p_notice:state.broadcast.notice_text||null,p_delay_ms:0}):db.from('broadcast').update({video_ids:ids,updated_at:new Date().toISOString()}).eq('id',1),null,{ack:live});});
+    qs('#broadcastToggle')?.addEventListener('click',async()=>{const next=!state.broadcast.active;if(next&&!state.broadcast.video_ids?.length)return;const resume=qs('#broadcastResume')?.value||'previous';await runControl({all:true},()=>next?db.rpc('admin_set_broadcast',{p_active:true,p_video_ids:state.broadcast.video_ids||[],p_notice:state.broadcast.notice_text||null,p_delay_ms:0}):db.rpc('admin_stop_broadcast',{p_resume:resume}),next?'전체 송출 시작':'전체 송출 종료');});
+    qs('#noticeSave')?.addEventListener('click',()=>{const notice=qs('#notice').value.trim()||null;return runControl({all:true},()=>db.from('broadcast').update({notice_text:notice,updated_at:new Date().toISOString()}).eq('id',1),'공지 적용 완료');});
     qsa('[data-group-apply]').forEach(b=>b.addEventListener('click',()=>applyGroup(b.dataset.groupApply)));qsa('[data-group-stop]').forEach(b=>b.addEventListener('click',()=>stopGroup(b.dataset.groupStop)));
     qsa('[data-room-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.roomPlaylistApply)));
     qsa('[data-room-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.roomVideoAdd)));
@@ -280,33 +265,33 @@
     qsa('[data-undo-history]').forEach(b=>b.addEventListener('click',()=>undoHistory(Number(b.dataset.undoHistory))));
   }
 
-  async function applyGroup(groupId){const sel=qs(`[data-group-video="${groupId}"]`),notice=qs(`[data-group-notice="${groupId}"]`)?.value.trim()||null,id=sel?.value;if(!id)return toast('그룹에 송출할 영상을 선택하세요.','error');const {error}=await db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:true,p_video_ids:[id],p_notice:notice,p_delay_ms:0});if(error)toast(error.message,'error');else{toast(groupBroadcast(groupId).active?'그룹 송출 변경':'그룹 송출 시작');await syncAfterControl({groupId});}}
-  async function stopGroup(groupId){const gb=groupBroadcast(groupId);const {error}=await db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:false,p_video_ids:gb.video_ids||[],p_notice:gb.notice_text||null,p_delay_ms:0});if(error)toast(error.message,'error');else{toast('그룹 송출 종료');await syncAfterControl({groupId});}}
-  async function setRoomPlaylist(id){const playlist=qs(`[data-output-playlist="${id}"]`)?.value;if(!playlist)return toast('플레이리스트를 선택하세요.','error');const {error}=await db.rpc('admin_set_room_playlist',{p_room:id,p_playlist:playlist});if(error)toast(error.message,'error');else{toast('이 공간의 기본 플레이리스트를 변경했습니다.');await syncAfterControl({roomIds:[id]});}}
-  async function addRoomVideo(id){const video=qs(`[data-output-video="${id}"]`)?.value;if(!video)return toast('추가할 영상을 선택하세요.','error');const {error}=await db.rpc('admin_add_room_video',{p_room:id,p_video:video});if(error)toast(error.message,'error');else{toast('이 공간 재생목록에 영상 1개를 추가했습니다.');await syncAfterControl({roomIds:[id]});}}
-  async function clearRoomVideo(id){const {error}=await db.rpc('admin_set_rooms_manual',{p_rooms:[id],p_video_ids:[],p_active:false});if(error)toast(error.message,'error');else{toast('자동 송출로 복귀');await syncAfterControl({roomIds:[id]});}}
-  async function setRoomVideoRule(room,video,enabled){const rr=state.rooms.find(r=>r.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(rr?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);const {error}=await db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled,p_starts_at:current?.starts_at||null,p_ends_at:current?.ends_at||null});if(error)return toast(error.message,'error');await syncAfterControl({roomIds:[room]});}
-  async function moveRoomVideo(room,video,dir){const rr=state.rooms.find(r=>r.id===room);if(['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(rr?.player_status?.mode||'')))return toast('전체/그룹 송출 중에는 공간 목록 순서를 바꿀 수 없습니다.','error');const items=roomOutputItems(state.rooms.find(r=>r.id===room)||{});const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];const {error}=await db.rpc('admin_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)});if(error)return toast(error.message,'error');await syncAfterControl({roomIds:[room]});}
-  async function saveRoomVideoRuleSchedule(room,video){const start=qs(`[data-rule-start="${room}:${video}"]`)?.value||'',end=qs(`[data-rule-end="${room}:${video}"]`)?.value||'';if(start&&end&&start>=end)return toast('종료 시각은 시작 시각보다 뒤여야 합니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);const {error}=await db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:current?.enabled!==false,p_starts_at:start?new Date(start).toISOString():null,p_ends_at:end?new Date(end).toISOString():null});if(error)return toast(error.message,'error');toast('영상 기간을 저장했습니다.');await syncAfterControl({roomIds:[room]});}
-  async function clearRoomRules(room){if(!confirm('이 공간의 영상 ON/OFF·순서·기간 설정을 초기화할까요?'))return;const {error}=await db.rpc('admin_clear_room_video_rules',{p_room:room});if(error)return toast(error.message,'error');await syncAfterControl({roomIds:[room]});}
-  async function batchRooms(active){const ids=qsa('[data-room-check]:checked').map(i=>i.dataset.roomCheck);if(!ids.length)return toast('공간을 선택하세요.','error');const video=qs('#batchVideo')?.value;if(active&&!video)return toast('영상을 선택하세요.','error');const {error}=await db.rpc('admin_set_rooms_manual',{p_rooms:ids,p_video_ids:active?[video]:[],p_active:active});if(error)toast(error.message,'error');else{toast(`${ids.length}곳 ${active?'송출 시작':'기본으로 변경'}`);await syncAfterControl({roomIds:ids});}}
+  const OVERRIDE_MODES=['broadcast','broadcast_schedule','group','group_schedule','emergency'];
+  const isOverridden=(roomId)=>OVERRIDE_MODES.includes(String(state.rooms.find(r=>r.id===roomId)?.player_status?.mode||''));
+  async function applyGroup(groupId){const id=qs(`[data-group-video="${groupId}"]`)?.value,notice=qs(`[data-group-notice="${groupId}"]`)?.value.trim()||null;if(!id)return toast('그룹에 송출할 영상을 선택하세요.','error');const wasActive=groupBroadcast(groupId).active;await runControl({groupId},()=>db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:true,p_video_ids:[id],p_notice:notice,p_delay_ms:0}),wasActive?'그룹 송출 변경':'그룹 송출 시작');}
+  async function stopGroup(groupId){const gb=groupBroadcast(groupId);await runControl({groupId},()=>db.rpc('admin_set_group_broadcast',{p_group:groupId,p_active:false,p_video_ids:gb.video_ids||[],p_notice:gb.notice_text||null,p_delay_ms:0}),'그룹 송출 종료');}
+  async function setRoomPlaylist(id){const playlist=qs(`[data-output-playlist="${id}"]`)?.value;if(!playlist)return toast('플레이리스트를 선택하세요.','error');await runControl({roomIds:[id]},()=>db.rpc('admin_set_room_playlist',{p_room:id,p_playlist:playlist}),'이 공간의 기본 플레이리스트를 변경했습니다.');}
+  async function addRoomVideo(id){const video=qs(`[data-output-video="${id}"]`)?.value;if(!video)return toast('추가할 영상을 선택하세요.','error');await runControl({roomIds:[id]},()=>db.rpc('admin_add_room_video',{p_room:id,p_video:video}),'이 공간 재생목록에 영상 1개를 추가했습니다.');}
+  async function clearRoomVideo(id){await runControl({roomIds:[id]},()=>db.rpc('admin_set_rooms_manual',{p_rooms:[id],p_video_ids:[],p_active:false}),'자동 송출로 복귀');}
+  async function setRoomVideoRule(room,video,enabled){if(isOverridden(room))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);await runControl({roomIds:[room]},()=>db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled,p_starts_at:current?.starts_at||null,p_ends_at:current?.ends_at||null}));}
+  async function moveRoomVideo(room,video,dir){if(isOverridden(room))return toast('전체/그룹 송출 중에는 공간 목록 순서를 바꿀 수 없습니다.','error');const items=roomOutputItems(state.rooms.find(r=>r.id===room)||{});const from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;[items[from],items[to]]=[items[to],items[from]];await runControl({roomIds:[room]},()=>db.rpc('admin_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)}));}
+  async function saveRoomVideoRuleSchedule(room,video){const start=qs(`[data-rule-start="${room}:${video}"]`)?.value||'',end=qs(`[data-rule-end="${room}:${video}"]`)?.value||'';if(start&&end&&start>=end)return toast('종료 시각은 시작 시각보다 뒤여야 합니다.','error');const current=state.roomRules.find(x=>x.room_id===room&&x.video_id===video);await runControl({roomIds:[room]},()=>db.rpc('admin_set_room_video_rule',{p_room:room,p_video:video,p_enabled:current?.enabled!==false,p_starts_at:start?new Date(start).toISOString():null,p_ends_at:end?new Date(end).toISOString():null}),'영상 기간을 저장했습니다.');}
+  async function clearRoomRules(room){if(!confirm('이 공간의 영상 ON/OFF·순서·기간 설정을 초기화할까요?'))return;await runControl({roomIds:[room]},()=>db.rpc('admin_clear_room_video_rules',{p_room:room}));}
+  async function batchRooms(active){const ids=qsa('[data-room-check]:checked').map(i=>i.dataset.roomCheck);if(!ids.length)return toast('공간을 선택하세요.','error');const video=qs('#batchVideo')?.value;if(active&&!video)return toast('영상을 선택하세요.','error');await runControl({roomIds:ids},()=>db.rpc('admin_set_rooms_manual',{p_rooms:ids,p_video_ids:active?[video]:[],p_active:active}),`${ids.length}곳 ${active?'송출 시작':'기본으로 변경'}`);}
   async function reloadPlayers(ids,label='플레이어',confirmAll=false){
     ids=[...new Set((ids||[]).filter(Boolean))];
     if(!ids.length)return toast('새로고침할 플레이어가 없습니다.','error');
     if(confirmAll&&!window.confirm(`${label} ${ids.length}곳을 새로고침할까요? 재생 화면이 잠깐 다시 열립니다.`))return;
     const nonce=randomReloadNonce();
-    const {error}=await db.from('rooms').update({reload_nonce:nonce}).in('id',ids);
-    if(error)return toast(error.message,'error');
-    await signalAffectedRooms({roomIds:ids});
-    await sendImmediateControlSignal();
-    ids.forEach(id=>{const r=state.rooms.find(x=>x.id===id);if(r)r.reload_nonce=nonce;});
-    toast(`${label} ${ids.length}곳에 새로고침 명령을 보냈습니다.`);
+    const ok=await runControl({roomIds:ids,all:confirmAll},()=>db.from('rooms').update({reload_nonce:nonce}).in('id',ids),`${label} ${ids.length}곳에 새로고침 명령을 보냈습니다.`);
+    if(ok)ids.forEach(id=>{const r=state.rooms.find(x=>x.id===id);if(r)r.reload_nonce=nonce;});
   }
   async function roomAction(b){const r=state.rooms.find(x=>x.id===b.dataset.roomId);if(!r)return;await updateRoom(r.id,b.dataset.roomAction==='pause'?{paused:!r.paused}:{reload_nonce:randomReloadNonce()});}
-  async function updateRoom(id,patch){const {error}=await db.from('rooms').update(patch).eq('id',id);if(error)toast(error.message,'error');else await load();}
+  // Settings-only fields do not change what is on screen, so they skip the delivery check.
+  const PLAYER_VISIBLE_FIELDS=['volume','paused','overlay_text','reload_nonce','force_mute','default_playlist_id','room_mode','group_id'];
+  async function updateRoom(id,patch){const visible=Object.keys(patch).some(k=>PLAYER_VISIBLE_FIELDS.includes(k));const ok=await runControl({roomIds:[id]},()=>db.from('rooms').update(patch).eq('id',id),null,{ack:visible});if(ok)await load();}
   async function addSchedule(){const scope=qs('#scheduleScope').value,video=qs('#scheduleVideo').value,start=qs('#scheduleStart').value,end=qs('#scheduleEnd').value;if(!video||!start||!end)return toast('영상과 시작/종료 시각을 입력하세요.','error');const isGroup=scope.startsWith('group:'),group=isGroup?scope.slice(6):null;const {error}=await db.rpc('admin_create_schedule',{p_scope_type:isGroup?'group':'hospital',p_group:group,p_video_ids:[video],p_notice:qs('#scheduleNotice').value.trim()||null,p_starts_at:new Date(start).toISOString(),p_ends_at:new Date(end).toISOString()});if(error)toast(error.message,'error');else{toast('예약 송출 추가');await load();}}
   async function deleteSchedule(id){if(!confirm('예약을 삭제할까요?'))return;const {error}=await db.rpc('admin_delete_schedule',{p_id:id});if(error)toast(error.message,'error');else await load();}
-  async function undoHistory(id){const {error}=await db.rpc('admin_undo_control',{p_history:id});if(error)toast(error.message,'error');else{toast('되돌렸습니다');await load();}}
+  async function undoHistory(id){const h=state.history.find(x=>x.id===id);const scope=h?.scope_type==='group'&&h.scope_id?{groupId:h.scope_id}:h?.scope_type==='rooms'&&Array.isArray(h.before_state?.room_ids)?{roomIds:h.before_state.room_ids}:{all:true};const ok=await runControl(scope,()=>db.rpc('admin_undo_control',{p_history:id}),'되돌렸습니다');if(ok)await load();}
   async function undoLatest(type,id){const h=state.history.find(x=>x.scope_type===type&&(!id||x.scope_id===id)&&x.before_state);if(!h)return toast('복귀 가능한 이전 상태가 없습니다.','error');await undoHistory(h.id);}
 
   function renderVideos(){
@@ -426,7 +411,7 @@
   async function deleteGroup(id){const g=groupById(id),count=state.rooms.filter(r=>r.group_id===id).length;if(!confirm(`${g?.name||'그룹'}을 삭제할까요?${count?` 소속 ${count}곳은 미분류로 이동합니다.`:''}`))return;const {error}=await db.from('signage_groups').delete().eq('id',id);if(error)toast(error.message,'error');else await load();}
   async function addRoom(){const name=qs('#newRoom').value.trim();if(!name)return;const max=state.rooms.reduce((m,r)=>Math.max(m,r.sort_order||0),0);const {error}=await db.from('rooms').insert({name,group_id:qs('#newRoomGroup').value||null,room_mode:qs('#newRoomMode').value,sort_order:max+10});if(error)toast(error.message,'error');else await load();}
   async function moveRoom(id,dir){const list=[...state.rooms],from=list.findIndex(x=>x.id===id),to=from+dir;if(from<0||to<0||to>=list.length)return;[list[from],list[to]]=[list[to],list[from]];const {error}=await db.rpc('admin_reorder_rooms',{p_ids:list.map(x=>x.id)});if(error)toast(error.message,'error');else await load();}
-  function roomPlayerPath(id){const r=state.rooms.find(x=>x.id===id);return r?.player_key?`/player.html?key=${encodeURIComponent(r.player_key)}`:'';}function openRoomPlayer(id){const path=roomPlayerPath(id);if(!path)return toast('공간 플레이어 주소를 찾을 수 없습니다.','error');openAddress(path);}async function copyRoomPlayer(id){const path=roomPlayerPath(id);if(!path)return toast('공간 플레이어 주소를 찾을 수 없습니다.','error');await copyAddress(path,'공간 플레이어 링크');}async function copyLink(type,id){return copyRoomPlayer(id);}
+  function roomPlayerPath(id){const r=state.rooms.find(x=>x.id===id);return r?.player_key?`/player.html?key=${encodeURIComponent(r.player_key)}`:'';}function openRoomPlayer(id){const path=roomPlayerPath(id);if(!path)return toast('공간 플레이어 주소를 찾을 수 없습니다.','error');openAddress(path);}async function copyRoomPlayer(id){const path=roomPlayerPath(id);if(!path)return toast('공간 플레이어 주소를 찾을 수 없습니다.','error');await copyAddress(path,'공간 플레이어 링크');}
   async function copyAddress(path,label='주소'){
     const u=`${location.origin}${path}`;
     try{
@@ -485,18 +470,6 @@
     if(tab==='videos')renderVideos();
   }
 
-  function estimatedCurrentTime(r){
-    const st=r?.player_status||{};
-    let current=Math.max(0,Number(st.current_time)||0);
-    const duration=Math.max(0,Number(st.duration)||0);
-    const playing=String(st.playback_state||'').toLowerCase()==='playing'&&!r.paused;
-    if(playing){
-      const base=Number(r.__live_received_at||0)||new Date(st.reported_at||r.last_seen_at||0).getTime();
-      if(base>0)current+=(Date.now()-base)/1000;
-    }
-    if(duration>0)current=Math.min(duration,current);
-    return current;
-  }
   function paintLiveSummary(){
     if(tab!=='dashboard')return;
     const statuses=state.rooms.map(roomDisplayStatus),online=state.rooms.filter(adminIsOnline).length;
@@ -525,8 +498,8 @@
   function mergeRealtimeRoom(next){
     if(!next?.id)return;
     const i=state.rooms.findIndex(r=>r.id===next.id);
-    if(i<0){state.rooms.push({...next,__live_received_at:Date.now()});state.rooms.sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||String(a.created_at||'').localeCompare(String(b.created_at||'')));if(tab==='dashboard')renderDashboard();return;}
-    state.rooms[i]={...state.rooms[i],...next,__live_received_at:Date.now(),__live_verified_at:Date.now()};
+    if(i<0){state.rooms.push({...next});state.rooms.sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||String(a.created_at||'').localeCompare(String(b.created_at||'')));if(tab==='dashboard')renderDashboard();return;}
+    state.rooms[i]={...state.rooms[i],...next};
     if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintLiveSummary();paintAlerts();}
     if(tab==='settings'){const el=qs(`[data-room-name="${next.id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=adminIsOnline(state.rooms[i])?'온라인':'오프라인';}
   }
@@ -534,7 +507,7 @@
     if(!live?.room_id)return;
     const i=state.rooms.findIndex(r=>r.id===live.room_id);
     if(i<0)return;
-    state.rooms[i]={...state.rooms[i],last_seen_at:live.last_seen_at||state.rooms[i].last_seen_at,player_status:live.player_status||state.rooms[i].player_status,__live_received_at:Date.now(),__live_verified_at:Date.now()};
+    state.rooms[i]={...state.rooms[i],last_seen_at:live.last_seen_at||state.rooms[i].last_seen_at,player_status:live.player_status||state.rooms[i].player_status};
     if(tab==='dashboard'){paintLiveRoom(state.rooms[i]);paintLiveSummary();paintAlerts();}
     if(tab==='settings'){const el=qs(`[data-room-name="${live.room_id}"]`)?.closest('.room-admin')?.querySelector('.status-text');if(el)el.textContent=adminIsOnline(state.rooms[i])?'온라인':'오프라인';}
   }
@@ -545,7 +518,7 @@
   }
   function paintLiveRoom(r){
     const card=qs(`[data-room-card="${r.id}"]`);if(!card)return;
-    const st=r.player_status||{},on=adminIsOnline(r),current=estimatedCurrentTime(r),progress=st.duration?`${formatDuration(current)} / ${formatDuration(st.duration)}`:'',p=playlistInfo(st),h=roomHealth(r),cv=state.videos.find(v=>v.id===st.video_id)||null;
+    const st=r.player_status||{},on=adminIsOnline(r),current=Signage.estimatedCurrentTime(r,monitor.serverNow()),progress=st.duration?`${formatDuration(current)} / ${formatDuration(st.duration)}`:'',p=playlistInfo(st),h=roomHealth(r),cv=state.videos.find(v=>v.id===st.video_id)||null;
     card.className=card.className.replace(/health-(normal|delayed|offline|error|recovering)/g,'').trim()+` health-${h}`;card.dataset.health=h;
     const displayStatus=roomDisplayStatus(r),health=qs('.monitor-health',card);if(health){health.textContent=displayStatus.label;health.className=`monitor-health room-status-badge status-${displayStatus.key}`;}
     const th=qs('.monitor-current-thumb',card),thumbKey=String(cv?.id||'');if(th&&th.dataset.videoId!==thumbKey){th.innerHTML=thumb(cv);th.dataset.videoId=thumbKey;}
@@ -556,34 +529,41 @@
     const detail=qs('[data-live-detail]',card);if(detail)detail.textContent=on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}${st.muted?' · 음소거':''}${st.error?` · ${st.error}`:''}`:'오프라인';
   }
 
-  const staleVerifyMeta=new Map();
-  let staleVerifyBusy=false;
-  async function verifyStaleLiveStatuses(){
-    if(staleVerifyBusy||tab!=='dashboard'||document.hidden)return;
-    const now=Date.now(),candidates=[];
-    for(const r of state.rooms){
-      const age=roomAgeMs(r);if(age<LIVE_DELAY_MS-5000)continue;
-      const seen=String(r.last_seen_at||''),meta=staleVerifyMeta.get(r.id)||{};
-      if(meta.seen!==seen){meta.seen=seen;meta.checkedAt=0;}
-      if(now-Number(meta.checkedAt||0)<60000)continue;
-      meta.checkedAt=now;staleVerifyMeta.set(r.id,meta);candidates.push(r.id);
-    }
-    if(!candidates.length)return;
-    staleVerifyBusy=true;
+  // --- live status ------------------------------------------------------------
+  function applyLiveResult(res){
+    if(!res)return;
+    const seen=new Map((res.seen||[]).map(x=>[x.room_id,x.last_seen_at]));
+    (res.rows||[]).forEach(row=>{seen.delete(row.room_id);mergePlayerLiveStatus(row);settleAck(row);});
+    seen.forEach((lastSeen,roomId)=>{const r=state.rooms.find(x=>x.id===roomId);if(r&&lastSeen)r.last_seen_at=lastSeen;});
+  }
+  function settleAck(row){
+    const a=ackState.get(row.room_id);if(!a)return;
+    const v=monitor.verdict(row,a.at);
+    if(v==='ok')ackState.delete(row.room_id);
+    else if(v==='error'&&a.status!=='pending')a.status='error';
+  }
+  function paintAllLive(){if(tab!=='dashboard')return;state.rooms.forEach(paintLiveRoom);paintLiveSummary();paintAlerts();}
+  async function refreshAllLiveStatus(){
+    const b=qs('#refreshLiveStatus');if(b){b.disabled=true;b.textContent='확인 중…';}
     try{
-      const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status').in('room_id',candidates);
-      if(!error)(data||[]).forEach(live=>mergePlayerLiveStatus(live));
-    }catch(_){}finally{staleVerifyBusy=false;}
+      await Promise.all([refreshLiveRooms(),refreshLiveControls()]);
+      try{const {data}=await db.rpc('admin_playback_today');if(data)state.playbackToday=data;}catch(_){}
+      if(tab==='dashboard')renderDashboard();
+      toast('송출 상태를 다시 확인했습니다.');
+    }finally{const b2=qs('#refreshLiveStatus');if(b2){b2.disabled=false;b2.textContent='상태 새로고침';}}
   }
 
   try{const pruneKey='clinic-signage:event-prune-day',today=new Date().toISOString().slice(0,10);if(localStorage.getItem(pruneKey)!==today){db.rpc('admin_prune_player_events',{p_days:30}).then(()=>localStorage.setItem(pruneKey,today)).catch(()=>{});}await load();}catch(e){qs('#adminRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
 
+  // --- control delivery -------------------------------------------------------
   let controlSignalReady=false,controlSignalReadyPromise=null;
   function waitForControlSignal(timeoutMs=1800){
     if(controlSignalReady)return Promise.resolve(true);
     if(!controlSignalReadyPromise)return Promise.resolve(false);
     return Promise.race([controlSignalReadyPromise,new Promise(resolve=>setTimeout(()=>resolve(false),timeoutMs))]);
   }
+  // Hospital-wide wake-up only. Room/group scoped actions are delivered by signal_signage_rooms
+  // and the room:{key} triggers, so they no longer make all 30 players re-read their state.
   async function sendImmediateControlSignal(){
     try{
       if(!controlSignalChannel)return false;
@@ -604,54 +584,68 @@
     if(scope.groupId)return state.rooms.filter(r=>r.group_id===scope.groupId).map(r=>r.id);
     return Array.isArray(scope.roomIds)?scope.roomIds.filter(Boolean):[];
   }
-  async function refreshAffectedLiveStatus(scope={}){
-    const ids=affectedRoomIds(scope);
-    if(!ids.length||document.hidden)return;
-    try{
-      const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status,updated_at').in('room_id',ids);
-      if(error)return;
-      (data||[]).forEach(mergePlayerLiveStatus);
-    }catch(_){}
+  /* One control action:
+     1) capture server time BEFORE the write (issuedAt)
+     2) write, wake the affected players
+     3) poll only those rooms until each reports synced_at >= issuedAt (≈20s max), then stop. */
+  async function runControl(scope,op,okMessage=null,{ack=true}={}){
+    const issuedAt=monitor.markIssue();
+    let result;
+    try{result=await op();}catch(e){result={error:e};}
+    if(result?.error){toast(result.error.message||String(result.error),'error');return false;}
+    if(okMessage)toast(okMessage);
+    await syncAfterControl(scope,ack?issuedAt:null);
+    return true;
   }
-  function schedulePlaybackAcknowledgement(scope={}){
-    [120,350,800,1600,3000].forEach(delay=>window.setTimeout(()=>refreshAffectedLiveStatus(scope),delay));
-  }
-  async function syncAfterControl(scope={}){
-    // A room-row revision is the canonical wake-up path. It survives UI moves and does not depend on a specific menu DOM.
+  async function syncAfterControl(scope={},issuedAt=null){
     await signalAffectedRooms(scope);
+    if(scope.all)await sendImmediateControlSignal();
     if(document.hidden)return;
-    // Broadcast is only a low-latency assist; room revision + Postgres Realtime is the durable path.
-    await sendImmediateControlSignal();
-    lastRoomSyncAt=0;lastControlSyncAt=0;
-    await refreshLiveControls(true);
-    await refreshAffectedLiveStatus(scope);
-    // Only the affected rooms are rechecked for a few seconds after a control action.
-    // This follows the player's actual `playing` heartbeat without restoring background polling.
-    schedulePlaybackAcknowledgement(scope);
+    await refreshLiveControls();
+    if(issuedAt!=null)void confirmDelivery(affectedRoomIds(scope),issuedAt);
+  }
+  async function confirmDelivery(ids,issuedAt){
+    if(!monitor.rpcSupported){await monitor.awaitAck(ids,issuedAt);return;}
+    const targets=ids.filter(id=>{const r=state.rooms.find(x=>x.id===id);return r&&roomHealth(r)!=='offline';});
+    const offline=ids.length-targets.length;
+    if(!targets.length)return;
+    targets.forEach(id=>ackState.set(id,{status:'pending',at:issuedAt}));
+    paintAllLive();
+    const {result}=await monitor.awaitAck(targets,issuedAt);
+    let ok=0,tracked=0;const bad=[];
+    targets.forEach(id=>{
+      const a=ackState.get(id),v=result.get(id);
+      if(a&&a.at!==issuedAt)return; // superseded by a newer action on this room
+      tracked++;
+      if(v==='ok'){ok++;ackState.delete(id);return;}
+      if(a)a.status=v==='error'?'error':'unconfirmed';
+      bad.push(state.rooms.find(r=>r.id===id)?.name||'공간');
+    });
+    paintAllLive();
+    if(!tracked)return;
+    const offlineText=offline?` · 오프라인 ${offline}곳 제외`:'';
+    if(bad.length)toast(`송출 확인 ${ok}/${tracked}곳 · 미확인 ${bad.slice(0,3).join(', ')}${bad.length>3?' 외':''}${offlineText}`,'error');
+    else toast(`송출 확인 ${ok}/${tracked}곳${offlineText}`);
   }
 
-  let liveRefreshBusy=false,lastRoomSyncAt=0;
-  async function refreshLiveRooms(force=false){
-    if(liveRefreshBusy||document.hidden)return;
-    if(!force)return;
+  async function refreshLiveRooms(){
+    if(liveRefreshBusy)return;
     liveRefreshBusy=true;
     try{
-      const [roomsResult,liveResult]=await Promise.all([
+      const [roomsResult,live]=await Promise.all([
         db.from('rooms').select('*').order('sort_order').order('created_at'),
-        db.from('player_live_status').select('*')
+        monitor.loadAll()
       ]);
-      if(roomsResult.error)throw roomsResult.error;if(liveResult.error)throw liveResult.error;
-      const liveByRoom=new Map((liveResult.data||[]).map(x=>[x.room_id,x]));
-      const rows=(roomsResult.data||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;}),ids=new Set(rows.map(r=>r.id));
+      if(roomsResult.error)throw roomsResult.error;
+      const liveByRoom=new Map((live.rows||[]).map(x=>[x.room_id,x]));
+      const rows=(roomsResult.data||[]).map(r=>{const l=liveByRoom.get(r.id);return l?{...r,last_seen_at:l.last_seen_at||r.last_seen_at,player_status:l.player_status||r.player_status}:r;}),ids=new Set(rows.map(r=>r.id));
       rows.forEach(mergeRealtimeRoom);
       state.rooms.filter(r=>!ids.has(r.id)).forEach(r=>removeRealtimeRoom(r.id));
-      lastRoomSyncAt=Date.now();
-    }catch(_){}finally{liveRefreshBusy=false;}
+      (live.rows||[]).forEach(settleAck);
+    }catch(e){toast(e?.message||'상태를 불러오지 못했습니다.','error');}finally{liveRefreshBusy=false;}
   }
-  let liveControlBusy=false,liveControlSig='',lastControlSyncAt=0;
-  async function refreshLiveControls(force=false){
+  async function refreshLiveControls(){
     if(liveControlBusy||tab!=='dashboard'||document.hidden)return;
-    if(!force)return;
     liveControlBusy=true;
     try{
       const [rules,broadcast,groups]=await Promise.all([
@@ -669,23 +663,13 @@
         openRooms.forEach(id=>qs(`[data-room-card="${id}"]`)?.setAttribute('open',''));
         window.scrollTo(0,scrollY);
       }
-      liveControlSig=sig;lastControlSyncAt=Date.now();
+      liveControlSig=sig;
     }catch(_){}finally{liveControlBusy=false;}
   }
-  function scheduleRealtimeControlSync(){
-    lastControlSyncAt=0;
-    if(!document.hidden&&tab==='dashboard')refreshLiveControls(true);
-  }
-  const liveFastRefreshTimers=new Map();
-  function scheduleFastLiveRefresh(roomId){
-    if(!roomId||document.hidden)return;
-    clearTimeout(liveFastRefreshTimers.get(roomId));
-    liveFastRefreshTimers.set(roomId,setTimeout(async()=>{
-      liveFastRefreshTimers.delete(roomId);
-      try{const {data,error}=await db.from('player_live_status').select('room_id,last_seen_at,player_status,updated_at').eq('room_id',roomId).maybeSingle();if(!error&&data)mergePlayerLiveStatus(data);}catch(_){}
-    },30));
-  }
   function startRealtime(){
+    // Only the outgoing control channel. Player status is polled (see Signage.createLiveMonitor):
+    // table postgres_changes cannot pass PIN-session RLS inside Realtime, and status broadcasts
+    // were billed once per listening client.
     try{
       controlSignalReadyPromise=new Promise(resolve=>{
         controlSignalChannel=db.channel('clinic-signage-control',{config:{broadcast:{ack:true}}});
@@ -695,22 +679,11 @@
           else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')resolve(false);
         });
       });
-      db.channel('clinic-admin-live-fast-v2226').on('broadcast',{event:'changed'},msg=>scheduleFastLiveRefresh(msg?.payload?.room_id)).subscribe();
-      db.channel('clinic-admin-live-v22111')
-        .on('postgres_changes',{event:'INSERT',schema:'public',table:'player_live_status'},payload=>mergePlayerLiveStatus(payload.new||{}))
-        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'player_live_status'},payload=>mergePlayerLiveStatus(payload.new||{}))
-        .on('postgres_changes',{event:'INSERT',schema:'public',table:'rooms'},payload=>mergeRealtimeRoom(payload.new||{}))
-        .on('postgres_changes',{event:'DELETE',schema:'public',table:'rooms'},payload=>removeRealtimeRoom(payload.old?.id))
-        .on('postgres_changes',{event:'*',schema:'public',table:'broadcast'},scheduleRealtimeControlSync)
-        .on('postgres_changes',{event:'*',schema:'public',table:'group_broadcasts'},scheduleRealtimeControlSync)
-        .on('postgres_changes',{event:'*',schema:'public',table:'room_video_rules'},scheduleRealtimeControlSync)
-        .subscribe();
     }catch(_){}
   }
-  // Initial load is the only automatic full-state read. After this, Realtime handles changes.
   startRealtime();
   checkStorageHealth();
-  // Local-only clock/progress repaint. This does not query Supabase or R2.
-  let staleVerifyTick=0;
-  setInterval(()=>{if(tab==='dashboard'){state.rooms.forEach(paintLiveRoom);paintLiveSummary();if(++staleVerifyTick%5===0)verifyStaleLiveStatuses();}},1000);
+  monitor.start(Signage.cfg.livePollMs);
+  // Local-only clock/progress repaint. No network.
+  setInterval(()=>{if(!document.hidden)paintAllLive();},1000);
 })();

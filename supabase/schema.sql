@@ -2093,3 +2093,317 @@ begin
   end loop;
 end $$;
 
+
+
+-- =====================================================================
+-- Clinic Signage v2.24.0 · 보안 핫픽스 (가장 먼저, 반드시 실행)
+--
+-- 1) PIN 없이 관리자/스텝 RPC 호출이 가능한 문제
+--    is_admin()/is_member() 는 세션이 없으면 false 가 아니라 NULL 을 반환합니다.
+--    모든 관리 함수가 `if not public.is_admin() then raise ...` 형태라서
+--    NOT NULL = NULL → IF 조건 불성립 → 예외 없이 통과합니다.
+--    결과: 웹 JS 에 공개된 anon key 만으로 PIN 없이 전체 송출 시작/공지 문구 변경/
+--          영상 규칙 변경 등 admin_* · staff_* RPC 46곳이 모두 실행됩니다.
+--    (RLS 정책은 NULL 을 거부로 처리하므로 테이블 직접 접근은 안전했습니다.)
+--    수정: 두 함수가 항상 true/false 만 반환하도록 coalesce. 호출부 46곳은 수정 불필요.
+--
+-- 2) admin_change_pin 이 crypt() 를 찾지 못하는 문제
+--    pgcrypto 는 extensions 스키마에 있는데 search_path=public 으로 고정되어 있어
+--    관리자 화면의 PIN 변경이 "function crypt(...) does not exist" 로 실패합니다.
+--
+-- 여러 번 실행해도 안전합니다.
+-- =====================================================================
+
+create or replace function public.is_member()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(public.pin_session_role() in ('admin', 'staff'), false);
+$$;
+
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(public.pin_session_role() = 'admin', false);
+$$;
+
+alter function public.admin_change_pin(text, text) set search_path = public, extensions;
+
+-- 확인용 (SQL Editor 에서 세션 헤더 없이 실행 → 둘 다 false 여야 정상)
+-- select public.is_admin(), public.is_member();
+
+
+-- =====================================================================
+-- Clinic Signage v2.24.1 · 저비용 송출 상태 확인 (Realtime 상태 브로드캐스트 제거)
+--
+-- 바뀌는 점
+--   1) player_report         : 플레이어 상태 보고 (이벤트 시 + 60초 presence). 화이트리스트/크기 제한,
+--                              변경 지문(status_fp)으로 "실제 변경" 시각(changed_at)만 갱신.
+--   2) signage_live_status   : 관리자/스텝용 상태 조회. p_since 이후 변경된 행만 반환 + 전체 last_seen 목록.
+--                              PIN 세션 검증(is_member). 관리자 송출 확인(ack)과 30초 delta 조회에 사용.
+--   3) player_get_state_lite : player_get_state 결과에서 썸네일(base64)을 제거해 플레이어 egress 절감.
+--   4) player_live_status 를 supabase_realtime publication 에서 제외 (더 이상 구독자가 없음).
+--
+-- 안전성
+--   - 기존 함수(player_get_state, player_live_ping, player_heartbeat, signal_signage_rooms)는 수정하지 않습니다.
+--   - 프론트엔드는 새 함수가 없으면 기존 함수로 자동 fallback 하므로, SQL/프론트 배포 순서는 무관합니다.
+--   - 여러 번 실행해도 안전합니다.
+-- =====================================================================
+
+-- 1. player_live_status: 기존 테이블을 유지하면서 필요한 컬럼만 보강 --------------------------------
+create table if not exists public.player_live_status (
+  room_id uuid primary key references public.rooms(id) on delete cascade,
+  last_seen_at timestamptz,
+  player_status jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.player_live_status add column if not exists last_seen_at timestamptz;
+alter table public.player_live_status add column if not exists player_status jsonb;
+alter table public.player_live_status add column if not exists updated_at timestamptz default now();
+alter table public.player_live_status add column if not exists changed_at timestamptz;
+alter table public.player_live_status add column if not exists status_fp text;
+create unique index if not exists player_live_status_room_uidx on public.player_live_status(room_id);
+create index if not exists player_live_status_changed_idx on public.player_live_status(changed_at);
+update public.player_live_status
+   set changed_at = coalesce(updated_at, last_seen_at, now()),
+       player_status = case when player_status ? 'thumbnail' then player_status - 'thumbnail' else player_status end
+ where changed_at is null or player_status ? 'thumbnail';
+
+alter table public.player_live_status enable row level security;
+drop policy if exists player_live_status_member_select on public.player_live_status;
+create policy player_live_status_member_select on public.player_live_status
+  for select to anon, authenticated using (public.is_member());
+grant select on public.player_live_status to anon, authenticated;
+
+-- 2. 플레이어 상태 보고 ------------------------------------------------------------------------------
+create or replace function public.player_report(p_key uuid, p_status jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_room uuid;
+  v_now timestamptz := clock_timestamp();
+  v_clean jsonb;
+  v_fp text;
+  v_prev_fp text;
+  v_prev_seen timestamptz;
+  v_synced text;
+  ts_re constant text := '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.]+(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$';
+begin
+  select id into v_room from public.rooms where player_key = p_key;
+  if v_room is null then return null; end if;
+  if p_status is null or jsonb_typeof(p_status) <> 'object' or pg_column_size(p_status) > 8192 then
+    return jsonb_build_object('ok', false, 'error', 'invalid_status', 'server_time', v_now);
+  end if;
+
+  v_synced := case when jsonb_typeof(p_status->'synced_at') = 'string' and (p_status->>'synced_at') ~ ts_re
+                   then left(p_status->>'synced_at', 40) end;
+
+  v_clean := jsonb_strip_nulls(jsonb_build_object(
+    'video_id',        case when jsonb_typeof(p_status->'video_id') = 'string' then left(p_status->>'video_id', 64) end,
+    'title',           left(coalesce(p_status->>'title', ''), 160),
+    'mode',            left(coalesce(p_status->>'mode', ''), 32),
+    'playback_state',  left(coalesce(p_status->>'playback_state', ''), 32),
+    'current_time',    case when jsonb_typeof(p_status->'current_time') = 'number' then greatest(0, least((p_status->>'current_time')::numeric, 86400)) else 0 end,
+    'duration',        case when jsonb_typeof(p_status->'duration') = 'number' then greatest(0, least((p_status->>'duration')::numeric, 86400)) else 0 end,
+    'muted',           case when jsonb_typeof(p_status->'muted') = 'boolean' then (p_status->>'muted')::boolean else false end,
+    'volume',          case when jsonb_typeof(p_status->'volume') = 'number' then greatest(0, least((p_status->>'volume')::numeric, 100))::int else 0 end,
+    'online',          case when jsonb_typeof(p_status->'online') = 'boolean' then (p_status->>'online')::boolean else true end,
+    'error',           nullif(left(coalesce(p_status->>'error', ''), 300), ''),
+    'source',          left(coalesce(p_status->>'source', ''), 64),
+    'recovery_stage',  case when jsonb_typeof(p_status->'recovery_stage') = 'number' then greatest(0, least((p_status->>'recovery_stage')::numeric, 9))::int end,
+    'playlist_video_ids', coalesce((
+        select jsonb_agg(left(x.value, 64) order by x.ord)
+          from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_video_ids') = 'array' then p_status->'playlist_video_ids' else '[]'::jsonb end) with ordinality as x(value, ord)
+         where x.ord <= 20), '[]'::jsonb),
+    'playlist_titles', coalesce((
+        select jsonb_agg(left(x.value, 120) order by x.ord)
+          from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_titles') = 'array' then p_status->'playlist_titles' else '[]'::jsonb end) with ordinality as x(value, ord)
+         where x.ord <= 12), '[]'::jsonb),
+    'playlist_count',  case when jsonb_typeof(p_status->'playlist_count') = 'number' then greatest(0, least((p_status->>'playlist_count')::numeric, 500))::int else 0 end,
+    'current_index',   case when jsonb_typeof(p_status->'current_index') = 'number' then greatest(0, least((p_status->>'current_index')::numeric, 499))::int else 0 end,
+    'next_title',      nullif(left(coalesce(p_status->>'next_title', ''), 160), ''),
+    'app_version',     left(coalesce(p_status->>'app_version', ''), 24),
+    'sync_revision',   nullif(left(coalesce(p_status->>'sync_revision', ''), 160), ''),
+    'synced_at',       v_synced
+  )) || jsonb_build_object('reported_at', v_now);
+
+  -- 재생 위치/보고 시각을 제외한 "의미 있는 변경" 지문
+  v_fp := md5((v_clean - 'current_time' - 'reported_at')::text);
+
+  select status_fp, last_seen_at into v_prev_fp, v_prev_seen
+    from public.player_live_status where room_id = v_room;
+
+  -- 같은 내용이 짧은 간격으로 반복되면 쓰기 생략 (오동작 플레이어 보호)
+  if v_prev_fp is not distinct from v_fp and v_prev_seen is not null and v_prev_seen > v_now - interval '5 seconds' then
+    return jsonb_build_object('ok', true, 'skipped', true, 'server_time', v_now);
+  end if;
+
+  insert into public.player_live_status as s (room_id, last_seen_at, player_status, updated_at, changed_at, status_fp)
+  values (v_room, v_now, v_clean, v_now, v_now, v_fp)
+  on conflict (room_id) do update set
+    last_seen_at  = excluded.last_seen_at,
+    player_status = excluded.player_status,
+    updated_at    = excluded.updated_at,
+    changed_at    = case when s.status_fp is distinct from excluded.status_fp then excluded.changed_at else coalesce(s.changed_at, excluded.changed_at) end,
+    status_fp     = excluded.status_fp;
+
+  return jsonb_build_object('ok', true, 'server_time', v_now);
+end $$;
+revoke all on function public.player_report(uuid, jsonb) from public;
+grant execute on function public.player_report(uuid, jsonb) to anon, authenticated;
+
+-- 3. 관리자/스텝 상태 조회 (delta + ack) ---------------------------------------------------------------
+create or replace function public.signage_live_status(p_room_ids uuid[] default null, p_since timestamptz default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not coalesce(public.is_member(), false) then raise exception 'not allowed' using errcode = '42501'; end if;
+  return jsonb_build_object(
+    'server_time', clock_timestamp(),
+    'seen', coalesce((
+      select jsonb_agg(jsonb_build_object('room_id', s.room_id, 'last_seen_at', s.last_seen_at))
+        from public.player_live_status s
+       where p_room_ids is null or s.room_id = any(p_room_ids)), '[]'::jsonb),
+    'rows', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'room_id', s.room_id,
+               'last_seen_at', s.last_seen_at,
+               'player_status', coalesce(s.player_status, '{}'::jsonb) - 'thumbnail',
+               'changed_at', coalesce(s.changed_at, s.updated_at, s.last_seen_at)))
+        from public.player_live_status s
+       where (p_room_ids is null or s.room_id = any(p_room_ids))
+         and (p_since is null or coalesce(s.changed_at, s.updated_at, s.last_seen_at) > p_since)), '[]'::jsonb)
+  );
+end $$;
+revoke all on function public.signage_live_status(uuid[], timestamptz) from public;
+grant execute on function public.signage_live_status(uuid[], timestamptz) to anon, authenticated;
+
+-- 4. 플레이어용 상태 (썸네일 제거) -------------------------------------------------------------------
+create or replace function public.player_get_state_lite(p_key uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare s jsonb;
+begin
+  s := public.player_get_state(p_key);
+  if s is null then return null; end if;
+  return s || jsonb_build_object(
+    'playlist', coalesce((
+      select jsonb_agg(case when jsonb_typeof(x.e) = 'object' then x.e - 'thumbnail' else x.e end order by x.o)
+        from jsonb_array_elements(case when jsonb_typeof(s->'playlist') = 'array' then s->'playlist' else '[]'::jsonb end) with ordinality as x(e, o)
+    ), '[]'::jsonb),
+    'emergency_video', case when jsonb_typeof(s->'emergency_video') = 'object' then (s->'emergency_video') - 'thumbnail' else coalesce(s->'emergency_video', 'null'::jsonb) end
+  );
+end $$;
+revoke all on function public.player_get_state_lite(uuid) from public;
+grant execute on function public.player_get_state_lite(uuid) to anon, authenticated;
+
+-- 5. Realtime publication 정리 ----------------------------------------------------------------------
+-- 플레이어 상태는 더 이상 postgres_changes 로 구독하지 않습니다. 보고 1회마다 생기던 WAL 디코딩/RLS 평가 제거.
+do $$
+begin
+  if exists (select 1 from pg_publication_tables
+              where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'player_live_status') then
+    alter publication supabase_realtime drop table public.player_live_status;
+  end if;
+end $$;
+
+-- 참고(선택): rooms 는 player_heartbeat 가 60초마다 갱신하지만, 관리자 화면의 rooms postgres_changes 구독은
+-- PIN 세션 RLS(is_admin) 때문에 Realtime 에서 통과하지 못해 실제로 전달되지 않았습니다. v2.24 프론트는 rooms 를
+-- 구독하지 않으므로 아래를 실행해도 됩니다. 플레이어 깨우기는 room:{key} realtime.send 트리거가 담당합니다.
+-- alter publication supabase_realtime drop table public.rooms;
+
+
+-- =====================================================================
+-- Clinic Signage v2.24.2 · PIN 무차별 대입 방어 보강 (권장)
+--
+-- 문제
+--   기존 pin_login 은 브라우저가 보내는 p_client_id 기준으로만 5회 실패 잠금을 겁니다.
+--   client_id 는 클라이언트가 마음대로 바꿀 수 있으므로, 요청마다 새 값을 보내면 잠금이 걸리지 않습니다.
+--   스텝 PIN 4자리(1만 가지)는 수십 분 안에 전수 대입이 가능합니다.
+--
+-- 변경
+--   - 기존 client_id 잠금(5회/5분)은 그대로 유지
+--   - 요청 IP 기준 잠금 추가: 15분 안에 20회 실패 → 15분 잠금
+--   - IP 헤더를 못 읽는 환경이면 'ip:unknown' 하나로 묶여 전역 잠금처럼 동작
+--     (병원 내부 직원들은 보통 같은 공인 IP 를 쓰므로 정상 사용자의 오입력 몇 번은 영향 없음)
+--   - PIN 원문/해시 처리, 세션 12시간, 반환 형식은 기존과 동일
+--
+-- 실행 전 현재 정의 백업:  select pg_get_functiondef('public.pin_login(text,text)'::regprocedure);
+-- =====================================================================
+
+create or replace function public.pin_request_ip()
+returns text language sql stable security definer set search_path = public as $$
+  select nullif(left(trim(coalesce(
+           h->>'cf-connecting-ip',
+           h->>'x-real-ip',
+           split_part(coalesce(h->>'x-forwarded-for', ''), ',', 1)
+         )), 64), '')
+    from (select coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb as h) x;
+$$;
+revoke all on function public.pin_request_ip() from public, anon, authenticated;
+
+create or replace function public.pin_login(p_pin text, p_client_id text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_client text := left(trim(coalesce(p_client_id, '')), 100);
+  v_ip_key text := 'ip:' || coalesce(public.pin_request_ip(), 'unknown');
+  v_fail int := 0; v_locked timestamptz;
+  v_ip_fail int := 0; v_ip_locked timestamptz; v_ip_updated timestamptz;
+  v_account public.pin_accounts; v_token text; v_exp timestamptz;
+  v_now timestamptz := clock_timestamp();
+  c_ip_window constant interval := interval '15 minutes';
+  c_ip_max constant int := 20;
+begin
+  if v_client = '' or v_client !~ '^[A-Za-z0-9._:-]{8,100}$' then return jsonb_build_object('ok', false, 'error', 'invalid_client'); end if;
+  if p_pin !~ '^[0-9]{4,6}$' then return jsonb_build_object('ok', false, 'error', 'invalid_pin'); end if;
+
+  -- IP 잠금
+  select failed_count, locked_until, updated_at into v_ip_fail, v_ip_locked, v_ip_updated
+    from public.pin_login_throttle where client_id = v_ip_key;
+  if v_ip_locked is not null and v_ip_locked > v_now then
+    return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', greatest(1, ceil(extract(epoch from (v_ip_locked - v_now)))::int));
+  end if;
+  if v_ip_updated is null or v_ip_updated < v_now - c_ip_window then v_ip_fail := 0; end if;
+
+  -- 기기(client_id) 잠금
+  select failed_count, locked_until into v_fail, v_locked from public.pin_login_throttle where client_id = v_client;
+  if v_locked is not null and v_locked > v_now then
+    return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', greatest(1, ceil(extract(epoch from (v_locked - v_now)))::int));
+  end if;
+
+  select a.* into v_account
+    from public.pin_accounts a
+   where a.enabled and crypt(p_pin, a.pin_hash) = a.pin_hash
+   order by case a.role when 'admin' then 0 else 1 end
+   limit 1;
+
+  if not found then
+    -- IP 카운터
+    v_ip_fail := coalesce(v_ip_fail, 0) + 1;
+    insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
+    values (v_ip_key, case when v_ip_fail >= c_ip_max then 0 else v_ip_fail end,
+            case when v_ip_fail >= c_ip_max then v_now + c_ip_window end, v_now)
+    on conflict (client_id) do update set failed_count = excluded.failed_count, locked_until = excluded.locked_until, updated_at = excluded.updated_at;
+    if v_ip_fail >= c_ip_max then
+      return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', extract(epoch from c_ip_window)::int);
+    end if;
+
+    -- 기기 카운터 (기존 동작)
+    v_fail := coalesce(v_fail, 0) + 1;
+    if v_fail >= 5 then
+      insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
+      values (v_client, 0, v_now + interval '5 minutes', v_now)
+      on conflict (client_id) do update set failed_count = 0, locked_until = excluded.locked_until, updated_at = v_now;
+      return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', 300);
+    else
+      insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
+      values (v_client, v_fail, null, v_now)
+      on conflict (client_id) do update set failed_count = excluded.failed_count, locked_until = null, updated_at = v_now;
+      return jsonb_build_object('ok', false, 'error', 'invalid_pin');
+    end if;
+  end if;
+
+  delete from public.pin_login_throttle where client_id in (v_client, v_ip_key);
+  delete from public.pin_login_throttle where locked_until is null and updated_at < v_now - interval '1 day';
+  delete from public.pin_sessions where expires_at <= v_now;
+  v_token := encode(gen_random_bytes(32), 'hex');
+  v_exp := v_now + interval '12 hours';
+  insert into public.pin_sessions(account_id, token_hash, expires_at) values (v_account.id, digest(v_token, 'sha256'), v_exp);
+  return jsonb_build_object('ok', true, 'token', v_token, 'role', v_account.role, 'expires_at', v_exp);
+end $$;
+revoke all on function public.pin_login(text, text) from public;
+grant execute on function public.pin_login(text, text) to anon, authenticated;
