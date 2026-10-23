@@ -117,13 +117,13 @@
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
   }
   const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'지원',name:'기공실'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
-  function staffBuildingFloor(n,g){
+  function staffBuildingSvgFloor(n,g){
     const rooms=g?g.rooms||state.rooms.filter(r=>r.group_id===g.id):[],st=g?groupStatusSummary(rooms):{key:'idle',issues:0,offline:0,live:0,total:0};
-    const def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
+    const y=54+(14-n)*46,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
     const status=!g?'비운영':st.issues?`확인 필요 ${st.issues}`:st.offline?`오프라인 ${st.offline}`:st.live?`${st.live}/${st.total} 송출`:'대기';
-    const cls=`building-stack-floor floor-state-${st.key}${g?'':' is-unmanaged'}${selectedFloorId===g?.id?' is-selected':''}`;
-    if(!g)return `<div class="${cls}" aria-hidden="true"><b>${n}F</b><span>${esc(shortName)}</span><em>비운영</em></div>`;
-    return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}F</b><span>${esc(shortName)}</span><em>${esc(status)}</em><i aria-hidden="true"></i></button>`;
+    const cls=`svg-building-floor floor-state-${st.key}${g?'':' is-unmanaged'}${selectedFloorId===g?.id?' is-selected':''}`;
+    const attr=g?`data-staff-select-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
+    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><title>${n}F · ${esc(shortName)} · ${esc(status)}</title><polygon class="svg-building-topline" points="40,${y} 336,${y} 350,${y-8} 54,${y-8}"></polygon><rect class="svg-building-slab" x="40" y="${y}" width="296" height="30" rx="3"></rect><polygon class="svg-building-side" points="336,${y} 350,${y-8} 350,${y+22} 336,${y+30}"></polygon><text class="svg-building-floor-no" x="54" y="${y+20}">${n}F</text><text class="svg-building-purpose" x="102" y="${y+20}">${esc(shortName)}</text><circle class="svg-building-status-dot" cx="316" cy="${y+15}" r="4.2"></circle></g>`;
   }
   function staffFloorMarker(r){
     if(!roomMapPlaced(r))return '';
@@ -140,8 +140,8 @@
     const floorGroups=groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14),byFloor=new Map(floorGroups.map(g=>[floorNumber(g),g]));
     if(!selectedFloorId||!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=(floorGroups.find(g=>groupStatusSummary(g.rooms).issues>0&&floorAsset(g))||floorGroups.find(g=>floorAsset(g))||floorGroups[0]||{}).id||null;
     const selected=floorGroups.find(g=>g.id===selectedFloorId)||null,issueFloors=floorGroups.filter(g=>groupStatusSummary(g.rooms).issues>0).length;
-    const rows=Array.from({length:14},(_,i)=>14-i).map(n=>staffBuildingFloor(n,byFloor.get(n)||null)).join('');
-    return `<section class="building-command-board hospital-building-command"><div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>왼쪽에서 층을 선택하고 오른쪽 실제 평면도에서 디스플레이 위치와 상태를 확인하세요.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div><div class="building-command-grid"><aside class="building-nav-pane"><div class="building-floor-stack" role="list" aria-label="1층부터 14층까지 병원 송출 현황">${rows}</div><div class="building-inline-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>${staffFloorPanelMarkup(selected)}</div></section>`;
+    const floorSvg=Array.from({length:14},(_,i)=>14-i).map(n=>staffBuildingSvgFloor(n,byFloor.get(n)||null)).join('');
+    return `<section class="building-command-board hospital-building-command"><div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>왼쪽에서 층을 선택하고 오른쪽 실제 평면도에서 디스플레이 위치와 상태를 확인하세요.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div><div class="building-command-grid"><aside class="building-nav-pane"><svg class="svg-building compact" viewBox="0 0 400 710" role="img" aria-label="1층부터 14층까지 병원 송출 현황">${floorSvg}</svg><div class="building-inline-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>${staffFloorPanelMarkup(selected)}</div></section>`;
   }
 
 
