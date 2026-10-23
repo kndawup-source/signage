@@ -1799,6 +1799,61 @@ returns uuid language sql stable security definer set search_path=public as $$
 $$;
 revoke all on function public.default_site_id() from public,anon,authenticated;
 
+
+-- Atomic/idempotent site creation for Super Admin. Avoids direct REST 409 conflicts.
+create or replace function public.admin_create_site(
+  p_name text,
+  p_code text,
+  p_building_label text default 'MAIN BUILDING'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_name text:=btrim(coalesce(p_name,''));
+  v_code text:=lower(btrim(coalesce(p_code,'')));
+  v_building text:=coalesce(nullif(btrim(coalesce(p_building_label,'')),''),'MAIN BUILDING');
+  v_site public.sites%rowtype;
+begin
+  if not public.is_admin() then
+    raise exception 'not allowed';
+  end if;
+  if v_name='' then
+    return jsonb_build_object('ok',false,'code','SITE_NAME_REQUIRED','message','병원명을 입력하세요.');
+  end if;
+  if v_code='' or length(v_code)>32 or v_code !~ '^[a-z0-9][a-z0-9_-]*$' then
+    return jsonb_build_object('ok',false,'code','SITE_CODE_INVALID','message','병원 코드는 영문 소문자, 숫자, - 또는 _만 사용할 수 있습니다.');
+  end if;
+
+  insert into public.sites(code,name,building_label)
+  values(v_code,v_name,v_building)
+  on conflict(code) do nothing
+  returning * into v_site;
+
+  if v_site.id is null then
+    select * into v_site from public.sites where code=v_code limit 1;
+    insert into public.site_settings(site_id) values(v_site.id)
+    on conflict(site_id) do nothing;
+    return jsonb_build_object(
+      'ok',true,
+      'existing',true,
+      'code','SITE_CODE_EXISTS',
+      'message','이미 등록된 병원입니다.',
+      'site',to_jsonb(v_site)
+    );
+  end if;
+
+  insert into public.site_settings(site_id) values(v_site.id)
+  on conflict(site_id) do nothing;
+
+  return jsonb_build_object('ok',true,'existing',false,'site',to_jsonb(v_site));
+end
+$$;
+revoke all on function public.admin_create_site(text,text,text) from public;
+grant execute on function public.admin_create_site(text,text,text) to anon,authenticated;
+
 alter table public.pin_accounts add column if not exists site_id uuid references public.sites(id) on delete set null;
 update public.pin_accounts set site_id=public.default_site_id() where role='staff' and site_id is null;
 
@@ -1834,16 +1889,33 @@ alter table if exists public.videos add column if not exists site_id uuid refere
 alter table if exists public.playlists add column if not exists site_id uuid references public.sites(id) on delete cascade;
 -- NULL content is global/shared. Current content stays global so the existing installation does not change.
 
+-- Legacy compatibility: v2.33 can be applied even when the v2.32.3 floorplan column was never installed.
+alter table public.app_settings add column if not exists floorplan_assets jsonb not null default '{}'::jsonb;
+
+
 create table if not exists public.site_settings (
   site_id uuid primary key references public.sites(id) on delete cascade,
   floorplan_assets jsonb not null default '{}'::jsonb,
   operating_config jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default clock_timestamp()
 );
-insert into public.site_settings(site_id,floorplan_assets)
-select public.default_site_id(),coalesce((select floorplan_assets from public.app_settings where id=1),'{}'::jsonb)
-where public.default_site_id() is not null
-on conflict(site_id) do nothing;
+do $$
+declare
+  v_site uuid:=public.default_site_id();
+  v_assets jsonb:='{}'::jsonb;
+begin
+  if v_site is not null then
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema='public' and table_name='app_settings' and column_name='floorplan_assets'
+    ) then
+      execute 'select coalesce(floorplan_assets,''{}''::jsonb) from public.app_settings where id=1' into v_assets;
+      v_assets:=coalesce(v_assets,'{}'::jsonb);
+    end if;
+    insert into public.site_settings(site_id,floorplan_assets) values(v_site,v_assets)
+    on conflict(site_id) do nothing;
+  end if;
+end $$;
 
 create table if not exists public.floor_spaces (
   id uuid primary key default gen_random_uuid(),
@@ -1890,7 +1962,8 @@ create or replace function public.can_manage_site(p_site uuid)
 returns boolean language sql stable security definer set search_path=public as $$
   select case public.pin_session_role() when 'admin' then true when 'staff' then public.pin_session_site_id()=p_site else false end;
 $$;
-revoke all on function public.can_manage_site(uuid) from public,anon,authenticated;
+revoke all on function public.can_manage_site(uuid) from public;
+grant execute on function public.can_manage_site(uuid) to anon,authenticated;
 
 -- Session payload now exposes site scope. Internal role values stay admin/staff for compatibility.
 create or replace function public.pin_session_info()

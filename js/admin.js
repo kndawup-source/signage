@@ -239,7 +239,7 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.33.0'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.33.1'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -682,7 +682,7 @@
   }
   async function saveFloorplanAssets(next){
     const sid=state.currentSite?.id;if(!sid)throw new Error('SITE_NOT_SELECTED');const {error}=await db.from('site_settings').upsert({site_id:sid,floorplan_assets:next,updated_at:new Date().toISOString()},{onConflict:'site_id'});
-    if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.33.0 migration을 먼저 실행하세요.');throw error;}
+    if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.33.1 migration을 먼저 실행하세요.');throw error;}
     state.settings.floorplan_assets=next;floorplanTextCache.clear();
   }
   async function pruneFloorplanVersions(siteId,floor,keep=5){
@@ -817,8 +817,13 @@
   async function addSite(){
     const name=(qs('#newSiteName')?.value||'').trim(),code=(qs('#newSiteCode')?.value||'').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'');
     if(!name||!code)return toast('병원명과 코드를 입력하세요.','error');
-    const {data,error}=await db.from('sites').insert({name,code,building_label:'MAIN BUILDING'}).select('*').single();if(error)return toast(error.message,'error');
-    await db.from('site_settings').insert({site_id:data.id}).catch(()=>{});localStorage.setItem('clinic_signage_superadmin_site',data.id);toast('병원을 추가했습니다.');await load();
+    const {data,error}=await db.rpc('admin_create_site',{p_name:name,p_code:code,p_building_label:'MAIN BUILDING'});
+    if(error)return toast(error.message||'병원을 추가하지 못했습니다.','error');
+    if(!data?.ok)return toast(data?.message||'병원을 추가하지 못했습니다.','error');
+    const site=data.site||{};
+    if(site.id)localStorage.setItem('clinic_signage_superadmin_site',site.id);
+    toast(data.existing?'이미 등록된 병원을 선택했습니다.':'병원을 추가했습니다.');
+    await load();
   }
   async function saveSiteStaffPin(){const pin=(qs('#siteStaffPin')?.value||'').replace(/\D/g,'');if(pin.length<4||pin.length>6)return toast('병원 관리자 PIN은 4~6자리입니다.','error');if(!state.currentSite?.id)return;const {error}=await db.rpc('admin_set_site_staff_pin',{p_site:state.currentSite.id,p_pin:pin});if(error)return toast(error.message,'error');qs('#siteStaffPin').value='';toast('병원 관리자 PIN을 변경했습니다.');}
 
