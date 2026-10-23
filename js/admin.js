@@ -19,7 +19,7 @@
 
   let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false, dashboardView='building', selectedFloorId=null, buildingPeriod='live', spaceEditorGroupId=null;
   const localDateKey=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-  let state={rooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null,building7d:null,sites:[],currentSite:null,siteSettings:null,floorSpaces:[],floorplanVersions:[],audit:[]};
+  let state={rooms:[],allRooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null,building7d:null,sites:[],currentSite:null,siteSettings:null,floorSpaces:[],floorplanVersions:[],audit:[]};
   let controlSignalChannel=null,statusWakeChannel=null,spatialRefreshTimer=null;
   const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
@@ -55,7 +55,10 @@
     const liveByRoom=new Map((liveStatuses.data?.rows||[]).map(x=>[x.room_id,x]));
     const mergedRooms=(rooms.data||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;});
     const siteList=sites.data||[],defaultSite=siteList.find(x=>x.code==='default')||siteList[0]||null;
-    const savedSite=localStorage.getItem('clinic_signage_superadmin_site')||'',currentSite=siteList.find(x=>x.id===savedSite)||defaultSite;
+    const urlSlug=new URLSearchParams(location.search).get('site')||'';
+    const savedSite=localStorage.getItem('clinic_signage_superadmin_site')||'';
+    const currentSite=siteList.find(x=>String(x.code||'')===urlSlug)||siteList.find(x=>x.id===savedSite)||defaultSite;
+    if(currentSite?.id){localStorage.setItem('clinic_signage_superadmin_site',currentSite.id);const canonicalSlug=String(currentSite.code||'').trim();if(canonicalSlug&&urlSlug!==canonicalSlug){const url=new URL(location.href);url.searchParams.set('site',canonicalSlug);history.replaceState(null,'',url);}}
     const analyticsArgs=currentSite?.id?{p_site:currentSite.id}:{};
     const [playbackToday,building7d]=await Promise.all([
       db.rpc('admin_playback_today',analyticsArgs).then(r=>r.error?null:r.data).catch(()=>null),
@@ -66,7 +69,7 @@
     const filteredVideos=(videos.data||[]).filter(v=>!v.site_id||!sid||v.site_id===sid),filteredPlaylists=(playlists.data||[]).filter(p=>!p.site_id||!sid||p.site_id===sid),playlistIds=new Set(filteredPlaylists.map(p=>p.id)),roomIds=new Set(filteredRooms.map(r=>r.id));
     const filteredItems=(playlistItems.data||[]).filter(x=>playlistIds.has(x.playlist_id)),filteredRules=(roomRules.data||[]).filter(x=>roomIds.has(x.room_id));
     const mergedSettings={...(settings.data||{emergency_video_id:null}),site_name:currentSite?.name||settings.data?.site_name,building_label:currentSite?.building_label||settings.data?.building_label,floorplan_assets:siteSetting?.floorplan_assets||settings.data?.floorplan_assets||{}};
-    state={rooms:filteredRooms,videos:filteredVideos,playlists:filteredPlaylists,playlistItems:filteredItems,roomRules:filteredRules,groups:filteredGroups,groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:mergedSettings,playbackToday:playbackToday||null,building7d:building7d||null,sites:siteList,currentSite,siteSettings:siteSetting,floorSpaces:(floorSpaces.data||[]).filter(x=>!sid||x.site_id===sid),floorplanVersions:(floorplanVersions.data||[]).filter(x=>!sid||x.site_id===sid),audit:(audit.data||[]).filter(x=>!sid||!x.site_id||x.site_id===sid)};
+    state={rooms:filteredRooms,allRooms:mergedRooms,videos:filteredVideos,playlists:filteredPlaylists,playlistItems:filteredItems,roomRules:filteredRules,groups:filteredGroups,groupBroadcasts:groupBroadcasts.data||[],schedules:schedules.data||[],history:history.data||[],broadcast:broadcast.data||{id:1,active:false,video_ids:[]},settings:mergedSettings,playbackToday:playbackToday||null,building7d:building7d||null,sites:siteList,currentSite,siteSettings:siteSetting,floorSpaces:(floorSpaces.data||[]).filter(x=>!sid||x.site_id===sid),floorplanVersions:(floorplanVersions.data||[]).filter(x=>!sid||x.site_id===sid),audit:(audit.data||[]).filter(x=>!sid||!x.site_id||x.site_id===sid)};
     render();
   }
 
@@ -239,7 +242,7 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.33.1'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.33.3'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -369,6 +372,18 @@
     return `<span>연결 끊김 <b>${offline}</b></span><span>업데이트 <b>${updates}</b></span><span>재생 오류 <b>${errors}</b></span>${manual?`<span>수동 확인 <b>${manual}</b></span>`:''}`;
   }
 
+  function siteSlug(site){return String(site?.code||'').trim()||'site';}
+  function siteRooms(site){const all=state.allRooms||state.rooms||[];return all.filter(r=>r.site_id===site.id||(!r.site_id&&state.sites.length===1));}
+  function sitePortfolioStats(site){
+    const rooms=siteRooms(site),statuses=rooms.map(roomDisplayStatus);
+    return {total:rooms.length,live:statuses.filter(x=>x.key==='live').length,issues:statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length};
+  }
+  function hospitalPortfolioMarkup(){
+    if(!state.sites.length)return '';
+    const cards=state.sites.map(site=>{const stats=sitePortfolioStats(site),active=site.id===state.currentSite?.id;return `<button type="button" class="super-site-card ${active?'is-active':''} ${site.active===false?'is-disabled':''}" data-select-site="${site.id}"><span class="super-site-card-top"><b>${esc(site.name)}</b><em>${site.active===false?'비활성':active?'관리 중':'선택'}</em></span><code>/${esc(siteSlug(site))}</code><span class="super-site-stats"><span><strong>${stats.total}</strong><small>디스플레이</small></span><span><strong>${stats.live}</strong><small>송출 중</small></span><span class="${stats.issues?'has-issue':''}"><strong>${stats.issues}</strong><small>확인 필요</small></span></span></button>`;}).join('');
+    return `<section class="super-sites"><div class="super-sites-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>관리 병원</h2><p>병원을 선택하면 해당 병원의 관제·도면·공간·디스플레이 설정으로 전환됩니다.</p></div><span>${state.sites.length}개 병원</span></div><div class="super-site-grid">${cards}</div></section>`;
+  }
+
   function renderDashboard(){
     const videos=activeVideos(),selected=state.broadcast?.video_ids||[],online=state.rooms.filter(adminIsOnline).length;
     const grouped=[...state.groups.map(g=>({group:g,rooms:state.rooms.filter(r=>r.group_id===g.id)})),{group:null,rooms:state.rooms.filter(r=>!r.group_id)}].filter(x=>x.rooms.length||x.group);
@@ -385,7 +400,8 @@
     const bTime=(state.broadcast?.active&&bPhase!=='off')?timeWindowText(state.broadcast?.starts_at,state.broadcast?.ends_at):'';
     const idleCount=roomStatuses.filter(x=>x.key==='idle').length;
     qs('#adminRoot').innerHTML=`
-      <div class="ops-page-head"><div><span class="eyebrow">LIVE MONITOR</span><h1>영상 송출 관제</h1><p>각 층과 공간에서 <b>어떤 영상이 왜 송출되고 있는지</b>, 그리고 지금 문제가 있는 곳이 어디인지 확인합니다.</p></div><div class="ops-head-meta"><b id="onlineStat">${liveCount}/${state.rooms.length}</b><span>현재 송출</span><em>${esc(operatingNowLabel())}</em></div></div>
+      ${hospitalPortfolioMarkup()}
+      <div class="ops-page-head"><div><span class="eyebrow">${esc(state.currentSite?.name||'HOSPITAL')} · /${esc(siteSlug(state.currentSite))}</span><h1>영상 송출 관제</h1><p>각 층과 공간에서 <b>어떤 영상이 왜 송출되고 있는지</b>, 그리고 지금 문제가 있는 곳이 어디인지 확인합니다.</p></div><div class="ops-head-meta"><b id="onlineStat">${liveCount}/${state.rooms.length}</b><span>현재 송출</span><em>${esc(operatingNowLabel())}</em></div></div>
       <section class="ops-now-summary">
         <div class="ops-now-main"><span>현재 송출</span><b data-stat-live>${liveCount}</b><small>전체 ${state.rooms.length}개 공간</small></div>
         <div><span>대기</span><b>${idleCount}</b><small>운영시간 외·재생 대기</small></div>
@@ -439,6 +455,7 @@
   function historyPanel(){return `<section class="panel"><div class="panel-head"><div><h2>기록</h2></div></div><div class="history-list">${state.history.slice(0,15).map(h=>`<div class="history-row"><span><b>${esc(h.label||h.scope_type)}</b><small>${esc(h.action)} · ${new Date(h.created_at).toLocaleString('ko-KR')}</small></span>${h.before_state&&['hospital','group','rooms'].includes(h.scope_type)?`<button class="btn small" data-undo-history="${h.id}">되돌리기</button>`:''}</div>`).join('')||'<p class="muted">이력이 없습니다.</p>'}</div></section>`;}
 
   function bindDashboard(){
+    qsa('[data-select-site]').forEach(b=>b.addEventListener('click',()=>switchSite(b.dataset.selectSite)));
     qsa('[data-admin-manual-check]').forEach(b=>b.addEventListener('click',()=>markAdminManualChecked(b.dataset.adminManualCheck)));
     qsa('[data-dashboard-view]').forEach(b=>b.addEventListener('click',()=>{dashboardView=b.dataset.dashboardView;if(dashboardView==='floor'&&!selectedFloorId){const first=state.groups.find(g=>floorNumber(g));selectedFloorId=first?.id||null;}renderDashboard();}));qsa('[data-building-period]').forEach(b=>b.addEventListener('click',()=>{buildingPeriod=b.dataset.buildingPeriod||'live';renderDashboard();}));
     qsa('[data-building-select-floor]').forEach(b=>{const select=()=>{if(!b.dataset.buildingSelectFloor)return;selectedFloorId=b.dataset.buildingSelectFloor;dashboardView='building';renderDashboard();};b.addEventListener('click',select);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});});qsa('[data-open-floor]').forEach(b=>{const open=()=>{if(!b.dataset.openFloor)return;selectedFloorId=b.dataset.openFloor;dashboardView='floor';renderDashboard();};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
@@ -682,7 +699,7 @@
   }
   async function saveFloorplanAssets(next){
     const sid=state.currentSite?.id;if(!sid)throw new Error('SITE_NOT_SELECTED');const {error}=await db.from('site_settings').upsert({site_id:sid,floorplan_assets:next,updated_at:new Date().toISOString()},{onConflict:'site_id'});
-    if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.33.1 migration을 먼저 실행하세요.');throw error;}
+    if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.33.2 migration을 먼저 실행하세요.');throw error;}
     state.settings.floorplan_assets=next;floorplanTextCache.clear();
   }
   async function pruneFloorplanVersions(siteId,floor,keep=5){
@@ -810,18 +827,31 @@
 
   function setupProgressMarkup(){const customPlans=Object.keys(floorplanAssets()).filter(k=>floorplanMeta(Number(k))?.key).length,spaces=state.floorSpaces.length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;const steps=[['병원 정보',!!state.currentSite?.name&&!!state.currentSite?.building_label],['도면 업로드',customPlans>0],['공간 구분',spaces>0],['디스플레이 위치',total>0&&placed===total],['콘텐츠 연결',state.playlists.some(p=>p.active)]];const done=steps.filter(x=>x[1]).length;return `<section class="settings-section setup-progress-section"><div class="settings-section-head"><div><span class="eyebrow">SETUP</span><h2>초기 설치 상태</h2><p>새 병원은 이 순서만 완료하면 운영을 시작할 수 있습니다.</p></div><div class="settings-count">${done}/${steps.length}</div></div><div class="setup-progress-grid">${steps.map(([label,ok],i)=>`<div class="setup-progress-item ${ok?'is-done':''}"><i>${ok?'✓':i+1}</i><span>${label}</span></div>`).join('')}</div></section>`;}
   function siteManagerMarkup(){
-    const options=state.sites.map(s=>`<option value="${s.id}" ${state.currentSite?.id===s.id?'selected':''}>${esc(s.name)}${s.active===false?' · 비활성':''}</option>`).join('');
-    return `<section class="settings-section product-site-manager"><div class="settings-section-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>병원 / 지점</h2><p>현재는 한 병원으로 운영하고, 같은 구조로 지점을 추가할 수 있게 준비되어 있습니다.</p></div><div class="settings-count">${state.sites.length}개</div></div><div class="site-manager-grid"><div class="settings-card"><h3>현재 관리 병원</h3><label class="field"><span>병원 선택</span><select id="superAdminSiteSelect">${options}</select></label><p class="muted">선택한 병원의 층·공간·도면·디스플레이만 아래에 표시됩니다.</p></div><div class="settings-card"><h3>새 병원 추가</h3><label class="field"><span>병원명</span><input id="newSiteName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>코드</span><input id="newSiteCode" maxlength="32" placeholder="예: gangnam"></label><button id="addSite" class="btn primary">병원 추가</button></div><div class="settings-card"><h3>병원 관리자 PIN</h3><p class="muted">현재 선택한 병원의 관리자(staff) 로그인 PIN입니다.</p><label class="field"><span>PIN · 4~6자리</span><input id="siteStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="saveSiteStaffPin" class="btn">PIN 변경</button></div></div></section>`;
+    const options=state.sites.map(s=>`<option value="${s.id}" ${state.currentSite?.id===s.id?'selected':''}>${esc(s.name)} · /${esc(siteSlug(s))}${s.active===false?' · 비활성':''}</option>`).join('');
+    return `<section class="settings-section product-site-manager"><div class="settings-section-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>관리 병원</h2><p>병원별 슬러그로 구분하고, 선택한 병원의 설정만 관리합니다.</p></div><div class="settings-count">${state.sites.length}개</div></div><div class="site-manager-grid"><div class="settings-card"><h3>현재 관리 병원</h3><label class="field"><span>병원 선택</span><select id="superAdminSiteSelect">${options}</select></label><label class="field"><span>슬러그</span><div class="slug-input"><i>/</i><input id="currentSiteSlug" maxlength="32" autocomplete="off" spellcheck="false" value="${esc(siteSlug(state.currentSite))}"></div></label><div class="inline"><button id="saveCurrentSiteSlug" class="btn small">슬러그 저장</button></div><p class="muted">선택한 병원의 층·공간·도면·디스플레이만 아래에 표시됩니다.</p></div><div class="settings-card"><h3>새 병원 추가</h3><label class="field"><span>병원명</span><input id="newSiteName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>슬러그</span><div class="slug-input"><i>/</i><input id="newSiteSlug" maxlength="32" autocomplete="off" spellcheck="false" placeholder="gangnam"></div><small class="field-help">영문 소문자·숫자·하이픈(-)을 권장합니다. 병원을 구분하는 고유 주소입니다.</small></label><button id="addSite" class="btn primary">병원 추가</button></div><div class="settings-card"><h3>병원 관리자 PIN</h3><p class="muted">현재 선택한 병원의 관리자(staff) 로그인 PIN입니다.</p><label class="field"><span>PIN · 4~6자리</span><input id="siteStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="saveSiteStaffPin" class="btn">PIN 변경</button></div></div></section>`;
   }
-  async function switchSite(id){if(!id||id===state.currentSite?.id)return;localStorage.setItem('clinic_signage_superadmin_site',id);selectedFloorId=null;spaceEditorGroupId=null;await load();}
+  async function switchSite(id){if(!id||id===state.currentSite?.id)return;const site=state.sites.find(x=>x.id===id);localStorage.setItem('clinic_signage_superadmin_site',id);if(site){const url=new URL(location.href);url.searchParams.set('site',siteSlug(site));history.replaceState(null,'',url);}selectedFloorId=null;spaceEditorGroupId=null;await load();}
+  async function saveCurrentSiteSlug(){
+    if(!state.currentSite?.id)return;
+    const input=qs('#currentSiteSlug');
+    const slug=String(input?.value||'').trim().toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'').replace(/-{2,}/g,'-');
+    if(slug.length<2)return toast('슬러그는 2자 이상 입력하세요.','error');
+    if(state.sites.some(x=>x.id!==state.currentSite.id&&siteSlug(x)===slug))return toast('이미 사용 중인 슬러그입니다.','error');
+    const {error}=await db.from('sites').update({code:slug}).eq('id',state.currentSite.id);
+    if(error)return toast(error.code==='23505'?'이미 사용 중인 슬러그입니다.':error.message,'error');
+    const url=new URL(location.href);url.searchParams.set('site',slug);history.replaceState(null,'',url);
+    toast('병원 슬러그를 변경했습니다.');
+    await load();
+  }
   async function addSite(){
-    const name=(qs('#newSiteName')?.value||'').trim(),code=(qs('#newSiteCode')?.value||'').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'');
-    if(!name||!code)return toast('병원명과 코드를 입력하세요.','error');
+    const name=(qs('#newSiteName')?.value||'').trim(),code=(qs('#newSiteSlug')?.value||'').trim().toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'').replace(/-{2,}/g,'-');
+    if(!name||!code)return toast('병원명과 슬러그를 입력하세요.','error');
+    if(code.length<2)return toast('슬러그는 2자 이상 입력하세요.','error');
     const {data,error}=await db.rpc('admin_create_site',{p_name:name,p_code:code,p_building_label:'MAIN BUILDING'});
     if(error)return toast(error.message||'병원을 추가하지 못했습니다.','error');
     if(!data?.ok)return toast(data?.message||'병원을 추가하지 못했습니다.','error');
     const site=data.site||{};
-    if(site.id)localStorage.setItem('clinic_signage_superadmin_site',site.id);
+    if(site.id){localStorage.setItem('clinic_signage_superadmin_site',site.id);const url=new URL(location.href);url.searchParams.set('site',siteSlug(site));history.replaceState(null,'',url);}
     toast(data.existing?'이미 등록된 병원을 선택했습니다.':'병원을 추가했습니다.');
     await load();
   }
@@ -856,12 +886,14 @@
   function renderSettings(){
     const emergencyVideos=state.videos.filter(v=>v.active&&v.available!==false&&v.url);
     const ready=storageHealth?.ok===true;
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">SETTINGS</span><h1>설정</h1><p class="page-intro">층/구역과 공간, 운영시간, 비상 영상, PIN처럼 자주 바꾸지 않는 시스템 설정만 모았습니다.</p></div></div>${siteManagerMarkup()}${setupProgressMarkup()}${accessLinksMarkup()}${floorplanManagerMarkup()}${floorSpaceManagerMarkup()}${displayPositionSetupMarkup()}${roomSettingsMarkup()}${backupAuditMarkup()}<section class="settings-section"><div class="settings-section-head"><div><span class="eyebrow">SYSTEM</span><h2>시스템</h2></div></div><div class="settings-system-grid"><div class="settings-card"><h3>관제 화면 이름</h3><p class="muted">회사·병원마다 재사용할 수 있도록 건물 화면 명칭을 설정합니다.</p><label class="field"><span>사이트 이름</span><input id="siteName" maxlength="40" value="${esc(state.settings.site_name||'CLINIC SIGNAGE')}"></label><label class="field"><span>건물 이름</span><input id="buildingLabel" maxlength="40" value="${esc(state.settings.building_label||'MAIN BUILDING')}"></label><button id="saveSiteIdentity" class="btn primary">이름 저장</button></div><div class="settings-card operating-hours-card"><h3>${state.sites.length>1?'플랫폼 기본 운영시간':'운영시간'}</h3><p class="muted">${state.sites.length>1?'현재 플레이어 공통 기준입니다. 병원별 운영시간 확장 시 site 기준으로 분리됩니다. ':''}실제 영상 송출 시간입니다. 운영시간 밖에는 검정 화면으로 대기하고 다음 시작시간에 자동 재생합니다.</p><div class="operating-day-list">${operatingDayRow('weekday','평일',state.settings.operating_weekday_enabled!==false,state.settings.operating_weekday_start||state.settings.operating_start||'09:00',state.settings.operating_weekday_end||state.settings.operating_end||'20:00')}${operatingDayRow('saturday','토요일',state.settings.operating_saturday_enabled!==false,state.settings.operating_saturday_start||'09:00',state.settings.operating_saturday_end||'17:00')}${operatingDayRow('sunday','일요일',state.settings.operating_sunday_enabled===true,state.settings.operating_sunday_start||'09:00',state.settings.operating_sunday_end||'17:00')}</div><button id="saveOperatingHours" class="btn primary">운영시간 저장</button></div><div class="settings-card"><h3>영상 저장소</h3><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>${ready?'연결됨':'설정 필요'}</b><p>Cloudflare R2 영상 저장 상태</p></div></div><button id="testStorage" class="btn">연결 확인</button></div><div class="settings-card"><h3>비상 영상</h3><label class="field"><span>재생할 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><button id="saveEmergency" class="btn primary">저장</button></div><div class="settings-card"><h3>PIN</h3><label class="field"><span>관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><label class="field top-gap"><span>병원 관리자 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeStaffPin" class="btn">병원 관리자 PIN 변경</button></div></div></section>`;
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">SETTINGS</span><h1>설정</h1><p class="page-intro">층/구역과 공간, 운영시간, 비상 영상, PIN처럼 자주 바꾸지 않는 시스템 설정만 모았습니다.</p></div></div>${siteManagerMarkup()}${setupProgressMarkup()}${accessLinksMarkup()}${floorplanManagerMarkup()}${floorSpaceManagerMarkup()}${displayPositionSetupMarkup()}${roomSettingsMarkup()}${backupAuditMarkup()}<section class="settings-section"><div class="settings-section-head"><div><span class="eyebrow">SYSTEM</span><h2>시스템</h2></div></div><div class="settings-system-grid"><div class="settings-card"><h3>관제 화면 이름</h3><p class="muted">회사·병원마다 재사용할 수 있도록 건물 화면 명칭을 설정합니다.</p><label class="field"><span>병원명</span><input id="siteName" maxlength="40" value="${esc(state.settings.site_name||'CLINIC SIGNAGE')}"></label><label class="field"><span>건물 이름</span><input id="buildingLabel" maxlength="40" value="${esc(state.settings.building_label||'MAIN BUILDING')}"></label><button id="saveSiteIdentity" class="btn primary">이름 저장</button></div><div class="settings-card operating-hours-card"><h3>${state.sites.length>1?'플랫폼 기본 운영시간':'운영시간'}</h3><p class="muted">${state.sites.length>1?'현재 플레이어 공통 기준입니다. 병원별 운영시간 확장 시 site 기준으로 분리됩니다. ':''}실제 영상 송출 시간입니다. 운영시간 밖에는 검정 화면으로 대기하고 다음 시작시간에 자동 재생합니다.</p><div class="operating-day-list">${operatingDayRow('weekday','평일',state.settings.operating_weekday_enabled!==false,state.settings.operating_weekday_start||state.settings.operating_start||'09:00',state.settings.operating_weekday_end||state.settings.operating_end||'20:00')}${operatingDayRow('saturday','토요일',state.settings.operating_saturday_enabled!==false,state.settings.operating_saturday_start||'09:00',state.settings.operating_saturday_end||'17:00')}${operatingDayRow('sunday','일요일',state.settings.operating_sunday_enabled===true,state.settings.operating_sunday_start||'09:00',state.settings.operating_sunday_end||'17:00')}</div><button id="saveOperatingHours" class="btn primary">운영시간 저장</button></div><div class="settings-card"><h3>영상 저장소</h3><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>${ready?'연결됨':'설정 필요'}</b><p>Cloudflare R2 영상 저장 상태</p></div></div><button id="testStorage" class="btn">연결 확인</button></div><div class="settings-card"><h3>비상 영상</h3><label class="field"><span>재생할 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><button id="saveEmergency" class="btn primary">저장</button></div><div class="settings-card"><h3>PIN</h3><label class="field"><span>관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><label class="field top-gap"><span>병원 관리자 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeStaffPin" class="btn">병원 관리자 PIN 변경</button></div></div></section>`;
     bindRoomSettings();
     bindFloorplanManager();
     bindFloorSpaceManager();
     hydrateFloorplanImages();
     qs('#superAdminSiteSelect')?.addEventListener('change',e=>switchSite(e.target.value));
+    qs('#saveCurrentSiteSlug')?.addEventListener('click',saveCurrentSiteSlug);
+    qsa('[data-select-site]').forEach(b=>b.addEventListener('click',()=>switchSite(b.dataset.selectSite)));
     qs('#addSite')?.addEventListener('click',addSite);
     qs('#saveSiteStaffPin')?.addEventListener('click',saveSiteStaffPin);
     qs('#exportSiteConfig')?.addEventListener('click',exportSiteConfig);
