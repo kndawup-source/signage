@@ -1,5 +1,5 @@
 'use strict';
-// v2.31.7 canonical vector floorplans. Each floor is a real SVG line drawing, not a raster image.
+// v2.31.8 canonical interactive vector floorplans. Each floor is a real SVG line drawing, not a raster image.
 const fs = require('fs');
 const path = require('path');
 const cache = new Map();

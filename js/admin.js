@@ -192,22 +192,27 @@
   }
   function contentWarnings(){return state.rooms.map(r=>{const items=roomOutputItems(r).filter(x=>x.enabled),known=items.filter(x=>Number(x.video.duration_sec)>0),sec=known.reduce((s,x)=>s+Number(x.video.duration_sec||0),0);if(items.length===0)return `${r.name}: 재생 영상 없음`;if(items.length===1)return `${r.name}: 재생 영상 1개`;if(known.length===items.length&&sec<180)return `${r.name}: 전체 길이 ${Math.ceil(sec/60)}분 미만`;return null;}).filter(Boolean);}
   const CARE_TYPES=[['general','일반진료'],['minish','MINISH'],['common','공용'],['support','지원'],['other','기타']];
+  const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'기타',name:'도면 미등록'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
   const careTypeLabel=(v)=>CARE_TYPES.find(([id])=>id===v)?.[1]||'미설정';
   const floorNumber=(g)=>Number(g?.floor_number||(/^\d+$/.test(String(g?.name||'').trim())?String(g.name).trim():String(g?.name||'').match(/(\d+)/)?.[1]||0));
   const floorTitle=(g)=>{const n=floorNumber(g);return n?`${n}F`:groupDisplayName(g);};
   function roomMapPlaced(r){const x=Number(r.map_x_pct),y=Number(r.map_y_pct);return x>=0&&x<=100&&y>=0&&y<=100;}
   const floorAsset=(g)=>{const n=floorNumber(g);return n>=1&&n<=14?n:null;};
-  const floorplanObjectUrls=new Map();
+  const floorplanTextCache=new Map();
+  const zoneTypeLabel=(v)=>({treatment:'진료',consult:'상담',waiting:'대기',reception:'안내',support:'지원',office:'사무',common:'공용'})[v]||'공간';
+  function zoneRoomsForBounds(bounds){
+    const nums=String(bounds||'').split(',').map(Number);if(nums.length!==4||nums.some(Number.isNaN))return [];
+    const [x,y,w,h]=nums;return state.rooms.filter(r=>roomMapPlaced(r)&&Number(r.map_x_pct)>=x&&Number(r.map_x_pct)<=x+w&&Number(r.map_y_pct)>=y&&Number(r.map_y_pct)<=y+h);
+  }
+  function bindFloorZoneInteractions(stage){
+    if(!stage||stage.dataset.zoneBound==='1')return;stage.dataset.zoneBound='1';
+    const zones=qsa('.floor-zone',stage),inspector=stage.closest('.floor-map-card')?.querySelector('[data-floor-zone-inspector]');
+    const selectZone=(zone)=>{zones.forEach(z=>z.classList.toggle('is-selected',z===zone));if(!inspector)return;const label=zone.dataset.zoneLabel||'공간',type=zoneTypeLabel(zone.dataset.zoneType),rooms=zoneRoomsForBounds(zone.dataset.zoneBounds);const roomText=rooms.length?rooms.map(r=>{const st=roomDisplayStatus(r);return `${r.name} · ${st.label}`;}).join(' / '):'이 공간에 배치된 디스플레이가 없습니다.';inspector.innerHTML=`<div><span>${esc(type)}</span><b>${esc(label)}</b></div><p>${esc(roomText)}</p>`;};
+    zones.forEach(zone=>{zone.addEventListener('click',e=>{e.stopPropagation();selectZone(zone);});zone.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectZone(zone);}});});
+  }
   async function hydrateFloorplanImages(){
-    const imgs=qsa('[data-floorplan-img]');
-    await Promise.all(imgs.map(async img=>{
-      const floor=Number(img.dataset.floorplanImg);if(!floor||img.src)return;
-      try{
-        let url=floorplanObjectUrls.get(floor);
-        if(!url){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.7`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);url=URL.createObjectURL(await response.blob());floorplanObjectUrls.set(floor,url);}
-        if(document.contains(img))img.src=url;
-      }catch(_){img.alt=`${floor}층 평면도를 불러오지 못했습니다.`;img.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}
-    }));
+    const hosts=qsa('[data-floorplan-svg]');
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.8`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -222,37 +227,33 @@
     const statusLine=buildingPeriod==='live'?`${sum.live} 송출 · ${sum.issues} 문제 · ${sum.offline} 오프라인`:sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}% · 오류 ${sum.errors||0} · 재연결 ${sum.reconnects||0}`;
     return `<button class="building-floor-row floor-state-${sum.key}" data-open-floor="${g.id}"><span class="building-floor-no">${n?`${n}F`:esc(groupDisplayName(g))}</span><span class="building-floor-copy"><b>${esc(purpose)}</b><small>${esc(audience)} · ${esc(reason)}</small><em>${esc(statusLine)}</em></span><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span></button>`;
   }
-  function buildingSvgFloor(g){
-    const n=floorNumber(g),rooms=state.rooms.filter(r=>r.group_id===g.id),sum=floorPeriodSummary(g,rooms);
-    const y=42+(14-n)*42, purpose=(g.signage_purpose||careTypeLabel(g.care_type)||'미설정').slice(0,22);
-    const active=issuesOnly?sum.issues>0||sum.offline>0:true;
-    const status=buildingPeriod==='live'?(sum.issues?`확인 ${sum.issues}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`${Number(sum.rate||0).toFixed(0)}%`);
-    return `<g class="svg-building-floor floor-state-${sum.key}${active?'':' is-muted'}" data-open-floor="${g.id}" role="button" tabindex="0" aria-label="${n}층 ${esc(careTypeLabel(g.care_type))} ${esc(sum.label)}">
-      <rect class="svg-building-slab" x="72" y="${y}" width="430" height="36" rx="7"></rect>
-      <line class="svg-building-window" x1="134" y1="${y+18}" x2="384" y2="${y+18}"></line>
-      <text class="svg-building-floor-no" x="92" y="${y+23}">${n}F</text>
-      <text class="svg-building-purpose" x="151" y="${y+23}">${esc(careTypeLabel(g.care_type))} · ${esc(purpose)}</text>
-      <circle class="svg-building-status-dot" cx="475" cy="${y+18}" r="5"></circle>
-      <text class="svg-building-status" x="520" y="${y+23}">${esc(status)}</text>
+  function buildingSvgFloor(n,g){
+    const rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',issues:0,offline:0,live:0,total:0,label:'비운영'};
+    const y=55+(14-n)*38,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},kind=g?careTypeLabel(g.care_type):def.kind,purpose=(g?.signage_purpose||def.name).slice(0,22),active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
+    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`${Number(sum.rate||0).toFixed(0)}%`);
+    const cls=`svg-building-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}`;
+    const attr=g?`data-open-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
+    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(kind)} ${esc(status)}">
+      <polygon class="svg-building-topline" points="92,${y} 492,${y} 528,${y-15} 128,${y-15}"></polygon>
+      <rect class="svg-building-slab" x="92" y="${y}" width="400" height="32" rx="2"></rect>
+      <polygon class="svg-building-side" points="492,${y} 528,${y-15} 528,${y+17} 492,${y+32}"></polygon>
+      <line class="svg-building-window" x1="155" y1="${y+16}" x2="426" y2="${y+16}"></line>
+      <text class="svg-building-floor-no" x="108" y="${y+21}">${n}F</text>
+      <text class="svg-building-purpose" x="166" y="${y+21}">${esc(kind)} · ${esc(purpose)}</text>
+      <circle class="svg-building-status-dot" cx="468" cy="${y+16}" r="4.5"></circle>
+      <text class="svg-building-status" x="548" y="${y+21}">${esc(status)}</text>
     </g>`;
   }
   function buildingDashboardMarkup(){
-    const floors=state.groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).sort((a,b)=>floorNumber(b)-floorNumber(a));
-    const site=state.settings.site_name||'CLINIC SIGNAGE',building=state.settings.building_label||'MAIN BUILDING';
-    const issueFloors=floors.filter(g=>{const s=groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id));return s.issues>0||s.offline>0;}).length;
-    const floorSvg=floors.map(buildingSvgFloor).join('');
+    const groupsByFloor=new Map(state.groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).map(g=>[floorNumber(g),g]));
+    const managed=[...groupsByFloor.values()],site=state.settings.site_name||'CLINIC SIGNAGE',building=state.settings.building_label||'MAIN BUILDING';
+    const issueFloors=managed.filter(g=>{const s=groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id));return s.issues>0||s.offline>0;}).length;
+    const floorSvg=Array.from({length:14},(_,i)=>14-i).map(n=>buildingSvgFloor(n,groupsByFloor.get(n)||null)).join('');
     return `<section class="svg-building-board">
-      <div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>${esc(building)}</h2><p>${esc(site)} · <b>문제가 표시된 층을 먼저 확인</b>하고, 층을 누르면 실제 디스플레이 위치를 볼 수 있습니다.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
+      <div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>${esc(building)}</h2><p>${esc(site)} · 층을 선택하면 해당 층의 <b>실제 공간과 디스플레이 위치</b>를 확인할 수 있습니다.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
       <div class="svg-building-layout">
-        <div class="svg-building-shell">
-          <svg class="svg-building" viewBox="0 0 680 680" role="img" aria-label="1층부터 14층까지 건물 송출 현황">
-            <rect class="svg-building-outline" x="56" y="24" width="465" height="622" rx="15"></rect>
-            <rect class="svg-building-core" x="510" y="24" width="55" height="622" rx="9"></rect>
-            ${floorSvg}
-            <rect class="svg-building-entry" x="205" y="620" width="120" height="26" rx="5"></rect>
-          </svg>
-        </div>
-        <aside class="building-simple-guide"><span class="eyebrow">HOW TO READ</span><h3>처음 보더라도 3가지만 확인하세요.</h3><ol><li><b>층 상태</b><span>오류·오프라인이 있는 층이 먼저 눈에 띕니다.</span></li><li><b>층 선택</b><span>궁금한 층을 누르면 실제 평면도가 열립니다.</span></li><li><b>디스플레이 위치</b><span>평면도에서 문제가 난 화면 위치를 바로 찾습니다.</span></li></ol><div class="building-status-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>
+        <div class="svg-building-shell"><svg class="svg-building" viewBox="0 0 690 660" role="img" aria-label="1층부터 14층까지 건물 송출 현황"><text class="svg-building-brand" x="92" y="31">${esc(site)}</text>${floorSvg}<rect class="svg-building-base" x="78" y="592" width="470" height="7" rx="3"></rect></svg></div>
+        <aside class="building-simple-guide"><span class="eyebrow">HOW TO READ</span><h3>처음 보는 사람도 이 순서만 알면 됩니다.</h3><ol><li><b>문제 층 확인</b><span>오류나 연결 끊김이 있는 층만 강조됩니다.</span></li><li><b>층 선택</b><span>커서를 올리면 층이 살짝 떠오르고, 클릭하면 평면도가 열립니다.</span></li><li><b>공간 선택</b><span>평면도에서 대기실·상담실·진료실을 누르면 해당 공간이 체크됩니다.</span></li></ol><div class="building-status-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>
       </div>
     </section>`;
   }
@@ -267,7 +268,7 @@
     const playlist=floorPlaylistName(g)||'공간별/기본 플레이리스트';
     const asset=floorAsset(g);
     const roomRows=[...rooms].sort((a,b)=>roomProblemRank(a)-roomProblemRank(b)||(a.sort_order||0)-(b.sort_order||0)).map(r=>{const st=roomDisplayStatus(r),ps=r.player_status||{};return `<button class="floor-room-row" data-floor-room="${r.id}"><span class="room-status-badge status-${st.key}">${esc(st.label)}</span><b>${esc(r.name)}</b><small>${esc(roomModeLabel(r.room_mode))} · ${esc(priorityLabel(ps.priority||ps.mode))}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}</small></button>`;}).join('');
-    return `<section class="floor-dashboard"><div class="floor-context"><div><button class="text-btn floor-back" data-building-view>건물</button><span class="eyebrow">${esc(careTypeLabel(g.care_type))}</span><h2>${esc(floorTitle(g))} · ${esc(g.name)}</h2><p>${esc(purpose)}</p></div><div class="floor-context-facts"><span><small>주요 대상</small><b>${esc(audience)}</b></span><span><small>고객 대기공간</small><b>${esc(waiting)}</b></span><span><small>송출 이유</small><b>${esc(reason)}</b></span><span><small>기본 플레이리스트</small><b>${esc(playlist)}</b></span></div></div><div class="floor-live-summary"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total} 송출 중</b><span>문제 ${sum.issues} · 오프라인 ${sum.offline}</span></div><div class="floor-map-card floor-map-card-focus"><div class="floor-map-head"><div><b>${esc(floorTitle(g))} 평면도</b><small>디스플레이 위치와 상태만 표시합니다. 아이콘을 누르면 해당 공간으로 이동합니다.</small></div><span>${rooms.length}대</span></div>${asset?`<div class="floor-plan-stage"><img data-floorplan-img="${asset}" alt="${esc(floorTitle(g))} 평면도">${rooms.map(floorMarker).join('')}</div>`:'<div class="floor-plan-empty">등록된 평면도가 없습니다.</div>'}${unplaced.length?`<div class="floor-map-unplaced">위치 미설정 디스플레이 ${unplaced.length}대 · 설정 &gt; 디스플레이 위치 설정에서 배치하세요.</div>`:''}</div><details class="floor-room-drawer"><summary><span><b>공간 목록</b><small>문제 공간을 먼저 표시합니다.</small></span><em>${rooms.length}곳</em></summary><div class="floor-room-drawer-body">${roomRows||'<span class="muted">등록된 공간이 없습니다.</span>'}</div></details></section>`;
+    return `<section class="floor-dashboard"><div class="floor-context"><div><button class="text-btn floor-back" data-building-view>건물</button><span class="eyebrow">${esc(careTypeLabel(g.care_type))}</span><h2>${esc(floorTitle(g))} · ${esc(g.name)}</h2><p>${esc(purpose)}</p></div><div class="floor-context-facts"><span><small>주요 대상</small><b>${esc(audience)}</b></span><span><small>고객 대기공간</small><b>${esc(waiting)}</b></span><span><small>송출 이유</small><b>${esc(reason)}</b></span><span><small>기본 플레이리스트</small><b>${esc(playlist)}</b></span></div></div><div class="floor-live-summary"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total} 송출 중</b><span>문제 ${sum.issues} · 오프라인 ${sum.offline}</span></div><div class="floor-map-card floor-map-card-focus"><div class="floor-map-head"><div><b>${esc(floorTitle(g))} 평면도</b><small>공간을 누르면 해당 구역이 강조됩니다. 디스플레이 아이콘은 실제 설치 위치와 상태를 보여줍니다.</small></div><span>${rooms.length}대</span></div>${asset?`<div class="floor-plan-stage"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>평면도에서 공간을 선택하세요.</b></div><p>선택한 공간에 설치된 디스플레이와 상태를 바로 확인할 수 있습니다.</p></div>`:'<div class="floor-plan-empty">등록된 평면도가 없습니다.</div>'}${unplaced.length?`<div class="floor-map-unplaced">위치 미설정 디스플레이 ${unplaced.length}대 · 설정 &gt; 디스플레이 위치 설정에서 배치하세요.</div>`:''}</div><details class="floor-room-drawer"><summary><span><b>공간 목록</b><small>문제 공간을 먼저 표시합니다.</small></span><em>${rooms.length}곳</em></summary><div class="floor-room-drawer-body">${roomRows||'<span class="muted">등록된 공간이 없습니다.</span>'}</div></details></section>`;
   }
 
   function dashboardViewNav(){return `<div class="dashboard-view-nav" role="tablist" aria-label="송출 현황 보기"><button class="${dashboardView==='building'?'active':''}" data-dashboard-view="building">건물</button><button class="${dashboardView==='floor'?'active':''}" data-dashboard-view="floor" ${selectedFloorId?'':'disabled'}>층 평면도</button><button class="${dashboardView==='rooms'?'active':''}" data-dashboard-view="rooms">공간 목록</button></div>`;}
@@ -605,7 +606,7 @@
     const cards=floors.map((g,idx)=>{
       const rooms=state.rooms.filter(r=>r.group_id===g.id),missing=rooms.filter(r=>!roomMapPlaced(r)).length;
       if(!rooms.length)return '';
-      return `<details class="display-setup-floor" ${missing&&idx<3?'open':''}><summary><span><b>${esc(floorTitle(g))} · ${esc(g.name)}</b><small>디스플레이 ${rooms.length}대${missing?` · 위치 미설정 ${missing}대`:' · 설정 완료'}</small></span><em>${missing?'설정 필요':'완료'}</em></summary><div class="display-setup-body"><div class="display-setup-toolbar"><label><span>배치할 디스플레이</span><select data-map-room-select="${g.id}">${rooms.map(r=>`<option value="${r.id}" ${!roomMapPlaced(r)?'data-unplaced="1"':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label><p>디스플레이를 선택하고 평면도를 클릭하세요. 배치된 아이콘은 드래그해서 위치를 조정할 수 있습니다.</p><button class="btn small" data-clear-display-position="${g.id}">선택 위치 지우기</button></div><div class="settings-map-stage display-setup-stage" data-map-stage="${g.id}"><img data-floorplan-img="${floorAsset(g)}" alt="${esc(floorTitle(g))} 평면도">${rooms.map(r=>floorMapMarker(r,true)).join('')}</div></div></details>`;
+      return `<details class="display-setup-floor" ${missing&&idx<3?'open':''}><summary><span><b>${esc(floorTitle(g))} · ${esc(g.name)}</b><small>디스플레이 ${rooms.length}대${missing?` · 위치 미설정 ${missing}대`:' · 설정 완료'}</small></span><em>${missing?'설정 필요':'완료'}</em></summary><div class="display-setup-body"><div class="display-setup-toolbar"><label><span>배치할 디스플레이</span><select data-map-room-select="${g.id}">${rooms.map(r=>`<option value="${r.id}" ${!roomMapPlaced(r)?'data-unplaced="1"':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label><p>디스플레이를 선택하고 평면도를 클릭하세요. 배치된 아이콘은 드래그해서 위치를 조정할 수 있습니다.</p><button class="btn small" data-clear-display-position="${g.id}">선택 위치 지우기</button></div><div class="settings-map-stage display-setup-stage" data-map-stage="${g.id}"><div class="floorplan-svg-host" data-floorplan-svg="${floorAsset(g)}"></div>${rooms.map(r=>floorMapMarker(r,true)).join('')}</div></div></details>`;
     }).join('');
     return `<section class="settings-section display-position-setup"><div class="settings-section-head"><div><span class="eyebrow">DISPLAY MAP</span><h2>디스플레이 위치 설정</h2><p>초기 설치 때 각 층의 실제 디스플레이 위치를 지정합니다. 설정한 위치가 송출 관제 평면도에 그대로 표시됩니다.</p></div><div class="settings-count">${total}대 · 미설정 ${unplaced}대</div></div><div class="display-setup-guide"><b>초기 설정 순서</b><span>1. 층 열기</span><span>2. 디스플레이 선택</span><span>3. 평면도 클릭</span><span>4. 필요하면 아이콘 드래그</span></div><div class="display-setup-list">${cards||'<span class="muted empty-setting-message">먼저 층과 공간을 등록하세요.</span>'}</div></section>`;
   }
