@@ -17,7 +17,7 @@
   // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
   const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
-  let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false, dashboardView='building', selectedFloorId=null, buildingPeriod='live', spaceEditorGroupId=null;
+  let tab='dashboard', storageHealth=null, loadSeq=0, uploadBusy=false, groupSaveBusy=false, issuesOnly=false, dashboardView='building', selectedFloorId=null, buildingPeriod='live', spaceEditorGroupId=null, hospitalSearch='', hospitalFilter='all';
   const localDateKey=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   let state={rooms:[],allRooms:[],videos:[],playlists:[],playlistItems:[],roomRules:[],groups:[],groupBroadcasts:[],schedules:[],history:[],broadcast:null,settings:{emergency_video_id:null},playbackToday:null,building7d:null,sites:[],currentSite:null,siteSettings:null,floorSpaces:[],floorplanVersions:[],audit:[]};
   let controlSignalChannel=null,statusWakeChannel=null,spatialRefreshTimer=null;
@@ -257,24 +257,16 @@
     const statusLine=buildingPeriod==='live'?`${sum.live} 송출 · ${sum.issues} 문제 · ${sum.offline} 오프라인`:sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}% · 오류 ${sum.errors||0} · 재연결 ${sum.reconnects||0}`;
     return `<button class="building-floor-row floor-state-${sum.key}" data-open-floor="${g.id}"><span class="building-floor-no">${n?`${n}F`:esc(groupDisplayName(g))}</span><span class="building-floor-copy"><b>${esc(purpose)}</b><small>${esc(audience)} · ${esc(reason)}</small><em>${esc(statusLine)}</em></span><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span></button>`;
   }
-  function buildingSvgFloor(n,g){
+  function buildingStackFloor(n,g){
     const rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',issues:0,offline:0,live:0,total:0,label:'비운영'};
-    const y=52+(14-n)*42,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
-    const rawName=String(g?.name||'').trim(),shortName=(rawName&& !/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
-    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 필요 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출 중`:'대기'):(sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
-    const cls=`svg-building-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}${selectedFloorId===g?.id?' is-selected':''}`;
-    const attr=g?`data-building-select-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
-    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}">
-      <title>${n}F · ${esc(shortName)} · ${esc(status)}</title>
-      <polygon class="svg-building-topline" points="40,${y} 336,${y} 350,${y-8} 54,${y-8}"></polygon>
-      <rect class="svg-building-slab" x="40" y="${y}" width="296" height="30" rx="3"></rect>
-      <polygon class="svg-building-side" points="336,${y} 350,${y-8} 350,${y+22} 336,${y+30}"></polygon>
-      <text class="svg-building-floor-no" x="54" y="${y+20}">${n}F</text>
-      <text class="svg-building-purpose" x="102" y="${y+20}">${esc(shortName)}</text>
-      <circle class="svg-building-status-dot" cx="316" cy="${y+15}" r="4.2"></circle>
-    </g>`;
+    const def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
+    const rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
+    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 필요 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
+    const cls=`building-stack-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}${selectedFloorId===g?.id?' is-selected':''}`;
+    if(!g)return `<div class="${cls}" aria-hidden="true"><b>${n}F</b><span>${esc(shortName)}</span><em>비운영</em></div>`;
+    return `<button type="button" class="${cls}" data-building-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}F</b><span>${esc(shortName)}</span><em>${esc(status)}</em><i aria-hidden="true"></i></button>`;
   }
-  function buildingFloorPanelMarkup(g){
+    function buildingFloorPanelMarkup(g){
     if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 건물에서 확인할 층을 선택하면 실제 평면도와 디스플레이 위치가 여기에 표시됩니다.</p></div></section>`;
     const rooms=state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
     const def=FLOOR_DEFAULTS[floorNumber(g)]||{name:'공간'};
@@ -287,7 +279,7 @@
         <div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div>
       </div>
       <div class="building-plan-explain"><span><small>대상</small><b>${esc(audience)}</b></span><span><small>이유</small><b>${esc(reason)}</b></span></div>
-      ${asset?`<div class="building-floorplan-wrap"><div class="floor-plan-stage building-floor-plan-stage"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>선택한 공간의 디스플레이와 상태를 확인할 수 있습니다.</p></div></div>`:`<div class="floor-plan-empty">이 층은 등록된 도면이 없습니다.</div>`}
+      ${asset?`<div class="building-floorplan-wrap"><div class="floor-plan-stage building-floor-plan-stage"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>선택한 공간의 디스플레이와 상태를 확인할 수 있습니다.</p></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
       <div class="building-plan-foot"><span>확인 필요 ${sum.issues}</span><span>오프라인 ${sum.offline}</span>${unplaced.length?`<span>위치 미설정 ${unplaced.length}</span>`:''}</div>
     </section>`;
   }
@@ -302,12 +294,12 @@
       selectedFloorId=(firstIssue||firstWithPlan||managed[0]||{}).id||null;
     }
     const selected=groupById(selectedFloorId);
-    const floorSvg=Array.from({length:14},(_,i)=>14-i).map(n=>buildingSvgFloor(n,groupsByFloor.get(n)||null)).join('');
+    const floorStack=Array.from({length:14},(_,i)=>14-i).map(n=>buildingStackFloor(n,groupsByFloor.get(n)||null)).join('');
     return `<section class="building-command-board">
       <div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>왼쪽에서 층을 선택하고 오른쪽 실제 평면도에서 디스플레이 위치를 확인하세요.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
       <div class="building-command-grid">
         <aside class="building-nav-pane">
-          <svg class="svg-building compact" viewBox="0 0 400 650" role="img" aria-label="1층부터 14층까지 건물 송출 현황">${floorSvg}</svg>
+          <div class="building-floor-stack" role="list" aria-label="1층부터 14층까지 건물 송출 현황">${floorStack}</div>
           <div class="building-inline-legend" aria-label="상태 안내"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div>
         </aside>
         ${buildingFloorPanelMarkup(selected)}
@@ -388,24 +380,14 @@
   function hospitalPortfolioMarkup(){
     if(!state.sites.length)return '';
     const totals=state.sites.reduce((a,site)=>{const x=sitePortfolioStats(site);a.displays+=x.total;a.live+=x.live;a.issues+=x.issues;return a;},{displays:0,live:0,issues:0});
-    const rows=state.sites.map(site=>{
-      const stats=sitePortfolioStats(site),active=site.id===state.currentSite?.id,players=sitePlayerRooms(site),adminPath=siteAdminPath(site);
-      return `<article class="hospital-row ${active?'is-active':''} ${site.active===false?'is-disabled':''}">
-        <button type="button" class="hospital-row-main" data-select-site="${site.id}">
-          <span class="hospital-row-identity"><b>${esc(site.name)}</b><code>/${esc(siteSlug(site))}</code></span>
-          <span class="hospital-row-stat"><b>${stats.total}</b><small>디스플레이</small></span>
-          <span class="hospital-row-stat"><b>${stats.live}</b><small>송출 중</small></span>
-          <span class="hospital-row-stat ${stats.issues?'has-issue':''}"><b>${stats.issues}</b><small>확인 필요</small></span>
-          <span class="hospital-row-state">${site.active===false?'비활성':active?'관제 중':'관리'}</span>
-        </button>
-        <details class="hospital-row-links"><summary>접속 주소</summary><div class="hospital-row-links-body">
-          <div><span><b>병원 관리자</b><code>${esc(absoluteAddress(adminPath))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(adminPath)}">열기</button><button type="button" data-copy-address="${esc(adminPath)}" data-copy-label="${esc(site.name)} 관리자 주소">복사</button></span></div>
-          <div><span><b>환자 화면</b><small>${players.length}개 웹 송출 화면</small></span>${players.length?`<span class="hospital-player-count">${players.length}</span>`:'<small>없음</small>'}</div>
-          ${players.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="hospital-player-link"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(path)}">열기</button><button type="button" data-copy-address="${esc(path)}" data-copy-label="${esc(site.name)} ${esc(r.name)} 환자 화면 주소">복사</button></span></div>`;}).join('')}
-        </div></details>
-      </article>`;
+    const q=hospitalSearch.trim().toLocaleLowerCase('ko-KR');
+    const sites=state.sites.map(site=>({site,stats:sitePortfolioStats(site)})).filter(({site,stats})=>(!q||`${site.name||''} ${siteSlug(site)}`.toLocaleLowerCase('ko-KR').includes(q))&&(hospitalFilter!=='issues'||stats.issues>0)).sort((a,b)=>(b.stats.issues-a.stats.issues)||(Number(b.site.id===state.currentSite?.id)-Number(a.site.id===state.currentSite?.id))||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
+    const rows=sites.map(({site,stats})=>{
+      const active=site.id===state.currentSite?.id,players=sitePlayerRooms(site),adminPath=siteAdminPath(site),stateLabel=site.active===false?'비활성':stats.issues?'확인 필요':active?'관제 중':'정상';
+      return `<article class="hospital-row ${active?'is-active':''} ${stats.issues?'has-issue':''} ${site.active===false?'is-disabled':''}"><button type="button" class="hospital-row-main" data-select-site="${site.id}"><span class="hospital-row-identity"><b>${esc(site.name)}</b><code>/${esc(siteSlug(site))}</code></span><span class="hospital-row-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-row-stat"><b>${stats.live}</b><small>송출</small></span><span class="hospital-row-stat ${stats.issues?'has-issue':''}"><b>${stats.issues}</b><small>문제</small></span><span class="hospital-row-state">${stateLabel}</span></button><details class="hospital-row-links"><summary>접속 주소</summary><div class="hospital-row-links-body"><div><span><b>병원 관리자</b><code>${esc(absoluteAddress(adminPath))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(adminPath)}">열기</button><button type="button" data-copy-address="${esc(adminPath)}" data-copy-label="${esc(site.name)} 관리자 주소">복사</button></span></div><div><span><b>환자 화면</b><small>${players.length}개 웹 송출 화면</small></span>${players.length?`<span class="hospital-player-count">${players.length}</span>`:'<small>없음</small>'}</div>${players.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="hospital-player-link"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(path)}">열기</button><button type="button" data-copy-address="${esc(path)}" data-copy-label="${esc(site.name)} ${esc(r.name)} 환자 화면 주소">복사</button></span></div>`;}).join('')}</div></details></article>`;
     }).join('');
-    return `<section class="hospital-portfolio"><div class="hospital-portfolio-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>병원 전체 현황</h2><p>병원을 선택하면 아래 관제가 해당 병원으로 전환됩니다.</p></div><div class="hospital-portfolio-total"><span><b>${state.sites.length}</b><small>병원</small></span><span><b>${totals.displays}</b><small>디스플레이</small></span><span class="${totals.issues?'has-issue':''}"><b>${totals.issues}</b><small>확인 필요</small></span></div></div><div class="hospital-list">${rows}</div></section>`;
+    const issueSites=state.sites.filter(x=>sitePortfolioStats(x).issues>0).length;
+    return `<section class="hospital-portfolio"><div class="hospital-portfolio-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>병원 전체 현황</h2><p>문제가 있는 병원을 먼저 보여줍니다.</p></div><div class="hospital-portfolio-total"><span><b>${state.sites.length}</b><small>병원</small></span><span><b>${totals.displays}</b><small>디스플레이</small></span><span class="${totals.issues?'has-issue':''}"><b>${totals.issues}</b><small>확인 필요</small></span></div></div><div class="hospital-toolbar"><label class="hospital-search"><span class="sr-only">병원 검색</span><input id="hospitalSearch" type="search" value="${esc(hospitalSearch)}" placeholder="병원명 또는 슬러그 검색"></label><div class="hospital-filter" role="group" aria-label="병원 상태 필터"><button type="button" class="${hospitalFilter==='all'?'on':''}" data-hospital-filter="all">전체 ${state.sites.length}</button><button type="button" class="${hospitalFilter==='issues'?'on':''}" data-hospital-filter="issues">문제 ${issueSites}</button></div></div><div class="hospital-list">${rows||'<div class="hospital-empty">조건에 맞는 병원이 없습니다.</div>'}</div></section>`;
   }
 
   function renderDashboard(){
@@ -479,6 +461,9 @@
   function historyPanel(){return `<section class="panel"><div class="panel-head"><div><h2>기록</h2></div></div><div class="history-list">${state.history.slice(0,15).map(h=>`<div class="history-row"><span><b>${esc(h.label||h.scope_type)}</b><small>${esc(h.action)} · ${new Date(h.created_at).toLocaleString('ko-KR')}</small></span>${h.before_state&&['hospital','group','rooms'].includes(h.scope_type)?`<button class="btn small" data-undo-history="${h.id}">되돌리기</button>`:''}</div>`).join('')||'<p class="muted">이력이 없습니다.</p>'}</div></section>`;}
 
   function bindDashboard(){
+    qs('#hospitalSearch')?.addEventListener('input',e=>{hospitalSearch=e.target.value;renderDashboard();requestAnimationFrame(()=>{const input=qs('#hospitalSearch');if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}});});
+    qsa('[data-hospital-filter]').forEach(b=>b.addEventListener('click',()=>{hospitalFilter=b.dataset.hospitalFilter||'all';renderDashboard();}));
+    qsa('[data-go-floorplan-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';render();requestAnimationFrame(()=>qs('.floorplan-manager')?.scrollIntoView({behavior:'smooth',block:'start'}));}));
     qsa('[data-select-site]').forEach(b=>b.addEventListener('click',()=>switchSite(b.dataset.selectSite)));qsa('[data-open-address]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openAddress(b.dataset.openAddress)}));qsa('[data-copy-address]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();copyAddress(b.dataset.copyAddress,b.dataset.copyLabel||'주소')}));
     qsa('[data-admin-manual-check]').forEach(b=>b.addEventListener('click',()=>markAdminManualChecked(b.dataset.adminManualCheck)));
     qsa('[data-dashboard-view]').forEach(b=>b.addEventListener('click',()=>{dashboardView=b.dataset.dashboardView;if(dashboardView==='floor'&&!selectedFloorId){const first=state.groups.find(g=>floorNumber(g));selectedFloorId=first?.id||null;}renderDashboard();}));qsa('[data-building-period]').forEach(b=>b.addEventListener('click',()=>{buildingPeriod=b.dataset.buildingPeriod||'live';renderDashboard();}));
