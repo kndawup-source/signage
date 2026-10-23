@@ -1,0 +1,30 @@
+Clinic Signage v2.33.13 QA
+
+Scope
+- Compact space-detail thumbnails
+- Floor-plan display click video thumbnail strip
+- Space-detail list collapsed by default
+- Super Admin / Hospital Admin UX parity
+
+Checks
+- PASS: admin_js_syntax
+- PASS: staff_js_syntax
+- PASS: admin_floor_video_strip
+- PASS: staff_floor_video_strip
+- PASS: staff_space_list_collapsed
+- PASS: admin_groups_not_auto_open_small
+- PASS: small_floor_thumbs
+- PASS: compact_card_thumb
+- PASS: app_version_admin
+- PASS: app_version_staff
+
+Behavior
+- Clicking a display marker on a floor plan does NOT force-open the entire space list.
+- The selected display shows a horizontal strip of small 16:9 thumbnails for videos expected to play there.
+- '상세 관리' explicitly opens only that room's detailed card.
+- Hospital Admin '공간별 상세 관리' is collapsed by default.
+- Super Admin group detail is no longer auto-open merely because there are four or fewer groups.
+- Large hero-like room thumbnail reduced to a compact 92px-wide preview (78px mobile).
+- Floor preview thumbnails are 82px-wide (74px mobile), horizontally scrollable.
+- Player, Realtime, ACK, offline cache, operating-hours logic untouched.
+- No SQL changes.

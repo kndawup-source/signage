@@ -1,0 +1,11 @@
+Clinic Signage v2.33.12 QA
+
+- Super Admin first-screen hierarchy: priority strip + hospital list
+- Floor selector typography/spacing normalized
+- Admin/Staff floor control share same visual tokens
+- Floor click re-renders plan and triggers one-shot floor/space/display cue
+- Floor plan: rectangular space outlines + circular display markers preserved
+- Floor guidance added: customer flow / purpose / recommended content / exposure point
+- Existing configured floor metadata takes priority over defaults
+- No SQL changes
+- Player / Realtime / ACK / offline cache / timed output untouched
