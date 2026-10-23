@@ -1,5 +1,5 @@
 -- =====================================================================
--- Clinic Signage v2.6 · PIN + 그룹/층/상담실 + 30실 중앙제어 + 예약/이력
+-- Clinic Signage v2.25.0 · Canonical full schema
 -- 기존 v2/v2.1 위에 그대로 실행 가능한 마이그레이션형 기준본.
 -- 영상 파일 자체는 Supabase Storage에 저장하지 않는다.
 -- =====================================================================
@@ -55,12 +55,12 @@ returns text language sql stable security definer set search_path=public,extensi
 $$;
 
 create or replace function public.is_member()
-returns boolean language sql stable security definer set search_path=public as $$
-  select public.pin_session_role() in ('admin','staff');
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(public.pin_session_role() in ('admin', 'staff'), false);
 $$;
 create or replace function public.is_admin()
-returns boolean language sql stable security definer set search_path=public as $$
-  select public.pin_session_role()='admin';
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(public.pin_session_role() = 'admin', false);
 $$;
 
 -- SQL Editor에서만 실행: select public.configure_signage_pins('관리자6자리','스텝4~6자리');
@@ -84,47 +84,74 @@ begin
 end $$;
 revoke all on function public.configure_signage_pins(text,text) from public,anon,authenticated;
 
-create or replace function public.pin_login(p_pin text,p_client_id text)
-returns jsonb language plpgsql security definer set search_path=public,extensions as $$
+create or replace function public.pin_login(p_pin text, p_client_id text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare
-  v_client text:=left(trim(coalesce(p_client_id,'')),100);
-  v_fail int:=0; v_locked timestamptz; v_account public.pin_accounts; v_token text; v_exp timestamptz;
+  v_client text := left(trim(coalesce(p_client_id, '')), 100);
+  v_ip_key text := 'ip:' || coalesce(public.pin_request_ip(), 'unknown');
+  v_fail int := 0; v_locked timestamptz;
+  v_ip_fail int := 0; v_ip_locked timestamptz; v_ip_updated timestamptz;
+  v_account public.pin_accounts; v_token text; v_exp timestamptz;
+  v_now timestamptz := clock_timestamp();
+  c_ip_window constant interval := interval '15 minutes';
+  c_ip_max constant int := 20;
 begin
-  if v_client='' or v_client !~ '^[A-Za-z0-9._:-]{8,100}$' then return jsonb_build_object('ok',false,'error','invalid_client'); end if;
-  if p_pin !~ '^[0-9]{4,6}$' then return jsonb_build_object('ok',false,'error','invalid_pin'); end if;
+  if v_client = '' or v_client !~ '^[A-Za-z0-9._:-]{8,100}$' then return jsonb_build_object('ok', false, 'error', 'invalid_client'); end if;
+  if p_pin !~ '^[0-9]{4,6}$' then return jsonb_build_object('ok', false, 'error', 'invalid_pin'); end if;
 
-  select failed_count,locked_until into v_fail,v_locked from public.pin_login_throttle where client_id=v_client;
-  if v_locked is not null and v_locked>clock_timestamp() then
-    return jsonb_build_object('ok',false,'error','locked','retry_after_sec',greatest(1,ceil(extract(epoch from (v_locked-clock_timestamp())))::int));
+  -- IP 잠금
+  select failed_count, locked_until, updated_at into v_ip_fail, v_ip_locked, v_ip_updated
+    from public.pin_login_throttle where client_id = v_ip_key;
+  if v_ip_locked is not null and v_ip_locked > v_now then
+    return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', greatest(1, ceil(extract(epoch from (v_ip_locked - v_now)))::int));
+  end if;
+  if v_ip_updated is null or v_ip_updated < v_now - c_ip_window then v_ip_fail := 0; end if;
+
+  -- 기기(client_id) 잠금
+  select failed_count, locked_until into v_fail, v_locked from public.pin_login_throttle where client_id = v_client;
+  if v_locked is not null and v_locked > v_now then
+    return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', greatest(1, ceil(extract(epoch from (v_locked - v_now)))::int));
   end if;
 
   select a.* into v_account
-  from public.pin_accounts a
-  where a.enabled and crypt(p_pin,a.pin_hash)=a.pin_hash
-  order by case a.role when 'admin' then 0 else 1 end
-  limit 1;
+    from public.pin_accounts a
+   where a.enabled and crypt(p_pin, a.pin_hash) = a.pin_hash
+   order by case a.role when 'admin' then 0 else 1 end
+   limit 1;
 
   if not found then
-    v_fail:=coalesce(v_fail,0)+1;
-    if v_fail>=5 then
-      insert into public.pin_login_throttle(client_id,failed_count,locked_until,updated_at)
-      values(v_client,0,clock_timestamp()+interval '5 minutes',clock_timestamp())
-      on conflict(client_id) do update set failed_count=0,locked_until=excluded.locked_until,updated_at=clock_timestamp();
-      return jsonb_build_object('ok',false,'error','locked','retry_after_sec',300);
+    -- IP 카운터
+    v_ip_fail := coalesce(v_ip_fail, 0) + 1;
+    insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
+    values (v_ip_key, case when v_ip_fail >= c_ip_max then 0 else v_ip_fail end,
+            case when v_ip_fail >= c_ip_max then v_now + c_ip_window end, v_now)
+    on conflict (client_id) do update set failed_count = excluded.failed_count, locked_until = excluded.locked_until, updated_at = excluded.updated_at;
+    if v_ip_fail >= c_ip_max then
+      return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', extract(epoch from c_ip_window)::int);
+    end if;
+
+    -- 기기 카운터 (기존 동작)
+    v_fail := coalesce(v_fail, 0) + 1;
+    if v_fail >= 5 then
+      insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
+      values (v_client, 0, v_now + interval '5 minutes', v_now)
+      on conflict (client_id) do update set failed_count = 0, locked_until = excluded.locked_until, updated_at = v_now;
+      return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', 300);
     else
-      insert into public.pin_login_throttle(client_id,failed_count,locked_until,updated_at)
-      values(v_client,v_fail,null,clock_timestamp())
-      on conflict(client_id) do update set failed_count=excluded.failed_count,locked_until=null,updated_at=clock_timestamp();
-      return jsonb_build_object('ok',false,'error','invalid_pin');
+      insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
+      values (v_client, v_fail, null, v_now)
+      on conflict (client_id) do update set failed_count = excluded.failed_count, locked_until = null, updated_at = v_now;
+      return jsonb_build_object('ok', false, 'error', 'invalid_pin');
     end if;
   end if;
 
-  delete from public.pin_login_throttle where client_id=v_client;
-  delete from public.pin_sessions where expires_at<=clock_timestamp();
-  v_token:=encode(gen_random_bytes(32),'hex');
-  v_exp:=clock_timestamp()+interval '12 hours';
-  insert into public.pin_sessions(account_id,token_hash,expires_at) values(v_account.id,digest(v_token,'sha256'),v_exp);
-  return jsonb_build_object('ok',true,'token',v_token,'role',v_account.role,'expires_at',v_exp);
+  delete from public.pin_login_throttle where client_id in (v_client, v_ip_key);
+  delete from public.pin_login_throttle where locked_until is null and updated_at < v_now - interval '1 day';
+  delete from public.pin_sessions where expires_at <= v_now;
+  v_token := encode(gen_random_bytes(32), 'hex');
+  v_exp := v_now + interval '12 hours';
+  insert into public.pin_sessions(account_id, token_hash, expires_at) values (v_account.id, digest(v_token, 'sha256'), v_exp);
+  return jsonb_build_object('ok', true, 'token', v_token, 'role', v_account.role, 'expires_at', v_exp);
 end $$;
 
 create or replace function public.pin_session_info()
@@ -318,15 +345,18 @@ end $$;
 -- v2.2: 스텝은 대상(선택) + 진료유형(필수)만 지정
 create or replace function public.start_patient_session(p_room uuid,p_age_group text,p_gender text,p_treatment text)
 returns void language plpgsql security definer set search_path=public as $$
+declare v_mode text;
 begin
   if not public.is_member() then raise exception 'not allowed'; end if;
   if nullif(trim(coalesce(p_treatment,'')),'') is null then raise exception 'treatment required'; end if;
+  select room_mode into v_mode from public.rooms where id=p_room;
+  if v_mode not in ('treatment','consultation') then raise exception '이 공간에서는 환자 맞춤 송출을 사용하지 않습니다'; end if;
   update public.rooms set
     session_age_group=nullif(trim(coalesce(p_age_group,'')),''),
     session_gender=nullif(trim(coalesce(p_gender,'')),''),
     session_treatment=case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end,
     session_tags=array_remove(array[p_age_group,p_gender,case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end]::text[],null),
-    session_started_at=now()
+    session_started_at=clock_timestamp()
   where id=p_room;
 end $$;
 
@@ -403,45 +433,27 @@ end $$;
 
 create or replace function public.admin_set_room_manual(p_room uuid,p_video_ids uuid[],p_active boolean)
 returns void language plpgsql security definer set search_path=public as $$
-declare v_ids uuid[];
 begin
-  if not public.is_admin() then raise exception 'not allowed'; end if;
-  if coalesce(p_active,false) then
-    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[])
-    into v_ids
-    from public.videos v
-    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
-  else
-    v_ids:='{}'::uuid[];
-  end if;
-  update public.rooms set
-    manual_video_ids=v_ids,
-    manual_active=coalesce(array_length(v_ids,1),0)>0,
-    manual_updated_at=now()
-  where id=p_room;
+  perform public.admin_set_rooms_manual(array[p_room]::uuid[],p_video_ids,p_active);
 end $$;
 
 create or replace function public.admin_set_broadcast(p_active boolean,p_video_ids uuid[],p_notice text default null,p_delay_ms int default 3000)
 returns void language plpgsql security definer set search_path=public as $$
-declare v_ids uuid[];
+declare v_ids uuid[]; v_before jsonb; v_after jsonb;
 begin
   if not public.is_admin() then raise exception 'not allowed'; end if;
+  select to_jsonb(b) into v_before from public.broadcast b where id=1;
   if coalesce(p_active,false) then
-    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[])
-    into v_ids
-    from public.videos v
-    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
-  else
-    v_ids:=coalesce(p_video_ids,'{}'::uuid[]);
-  end if;
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[]) into v_ids
+    from public.videos v where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else v_ids:=coalesce(p_video_ids,'{}'::uuid[]); end if;
   update public.broadcast set
     active=coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0,
-    video_ids=v_ids,
-    notice_text=nullif(trim(coalesce(p_notice,'')),''),
-    effective_at=case when coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0 then clock_timestamp() + make_interval(secs=>greatest(0,least(coalesce(p_delay_ms,3000),10000))/1000.0) else null end,
-    revision=revision+1,
-    updated_at=clock_timestamp()
-  where id=1;
+    video_ids=v_ids,notice_text=nullif(trim(coalesce(p_notice,'')),''),
+    effective_at=case when coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0 then clock_timestamp()+make_interval(secs=>greatest(0,least(coalesce(p_delay_ms,3000),10000))/1000.0) else null end,
+    revision=revision+1,updated_at=clock_timestamp() where id=1;
+  select to_jsonb(b) into v_after from public.broadcast b where id=1;
+  insert into public.control_history(scope_type,action,label,before_state,after_state) values('hospital',case when p_active then 'start' else 'stop' end,'전체 병원',v_before,v_after);
 end $$;
 
 create or replace function public.admin_sync_local_videos(p_files jsonb)
@@ -511,105 +523,133 @@ grant execute on function public.admin_sync_local_videos(jsonb) to anon,authenti
 create or replace function public.player_get_state(p_key uuid)
 returns jsonb language plpgsql security definer set search_path=public as $$
 declare
-  r public.rooms;b public.broadcast;s public.app_settings;
-  v_mode text;v_expires timestamptz;v_playlist jsonb:='[]'::jsonb;v_emergency jsonb;
+  r public.rooms; b public.broadcast; s public.app_settings; gb public.group_broadcasts; hs public.broadcast_schedules; gs public.broadcast_schedules;
+  v_mode text; v_expires timestamptz; v_playlist jsonb:='[]'::jsonb; v_emergency jsonb; v_playlist_id uuid;
+  v_notice text; v_effective timestamptz; v_revision text:='0'; v_next_transition timestamptz;
 begin
-  select * into r from public.rooms where player_key=p_key;
-  if not found then return null; end if;
-  select * into b from public.broadcast where id=1;
-  select * into s from public.app_settings where id=1;
+  select * into r from public.rooms where player_key=p_key; if not found then return null; end if;
+  select * into b from public.broadcast where id=1; select * into s from public.app_settings where id=1;
+  if r.group_id is not null then select * into gb from public.group_broadcasts where group_id=r.group_id; end if;
+  select * into hs from public.broadcast_schedules x where x.enabled and x.scope_type='hospital' and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1;
+  if r.group_id is not null then select * into gs from public.broadcast_schedules x where x.enabled and x.scope_type='group' and x.group_id=r.group_id and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1; end if;
+  select min(t) into v_next_transition from (select starts_at t from public.broadcast_schedules x where x.enabled and x.starts_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id)) union all select ends_at t from public.broadcast_schedules x where x.enabled and x.ends_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id)) union all select starts_at t from public.room_video_rules rr where rr.room_id=r.id and rr.starts_at>clock_timestamp() union all select ends_at t from public.room_video_rules rr where rr.room_id=r.id and rr.ends_at>clock_timestamp()) q;
   if r.session_started_at is not null and r.session_timeout_min>0 then v_expires:=r.session_started_at+make_interval(mins=>r.session_timeout_min); end if;
 
   if b.active and coalesce(array_length(b.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(b.video_ids,v.id)),'[]'::jsonb)
-    into v_playlist from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast'; end if;
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(b.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast';v_notice:=b.notice_text;v_effective:=b.effective_at;v_revision:='b:'||b.revision; end if;
   end if;
-
+  if v_mode is null and hs.id is not null then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(hs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(hs.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast_schedule';v_notice:=hs.notice_text;v_effective:=hs.starts_at;v_revision:='hs:'||hs.id::text||':'||extract(epoch from hs.starts_at)::bigint; end if;
+  end if;
   if v_mode is null and r.manual_active and coalesce(array_length(r.manual_video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb)
-    into v_playlist from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='manual'; end if;
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='manual';v_revision:='m:'||coalesce(extract(epoch from r.manual_updated_at)::bigint,0); end if;
+  end if;
+  if v_mode is null and gb.group_id is not null and gb.active and coalesce(array_length(gb.video_ids,1),0)>0 then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(gb.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gb.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='group';v_notice:=gb.notice_text;v_effective:=gb.effective_at;v_revision:='g:'||gb.revision; end if;
+  end if;
+  if v_mode is null and gs.id is not null then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(gs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gs.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='group_schedule';v_notice:=gs.notice_text;v_effective:=gs.starts_at;v_revision:='gs:'||gs.id::text||':'||extract(epoch from gs.starts_at)::bigint; end if;
   end if;
 
-  if v_mode is null and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>now()) then
-    with candidates as (
-      select v.*,
-        (case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end
-         + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end
-         + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) as score
-      from public.videos v
-      where v.active and (v.source<>'local' or v.available)
-        and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment))
-        and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age)))
-        and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))
-    ), best as (select max(score) as score from candidates)
-    select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb)
-    into v_playlist from candidates c cross join best where c.score=best.score;
-    if jsonb_array_length(v_playlist)>0 then v_mode:='patient'; end if;
-  end if;
-
-  if v_mode is null and r.session_treatment is null and coalesce(array_length(r.session_tags,1),0)>0 and r.session_started_at is not null and (v_expires is null or v_expires>now()) then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb)
-    into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.session_tags;
-    if jsonb_array_length(v_playlist)>0 then v_mode:='session'; end if;
+  if v_mode is null and r.room_mode in ('treatment','consultation') and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>clock_timestamp()) then
+    select p.id into v_playlist_id from public.playlists p where p.active and p.kind='patient'
+      and (coalesce(array_length(p.target_treatment,1),0)=0 or r.session_treatment=any(p.target_treatment))
+      and (coalesce(array_length(p.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(p.target_age)))
+      and (coalesce(array_length(p.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(p.target_gender)))
+    order by (case when coalesce(array_length(p.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(p.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(p.target_gender,1),0)>0 then 5 else 0 end) desc,p.sort_order,p.created_at limit 1;
+    if v_playlist_id is not null then
+      select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available);
+      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='pp:'||v_playlist_id::text||':'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
+    end if;
+    if v_mode is null then
+      with candidates as (select v.*,(case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) score from public.videos v where v.active and (v.source<>'local' or v.available) and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment)) and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age))) and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))), best as (select max(score) score from candidates)
+      select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb) into v_playlist from candidates c cross join best where c.score=best.score;
+      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='legacy-p:'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
+    end if;
   end if;
 
   if v_mode is null then
     v_mode:='default';v_expires:=null;
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb)
-    into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags;
+    v_playlist_id:=r.default_playlist_id;
+    if v_playlist_id is null then select id into v_playlist_id from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
+    if v_playlist_id is not null then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available); end if;
+    if jsonb_array_length(v_playlist)=0 then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags; end if;
+    v_revision:='d:'||coalesce(v_playlist_id::text,'legacy');
   end if;
-
-  if s.emergency_video_id is not null then
-    select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at)
-    into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available);
+  if v_mode in ('manual','patient','default') then
+    v_playlist:=public.apply_room_video_rules(r.id,v_playlist);
+    v_revision:=v_revision||':rr:'||coalesce((select extract(epoch from max(updated_at))::bigint::text from public.room_video_rules where room_id=r.id),'0');
   end if;
-
-  return jsonb_build_object(
-    'room',jsonb_build_object('id',r.id,'name',r.name,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),
-    'mode',v_mode,
-    'session_expires_at',case when v_mode in ('patient','session') then v_expires end,
-    'notice_text',case when v_mode='broadcast' then b.notice_text else null end,
-    'playlist',v_playlist,
-    'emergency_video',v_emergency,
-    'broadcast_effective_at',case when v_mode='broadcast' then b.effective_at end,
-    'broadcast_revision',b.revision,
-    'media_server_url',coalesce(s.media_server_url,''),
-    'server_time',clock_timestamp()
-  );
+  if s.emergency_video_id is not null then select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available); end if;
+  return jsonb_build_object('room',jsonb_build_object('id',r.id,'name',r.name,'group_id',r.group_id,'room_mode',r.room_mode,'force_mute',r.force_mute,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),'mode',v_mode,'session_expires_at',case when v_mode='patient' then v_expires end,'notice_text',v_notice,'playlist',v_playlist,'emergency_video',v_emergency,'sync_effective_at',v_effective,'sync_revision',v_revision,'next_transition_at',v_next_transition,'media_server_url',coalesce(s.media_server_url,''),'server_time',clock_timestamp());
 end $$;
 
 create or replace function public.player_heartbeat(p_key uuid,p_status jsonb)
 returns void language plpgsql security definer set search_path=public as $$
-declare clean jsonb; v_room uuid;
+declare
+  clean jsonb; v_room uuid; v_prev jsonb; v_last timestamptz; v_now timestamptz:=clock_timestamp();
+  v_delta int:=0; v_day date; v_local_time time; v_start time; v_end time; v_open boolean:=false; v_in_hours boolean:=false;
+  v_state text; v_mode text; v_prev_state text; v_prev_mode text; v_reconnect int:=0; v_error_transition int:=0;
 begin
-  select id into v_room from public.rooms where player_key=p_key;
+  select id,player_status,last_seen_at into v_room,v_prev,v_last from public.rooms where player_key=p_key for update;
   if v_room is null then return; end if;
   if p_status is null or jsonb_typeof(p_status)<>'object' or pg_column_size(p_status)>4096 then
-    update public.rooms set heartbeat_rejected_count=heartbeat_rejected_count+1 where id=v_room;
-    return;
+    update public.rooms set heartbeat_rejected_count=heartbeat_rejected_count+1 where id=v_room; return;
   end if;
   clean=jsonb_build_object(
     'video_id',case when jsonb_typeof(p_status->'video_id')='string' then left(p_status->>'video_id',64) else null end,
-    'title',left(coalesce(p_status->>'title',''),160),
-    'mode',left(coalesce(p_status->>'mode',''),32),
+    'title',left(coalesce(p_status->>'title',''),160),'mode',left(coalesce(p_status->>'mode',''),32),
     'playback_state',left(coalesce(p_status->>'playback_state',''),32),
     'current_time',case when jsonb_typeof(p_status->'current_time')='number' then greatest(0,least((p_status->>'current_time')::numeric,86400)) else 0 end,
     'duration',case when jsonb_typeof(p_status->'duration')='number' then greatest(0,least((p_status->>'duration')::numeric,86400)) else 0 end,
     'muted',case when jsonb_typeof(p_status->'muted')='boolean' then (p_status->>'muted')::boolean else false end,
     'volume',case when jsonb_typeof(p_status->'volume')='number' then greatest(0,least((p_status->>'volume')::int,100)) else 0 end,
     'online',case when jsonb_typeof(p_status->'online')='boolean' then (p_status->>'online')::boolean else false end,
-    'error',left(coalesce(p_status->>'error',''),300),
-    'source',left(coalesce(p_status->>'source',''),64),
+    'error',left(coalesce(p_status->>'error',''),300),'source',left(coalesce(p_status->>'source',''),64),
     'playlist_titles',coalesce((select jsonb_agg(left(x.value,120) order by x.ord) from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_titles')='array' then p_status->'playlist_titles' else '[]'::jsonb end) with ordinality as x(value,ord) where x.ord<=12),'[]'::jsonb),
     'playlist_count',case when jsonb_typeof(p_status->'playlist_count')='number' then greatest(0,least((p_status->>'playlist_count')::int,500)) else 0 end,
     'current_index',case when jsonb_typeof(p_status->'current_index')='number' then greatest(0,least((p_status->>'current_index')::int,499)) else 0 end,
-    'next_title',left(coalesce(p_status->>'next_title',''),160),
-    'app_version',left(coalesce(p_status->>'app_version',''),24),
-    'reported_at',left(coalesce(p_status->>'reported_at',''),48)
+    'next_title',left(coalesce(p_status->>'next_title',''),160),'app_version',left(coalesce(p_status->>'app_version',''),24),'reported_at',left(coalesce(p_status->>'reported_at',''),48)
   );
-  update public.rooms set last_seen_at=clock_timestamp(),player_status=clean where id=v_room;
+  v_state:=clean->>'playback_state'; v_mode:=clean->>'mode'; v_prev_state:=coalesce(v_prev->>'playback_state',''); v_prev_mode:=coalesce(v_prev->>'mode','');
+  v_day:=(v_now at time zone 'Asia/Seoul')::date; v_local_time:=(v_now at time zone 'Asia/Seoul')::time;
+  select is_open,start_time,end_time into v_open,v_start,v_end from public.signage_operating_window(v_day);
+  v_in_hours:=v_open and v_local_time>=v_start and v_local_time<v_end;
+  if v_last is not null then
+    v_delta:=greatest(0,least(60,extract(epoch from (v_now-v_last))::int));
+    if extract(epoch from (v_now-v_last))>30 then v_reconnect:=1; end if;
+  end if;
+  if coalesce(clean->>'error','')<>'' and coalesce(v_prev->>'error','')='' then v_error_transition:=1; end if;
+  if v_in_hours and v_delta>0 then
+    insert into public.room_playback_daily(day,room_id,online_seconds,playing_seconds,default_seconds,custom_seconds,override_seconds,error_seconds,paused_seconds,reconnect_count,error_count,updated_at)
+    values(v_day,v_room,v_delta,
+      case when v_state in ('playing','emergency') then v_delta else 0 end,
+      case when v_state in ('playing','emergency') and v_mode='default' then v_delta else 0 end,
+      case when v_state in ('playing','emergency') and v_mode in ('patient','session') then v_delta else 0 end,
+      case when v_state in ('playing','emergency') and v_mode in ('broadcast','broadcast_schedule','group','group_schedule','manual') then v_delta else 0 end,
+      case when v_state='error' then v_delta else 0 end,
+      case when v_state='paused' then v_delta else 0 end,v_reconnect,v_error_transition,v_now)
+    on conflict(day,room_id) do update set
+      online_seconds=room_playback_daily.online_seconds+excluded.online_seconds,
+      playing_seconds=room_playback_daily.playing_seconds+excluded.playing_seconds,
+      default_seconds=room_playback_daily.default_seconds+excluded.default_seconds,
+      custom_seconds=room_playback_daily.custom_seconds+excluded.custom_seconds,
+      override_seconds=room_playback_daily.override_seconds+excluded.override_seconds,
+      error_seconds=room_playback_daily.error_seconds+excluded.error_seconds,
+      paused_seconds=room_playback_daily.paused_seconds+excluded.paused_seconds,
+      reconnect_count=room_playback_daily.reconnect_count+excluded.reconnect_count,
+      error_count=room_playback_daily.error_count+excluded.error_count,updated_at=v_now;
+  end if;
+  if v_prev is null or v_state<>v_prev_state or v_mode<>v_prev_mode or coalesce(clean->>'video_id','')<>coalesce(v_prev->>'video_id','') or coalesce(clean->>'error','')<>coalesce(v_prev->>'error','') then
+    insert into public.player_events(room_id,event_type,mode,playback_state,video_id,title,error)
+    values(v_room,'state_change',nullif(v_mode,''),nullif(v_state,''),nullif(clean->>'video_id',''),nullif(clean->>'title',''),nullif(clean->>'error',''));
+  end if;
+  update public.rooms set last_seen_at=v_now,player_status=clean where id=v_room;
 end $$;
 revoke all on function public.player_get_state(uuid) from public;
 revoke all on function public.player_heartbeat(uuid,jsonb) from public;
@@ -620,20 +660,16 @@ grant execute on function public.player_heartbeat(uuid,jsonb) to anon,authentica
 create or replace function public.notify_room_change()
 returns trigger language plpgsql security definer set search_path=public as $$
 begin
-  if row(new.name,new.default_tags,new.session_tags,new.session_started_at,new.session_timeout_min,new.session_age_group,new.session_gender,new.session_treatment,new.manual_active,new.manual_video_ids,new.volume,new.paused,new.overlay_text,new.reload_nonce)
-    is distinct from row(old.name,old.default_tags,old.session_tags,old.session_started_at,old.session_timeout_min,old.session_age_group,old.session_gender,old.session_treatment,old.manual_active,old.manual_video_ids,old.volume,old.paused,old.overlay_text,old.reload_nonce) then
-    perform realtime.send(jsonb_build_object('at',now()),'refresh','room:'||new.player_key::text,false);
+  if row(new.name,new.group_id,new.room_mode,new.force_mute,new.default_playlist_id,new.default_tags,new.session_tags,new.session_started_at,new.session_timeout_min,new.session_age_group,new.session_gender,new.session_treatment,new.manual_active,new.manual_video_ids,new.volume,new.paused,new.overlay_text,new.reload_nonce)
+    is distinct from row(old.name,old.group_id,old.room_mode,old.force_mute,old.default_playlist_id,old.default_tags,old.session_tags,old.session_started_at,old.session_timeout_min,old.session_age_group,old.session_gender,old.session_treatment,old.manual_active,old.manual_video_ids,old.volume,old.paused,old.overlay_text,old.reload_nonce) then
+    perform realtime.send(jsonb_build_object('at',clock_timestamp()),'refresh','room:'||new.player_key::text,false);
   end if;
   return new;
 end $$;
 
 create or replace function public.notify_all_rooms()
 returns trigger language plpgsql security definer set search_path=public as $$
-begin
-  if coalesce(current_setting('clinic_signage.suppress_refresh',true),'')='on' then return null; end if;
-  perform public.send_refresh_all_rooms();
-  return null;
-end $$;
+declare k uuid; begin for k in select player_key from public.rooms loop perform realtime.send(jsonb_build_object('at',clock_timestamp()),'refresh','room:'||k::text,false); end loop; return null; end $$;
 
 create or replace function public.notify_broadcast_change()
 returns trigger language plpgsql security definer set search_path=public as $$
@@ -760,22 +796,6 @@ begin
 end $$;
 revoke all on function public.send_refresh_group(uuid) from public,anon,authenticated;
 
-create or replace function public.start_patient_session(p_room uuid,p_age_group text,p_gender text,p_treatment text)
-returns void language plpgsql security definer set search_path=public as $$
-declare v_mode text;
-begin
-  if not public.is_member() then raise exception 'not allowed'; end if;
-  if nullif(trim(coalesce(p_treatment,'')),'') is null then raise exception 'treatment required'; end if;
-  select room_mode into v_mode from public.rooms where id=p_room;
-  if v_mode not in ('treatment','consultation') then raise exception '이 공간에서는 환자 맞춤 송출을 사용하지 않습니다'; end if;
-  update public.rooms set
-    session_age_group=nullif(trim(coalesce(p_age_group,'')),''),
-    session_gender=nullif(trim(coalesce(p_gender,'')),''),
-    session_treatment=case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end,
-    session_tags=array_remove(array[p_age_group,p_gender,case when trim(p_treatment)='veneer' then 'minish' else trim(p_treatment) end]::text[],null),
-    session_started_at=clock_timestamp()
-  where id=p_room;
-end $$;
 revoke all on function public.start_patient_session(uuid,text,text,text) from public;
 grant execute on function public.start_patient_session(uuid,text,text,text) to anon,authenticated;
 
@@ -801,24 +821,6 @@ end $$;
 revoke all on function public.staff_room_list() from public;
 grant execute on function public.staff_room_list() to anon,authenticated;
 
-create or replace function public.admin_set_broadcast(p_active boolean,p_video_ids uuid[],p_notice text default null,p_delay_ms int default 3000)
-returns void language plpgsql security definer set search_path=public as $$
-declare v_ids uuid[]; v_before jsonb; v_after jsonb;
-begin
-  if not public.is_admin() then raise exception 'not allowed'; end if;
-  select to_jsonb(b) into v_before from public.broadcast b where id=1;
-  if coalesce(p_active,false) then
-    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[]) into v_ids
-    from public.videos v where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
-  else v_ids:=coalesce(p_video_ids,'{}'::uuid[]); end if;
-  update public.broadcast set
-    active=coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0,
-    video_ids=v_ids,notice_text=nullif(trim(coalesce(p_notice,'')),''),
-    effective_at=case when coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0 then clock_timestamp()+make_interval(secs=>greatest(0,least(coalesce(p_delay_ms,3000),10000))/1000.0) else null end,
-    revision=revision+1,updated_at=clock_timestamp() where id=1;
-  select to_jsonb(b) into v_after from public.broadcast b where id=1;
-  insert into public.control_history(scope_type,action,label,before_state,after_state) values('hospital',case when p_active then 'start' else 'stop' end,'전체 병원',v_before,v_after);
-end $$;
 
 create or replace function public.admin_set_group_broadcast(p_group uuid,p_active boolean,p_video_ids uuid[],p_notice text default null,p_delay_ms int default 2000)
 returns void language plpgsql security definer set search_path=public as $$
@@ -858,11 +860,6 @@ begin
   insert into public.control_history(scope_type,action,label,before_state,after_state) values('rooms',case when p_active then 'manual_start' else 'manual_clear' end,v_count||'개 공간',v_before,v_after);
 end $$;
 
-create or replace function public.admin_set_room_manual(p_room uuid,p_video_ids uuid[],p_active boolean)
-returns void language plpgsql security definer set search_path=public as $$
-begin
-  perform public.admin_set_rooms_manual(array[p_room]::uuid[],p_video_ids,p_active);
-end $$;
 
 create or replace function public.admin_create_schedule(p_scope_type text,p_group uuid,p_video_ids uuid[],p_notice text,p_starts_at timestamptz,p_ends_at timestamptz)
 returns uuid language plpgsql security definer set search_path=public as $$
@@ -925,93 +922,7 @@ grant execute on function public.admin_delete_schedule(uuid) to anon,authenticat
 grant execute on function public.admin_undo_control(bigint) to anon,authenticated;
 
 -- v2.6 플레이어 상태: 전체 > 개별 > 그룹 > 맞춤 > 기본 + 예약 송출
-create or replace function public.player_get_state(p_key uuid)
-returns jsonb language plpgsql security definer set search_path=public as $$
-declare
-  r public.rooms; b public.broadcast; s public.app_settings; gb public.group_broadcasts; hs public.broadcast_schedules; gs public.broadcast_schedules;
-  v_mode text; v_expires timestamptz; v_playlist jsonb:='[]'::jsonb; v_emergency jsonb;
-  v_notice text; v_effective timestamptz; v_revision text:='0'; v_next_transition timestamptz;
-begin
-  select * into r from public.rooms where player_key=p_key;
-  if not found then return null; end if;
-  select * into b from public.broadcast where id=1;
-  select * into s from public.app_settings where id=1;
-  if r.group_id is not null then select * into gb from public.group_broadcasts where group_id=r.group_id; end if;
-  select * into hs from public.broadcast_schedules x where x.enabled and x.scope_type='hospital' and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1;
-  if r.group_id is not null then select * into gs from public.broadcast_schedules x where x.enabled and x.scope_type='group' and x.group_id=r.group_id and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1; end if;
-  select min(t) into v_next_transition from (
-    select starts_at t from public.broadcast_schedules x where x.enabled and x.starts_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id))
-    union all
-    select ends_at t from public.broadcast_schedules x where x.enabled and x.ends_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id))
-  ) q;
-  if r.session_started_at is not null and r.session_timeout_min>0 then v_expires:=r.session_started_at+make_interval(mins=>r.session_timeout_min); end if;
 
-  if b.active and coalesce(array_length(b.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(b.video_ids,v.id)),'[]'::jsonb) into v_playlist
-    from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast';v_notice:=b.notice_text;v_effective:=b.effective_at;v_revision:='b:'||b.revision; end if;
-  end if;
-  if v_mode is null and hs.id is not null then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(hs.video_ids,v.id)),'[]'::jsonb) into v_playlist
-    from public.videos v where v.id=any(hs.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast_schedule';v_notice:=hs.notice_text;v_effective:=hs.starts_at;v_revision:='hs:'||hs.id::text||':'||extract(epoch from hs.starts_at)::bigint; end if;
-  end if;
-  if v_mode is null and r.manual_active and coalesce(array_length(r.manual_video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb) into v_playlist
-    from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='manual';v_revision:='m:'||coalesce(extract(epoch from r.manual_updated_at)::bigint,0); end if;
-  end if;
-  if v_mode is null and gb.group_id is not null and gb.active and coalesce(array_length(gb.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(gb.video_ids,v.id)),'[]'::jsonb) into v_playlist
-    from public.videos v where v.id=any(gb.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='group';v_notice:=gb.notice_text;v_effective:=gb.effective_at;v_revision:='g:'||gb.revision; end if;
-  end if;
-  if v_mode is null and gs.id is not null then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(gs.video_ids,v.id)),'[]'::jsonb) into v_playlist
-    from public.videos v where v.id=any(gs.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='group_schedule';v_notice:=gs.notice_text;v_effective:=gs.starts_at;v_revision:='gs:'||gs.id::text||':'||extract(epoch from gs.starts_at)::bigint; end if;
-  end if;
-
-  if v_mode is null and r.room_mode in ('treatment','consultation') and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>clock_timestamp()) then
-    with candidates as (
-      select v.*,(case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) score
-      from public.videos v where v.active and (v.source<>'local' or v.available)
-        and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment))
-        and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age)))
-        and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))
-    ), best as (select max(score) score from candidates)
-    select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb) into v_playlist from candidates c cross join best where c.score=best.score;
-    if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='p:'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
-  end if;
-  if v_mode is null and r.room_mode in ('treatment','consultation') and r.session_treatment is null and coalesce(array_length(r.session_tags,1),0)>0 and r.session_started_at is not null and (v_expires is null or v_expires>clock_timestamp()) then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist from public.videos v
-    where v.active and (v.source<>'local' or v.available) and v.tags&&r.session_tags;
-    if jsonb_array_length(v_playlist)>0 then v_mode:='session';v_revision:='s:'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
-  end if;
-  if v_mode is null then
-    v_mode:='default';v_expires:=null;v_revision:='d';
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist
-    from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags;
-  end if;
-  if s.emergency_video_id is not null then select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available); end if;
-
-  return jsonb_build_object(
-    'room',jsonb_build_object('id',r.id,'name',r.name,'group_id',r.group_id,'room_mode',r.room_mode,'force_mute',r.force_mute,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),
-    'mode',v_mode,'session_expires_at',case when v_mode in ('patient','session') then v_expires end,'notice_text',v_notice,'playlist',v_playlist,
-    'emergency_video',v_emergency,'sync_effective_at',v_effective,'sync_revision',v_revision,'next_transition_at',v_next_transition,
-    'media_server_url',coalesce(s.media_server_url,''),'server_time',clock_timestamp()
-  );
-end $$;
-
-create or replace function public.notify_room_change()
-returns trigger language plpgsql security definer set search_path=public as $$
-begin
-  if row(new.name,new.group_id,new.room_mode,new.force_mute,new.default_tags,new.session_tags,new.session_started_at,new.session_timeout_min,new.session_age_group,new.session_gender,new.session_treatment,new.manual_active,new.manual_video_ids,new.volume,new.paused,new.overlay_text,new.reload_nonce)
-    is distinct from row(old.name,old.group_id,old.room_mode,old.force_mute,old.default_tags,old.session_tags,old.session_started_at,old.session_timeout_min,old.session_age_group,old.session_gender,old.session_treatment,old.manual_active,old.manual_video_ids,old.volume,old.paused,old.overlay_text,old.reload_nonce) then
-    perform realtime.send(jsonb_build_object('at',clock_timestamp()),'refresh','room:'||new.player_key::text,false);
-  end if;
-  return new;
-end $$;
 
 create or replace function public.notify_group_broadcast_change()
 returns trigger language plpgsql security definer set search_path=public as $$
@@ -1204,18 +1115,24 @@ end $$;
 
 create or replace function public.staff_reception_state()
 returns jsonb language plpgsql stable security definer set search_path=public as $$
-declare v_rooms jsonb; v_patients jsonb; v_broadcast jsonb;
+declare v_rooms jsonb; v_patients jsonb; v_broadcast jsonb; v_playlists jsonb; v_videos jsonb; v_items jsonb; v_rules jsonb;
 begin
   if not public.is_member() then raise exception 'not allowed'; end if;
   select coalesce(jsonb_agg(jsonb_build_object(
     'id',r.id,'name',r.name,'sort_order',r.sort_order,'group_id',r.group_id,'group_name',g.name,'room_mode',r.room_mode,
-    'last_seen_at',r.last_seen_at,'player_status',coalesce(r.player_status,'{}'::jsonb),'session_timeout_min',r.session_timeout_min
+    'last_seen_at',r.last_seen_at,'player_status',coalesce(r.player_status,'{}'::jsonb),'session_timeout_min',r.session_timeout_min,
+    'session_started_at',r.session_started_at,'session_age_group',r.session_age_group,'session_gender',r.session_gender,'session_treatment',r.session_treatment,
+    'default_playlist_id',r.default_playlist_id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids
   ) order by coalesce(g.sort_order,2147483647),r.sort_order,r.created_at),'[]'::jsonb) into v_rooms
-  from public.rooms r left join public.signage_groups g on g.id=r.group_id where r.room_mode in ('treatment','consultation');
+  from public.rooms r left join public.signage_groups g on g.id=r.group_id;
   select coalesce(jsonb_agg(to_jsonb(x) order by case x.status when 'in_progress' then 0 when 'assigned' then 1 when 'waiting' then 2 else 3 end,x.waiting_started_at),'[]'::jsonb) into v_patients
   from (select * from public.patient_sessions where (status in ('waiting','assigned','in_progress')) or (status='completed' and completed_at>=date_trunc('day',clock_timestamp())) ) x;
+  select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'kind',p.kind,'active',p.active,'sort_order',p.sort_order,'target_treatment',p.target_treatment,'target_age',p.target_age,'target_gender',p.target_gender) order by p.sort_order,p.created_at),'[]'::jsonb) into v_playlists from public.playlists p where p.active;
+  select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'active',v.active,'duration_sec',v.duration_sec,'thumbnail_data_url',v.thumbnail_data_url,'target_treatment',v.target_treatment,'target_age',v.target_age,'target_gender',v.target_gender) order by v.sort_order,v.created_at),'[]'::jsonb) into v_videos from public.videos v where v.active and (v.source<>'local' or v.available);
+  select coalesce(jsonb_agg(jsonb_build_object('playlist_id',pi.playlist_id,'video_id',pi.video_id,'sort_order',pi.sort_order) order by pi.playlist_id,pi.sort_order,pi.created_at),'[]'::jsonb) into v_items from public.playlist_items pi;
+  select coalesce(jsonb_agg(jsonb_build_object('room_id',rr.room_id,'video_id',rr.video_id,'enabled',rr.enabled,'sort_order',rr.sort_order,'starts_at',rr.starts_at,'ends_at',rr.ends_at,'updated_at',rr.updated_at)),'[]'::jsonb) into v_rules from public.room_video_rules rr;
   select jsonb_build_object('active',active,'notice_text',notice_text) into v_broadcast from public.broadcast where id=1;
-  return jsonb_build_object('rooms',v_rooms,'patients',v_patients,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
+  return jsonb_build_object('rooms',v_rooms,'patients',v_patients,'playlists',v_playlists,'videos',v_videos,'playlist_items',v_items,'room_video_rules',v_rules,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
 end $$;
 
 revoke all on function public.staff_create_patient(text,text,text,text) from public;
@@ -1234,75 +1151,8 @@ grant execute on function public.staff_cancel_patient(uuid) to anon,authenticate
 grant execute on function public.staff_reception_state() to anon,authenticated;
 
 -- Canonical player state: broadcast > schedule > manual > group > patient playlist > room default playlist > legacy fallback.
-create or replace function public.player_get_state(p_key uuid)
-returns jsonb language plpgsql security definer set search_path=public as $$
-declare
-  r public.rooms; b public.broadcast; s public.app_settings; gb public.group_broadcasts; hs public.broadcast_schedules; gs public.broadcast_schedules;
-  v_mode text; v_expires timestamptz; v_playlist jsonb:='[]'::jsonb; v_emergency jsonb; v_playlist_id uuid;
-  v_notice text; v_effective timestamptz; v_revision text:='0'; v_next_transition timestamptz;
-begin
-  select * into r from public.rooms where player_key=p_key; if not found then return null; end if;
-  select * into b from public.broadcast where id=1; select * into s from public.app_settings where id=1;
-  if r.group_id is not null then select * into gb from public.group_broadcasts where group_id=r.group_id; end if;
-  select * into hs from public.broadcast_schedules x where x.enabled and x.scope_type='hospital' and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1;
-  if r.group_id is not null then select * into gs from public.broadcast_schedules x where x.enabled and x.scope_type='group' and x.group_id=r.group_id and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1; end if;
-  select min(t) into v_next_transition from (select starts_at t from public.broadcast_schedules x where x.enabled and x.starts_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id)) union all select ends_at t from public.broadcast_schedules x where x.enabled and x.ends_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id))) q;
-  if r.session_started_at is not null and r.session_timeout_min>0 then v_expires:=r.session_started_at+make_interval(mins=>r.session_timeout_min); end if;
-
-  if b.active and coalesce(array_length(b.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(b.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast';v_notice:=b.notice_text;v_effective:=b.effective_at;v_revision:='b:'||b.revision; end if;
-  end if;
-  if v_mode is null and hs.id is not null then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(hs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(hs.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast_schedule';v_notice:=hs.notice_text;v_effective:=hs.starts_at;v_revision:='hs:'||hs.id::text||':'||extract(epoch from hs.starts_at)::bigint; end if;
-  end if;
-  if v_mode is null and r.manual_active and coalesce(array_length(r.manual_video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='manual';v_revision:='m:'||coalesce(extract(epoch from r.manual_updated_at)::bigint,0); end if;
-  end if;
-  if v_mode is null and gb.group_id is not null and gb.active and coalesce(array_length(gb.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(gb.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gb.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='group';v_notice:=gb.notice_text;v_effective:=gb.effective_at;v_revision:='g:'||gb.revision; end if;
-  end if;
-  if v_mode is null and gs.id is not null then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by array_position(gs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gs.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='group_schedule';v_notice:=gs.notice_text;v_effective:=gs.starts_at;v_revision:='gs:'||gs.id::text||':'||extract(epoch from gs.starts_at)::bigint; end if;
-  end if;
-
-  if v_mode is null and r.room_mode in ('treatment','consultation') and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>clock_timestamp()) then
-    select p.id into v_playlist_id from public.playlists p where p.active and p.kind='patient'
-      and (coalesce(array_length(p.target_treatment,1),0)=0 or r.session_treatment=any(p.target_treatment))
-      and (coalesce(array_length(p.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(p.target_age)))
-      and (coalesce(array_length(p.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(p.target_gender)))
-    order by (case when coalesce(array_length(p.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(p.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(p.target_gender,1),0)>0 then 5 else 0 end) desc,p.sort_order,p.created_at limit 1;
-    if v_playlist_id is not null then
-      select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available);
-      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='pp:'||v_playlist_id::text||':'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
-    end if;
-    if v_mode is null then
-      with candidates as (select v.*,(case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) score from public.videos v where v.active and (v.source<>'local' or v.available) and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment)) and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age))) and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))), best as (select max(score) score from candidates)
-      select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb) into v_playlist from candidates c cross join best where c.score=best.score;
-      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='legacy-p:'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
-    end if;
-  end if;
-
-  if v_mode is null then
-    v_mode:='default';v_expires:=null;
-    v_playlist_id:=r.default_playlist_id;
-    if v_playlist_id is null then select id into v_playlist_id from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
-    if v_playlist_id is not null then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available); end if;
-    if jsonb_array_length(v_playlist)=0 then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags; end if;
-    v_revision:='d:'||coalesce(v_playlist_id::text,'legacy');
-  end if;
-  if s.emergency_video_id is not null then select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at) into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available); end if;
-  return jsonb_build_object('room',jsonb_build_object('id',r.id,'name',r.name,'group_id',r.group_id,'room_mode',r.room_mode,'force_mute',r.force_mute,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),'mode',v_mode,'session_expires_at',case when v_mode='patient' then v_expires end,'notice_text',v_notice,'playlist',v_playlist,'emergency_video',v_emergency,'sync_effective_at',v_effective,'sync_revision',v_revision,'next_transition_at',v_next_transition,'media_server_url',coalesce(s.media_server_url,''),'server_time',clock_timestamp());
-end $$;
 
 -- Refresh players when playlist structure changes.
-create or replace function public.notify_all_rooms()
-returns trigger language plpgsql security definer set search_path=public as $$
-declare k uuid; begin for k in select player_key from public.rooms loop perform realtime.send(jsonb_build_object('at',clock_timestamp()),'refresh','room:'||k::text,false); end loop; return null; end $$;
 drop trigger if exists playlists_notify on public.playlists;
 create trigger playlists_notify after insert or update or delete on public.playlists for each statement execute function public.notify_all_rooms();
 drop trigger if exists playlist_items_notify on public.playlist_items;
@@ -1310,15 +1160,6 @@ create trigger playlist_items_notify after insert or update or delete on public.
 
 
 -- v2.14 room refresh includes playlist selection changes.
-create or replace function public.notify_room_change()
-returns trigger language plpgsql security definer set search_path=public as $$
-begin
-  if row(new.name,new.group_id,new.room_mode,new.force_mute,new.default_playlist_id,new.default_tags,new.session_tags,new.session_started_at,new.session_timeout_min,new.session_age_group,new.session_gender,new.session_treatment,new.manual_active,new.manual_video_ids,new.volume,new.paused,new.overlay_text,new.reload_nonce)
-    is distinct from row(old.name,old.group_id,old.room_mode,old.force_mute,old.default_playlist_id,old.default_tags,old.session_tags,old.session_started_at,old.session_timeout_min,old.session_age_group,old.session_gender,old.session_treatment,old.manual_active,old.manual_video_ids,old.volume,old.paused,old.overlay_text,old.reload_nonce) then
-    perform realtime.send(jsonb_build_object('at',clock_timestamp()),'refresh','room:'||new.player_key::text,false);
-  end if;
-  return new;
-end $$;
 
 
 -- Clinic Signage v2.15 — quick room customization without patient registration
@@ -1356,22 +1197,6 @@ begin
   if not found then raise exception '진료실을 찾을 수 없습니다'; end if;
 end $$;
 
-create or replace function public.staff_reception_state()
-returns jsonb language plpgsql stable security definer set search_path=public as $$
-declare v_rooms jsonb; v_patients jsonb; v_broadcast jsonb;
-begin
-  if not public.is_member() then raise exception 'not allowed'; end if;
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'id',r.id,'name',r.name,'sort_order',r.sort_order,'group_id',r.group_id,'group_name',g.name,'room_mode',r.room_mode,
-    'last_seen_at',r.last_seen_at,'player_status',coalesce(r.player_status,'{}'::jsonb),'session_timeout_min',r.session_timeout_min,
-    'session_started_at',r.session_started_at,'session_age_group',r.session_age_group,'session_gender',r.session_gender,'session_treatment',r.session_treatment
-  ) order by coalesce(g.sort_order,2147483647),r.sort_order,r.created_at),'[]'::jsonb) into v_rooms
-  from public.rooms r left join public.signage_groups g on g.id=r.group_id where r.room_mode in ('treatment','consultation');
-  select coalesce(jsonb_agg(to_jsonb(x) order by case x.status when 'in_progress' then 0 when 'assigned' then 1 when 'waiting' then 2 else 3 end,x.waiting_started_at),'[]'::jsonb) into v_patients
-  from (select * from public.patient_sessions where (status in ('waiting','assigned','in_progress')) or (status='completed' and completed_at>=date_trunc('day',clock_timestamp())) ) x;
-  select jsonb_build_object('active',active,'notice_text',notice_text) into v_broadcast from public.broadcast where id=1;
-  return jsonb_build_object('rooms',v_rooms,'patients',v_patients,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
-end $$;
 
 revoke all on function public.staff_quick_set_room(uuid,text,text,text) from public;
 revoke all on function public.staff_quick_clear_room(uuid) from public;
@@ -1423,204 +1248,6 @@ drop policy if exists player_events_admin on public.player_events;
 create policy player_events_admin on public.player_events for select to anon,authenticated using(public.is_admin());
 grant select on public.room_playback_daily,public.player_events to anon,authenticated;
 
-create or replace function public.player_heartbeat(p_key uuid,p_status jsonb)
-returns void language plpgsql security definer set search_path=public as $$
-declare
-  clean jsonb; v_room uuid; v_prev jsonb; v_last timestamptz; v_now timestamptz:=clock_timestamp();
-  v_delta int:=0; v_day date; v_local_time time; v_start time; v_end time; v_in_hours boolean:=false;
-  v_state text; v_mode text; v_prev_state text; v_prev_mode text; v_reconnect int:=0; v_error_transition int:=0;
-begin
-  select id,player_status,last_seen_at into v_room,v_prev,v_last from public.rooms where player_key=p_key for update;
-  if v_room is null then return; end if;
-  if p_status is null or jsonb_typeof(p_status)<>'object' or pg_column_size(p_status)>4096 then
-    update public.rooms set heartbeat_rejected_count=heartbeat_rejected_count+1 where id=v_room; return;
-  end if;
-  clean=jsonb_build_object(
-    'video_id',case when jsonb_typeof(p_status->'video_id')='string' then left(p_status->>'video_id',64) else null end,
-    'title',left(coalesce(p_status->>'title',''),160),'mode',left(coalesce(p_status->>'mode',''),32),
-    'playback_state',left(coalesce(p_status->>'playback_state',''),32),
-    'current_time',case when jsonb_typeof(p_status->'current_time')='number' then greatest(0,least((p_status->>'current_time')::numeric,86400)) else 0 end,
-    'duration',case when jsonb_typeof(p_status->'duration')='number' then greatest(0,least((p_status->>'duration')::numeric,86400)) else 0 end,
-    'muted',case when jsonb_typeof(p_status->'muted')='boolean' then (p_status->>'muted')::boolean else false end,
-    'volume',case when jsonb_typeof(p_status->'volume')='number' then greatest(0,least((p_status->>'volume')::int,100)) else 0 end,
-    'online',case when jsonb_typeof(p_status->'online')='boolean' then (p_status->>'online')::boolean else false end,
-    'error',left(coalesce(p_status->>'error',''),300),'source',left(coalesce(p_status->>'source',''),64),
-    'playlist_titles',coalesce((select jsonb_agg(left(x.value,120) order by x.ord) from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_titles')='array' then p_status->'playlist_titles' else '[]'::jsonb end) with ordinality as x(value,ord) where x.ord<=12),'[]'::jsonb),
-    'playlist_count',case when jsonb_typeof(p_status->'playlist_count')='number' then greatest(0,least((p_status->>'playlist_count')::int,500)) else 0 end,
-    'current_index',case when jsonb_typeof(p_status->'current_index')='number' then greatest(0,least((p_status->>'current_index')::int,499)) else 0 end,
-    'next_title',left(coalesce(p_status->>'next_title',''),160),'app_version',left(coalesce(p_status->>'app_version',''),24),'reported_at',left(coalesce(p_status->>'reported_at',''),48)
-  );
-  v_state:=clean->>'playback_state'; v_mode:=clean->>'mode'; v_prev_state:=coalesce(v_prev->>'playback_state',''); v_prev_mode:=coalesce(v_prev->>'mode','');
-  select operating_start,operating_end into v_start,v_end from public.app_settings where id=1;
-  v_day:=(v_now at time zone 'Asia/Seoul')::date; v_local_time:=(v_now at time zone 'Asia/Seoul')::time;
-  v_in_hours:=v_local_time>=v_start and v_local_time<v_end;
-  if v_last is not null then
-    v_delta:=greatest(0,least(60,extract(epoch from (v_now-v_last))::int));
-    if extract(epoch from (v_now-v_last))>30 then v_reconnect:=1; end if;
-  end if;
-  if coalesce(clean->>'error','')<>'' and coalesce(v_prev->>'error','')='' then v_error_transition:=1; end if;
-  if v_in_hours and v_delta>0 then
-    insert into public.room_playback_daily(day,room_id,online_seconds,playing_seconds,default_seconds,custom_seconds,override_seconds,error_seconds,paused_seconds,reconnect_count,error_count,updated_at)
-    values(v_day,v_room,v_delta,
-      case when v_state in ('playing','emergency') then v_delta else 0 end,
-      case when v_state in ('playing','emergency') and v_mode='default' then v_delta else 0 end,
-      case when v_state in ('playing','emergency') and v_mode in ('patient','session') then v_delta else 0 end,
-      case when v_state in ('playing','emergency') and v_mode in ('broadcast','broadcast_schedule','group','group_schedule','manual') then v_delta else 0 end,
-      case when v_state='error' then v_delta else 0 end,
-      case when v_state='paused' then v_delta else 0 end,v_reconnect,v_error_transition,v_now)
-    on conflict(day,room_id) do update set
-      online_seconds=room_playback_daily.online_seconds+excluded.online_seconds,
-      playing_seconds=room_playback_daily.playing_seconds+excluded.playing_seconds,
-      default_seconds=room_playback_daily.default_seconds+excluded.default_seconds,
-      custom_seconds=room_playback_daily.custom_seconds+excluded.custom_seconds,
-      override_seconds=room_playback_daily.override_seconds+excluded.override_seconds,
-      error_seconds=room_playback_daily.error_seconds+excluded.error_seconds,
-      paused_seconds=room_playback_daily.paused_seconds+excluded.paused_seconds,
-      reconnect_count=room_playback_daily.reconnect_count+excluded.reconnect_count,
-      error_count=room_playback_daily.error_count+excluded.error_count,updated_at=v_now;
-  end if;
-  if v_prev is null or v_state<>v_prev_state or v_mode<>v_prev_mode or coalesce(clean->>'video_id','')<>coalesce(v_prev->>'video_id','') or coalesce(clean->>'error','')<>coalesce(v_prev->>'error','') then
-    insert into public.player_events(room_id,event_type,mode,playback_state,video_id,title,error)
-    values(v_room,'state_change',nullif(v_mode,''),nullif(v_state,''),nullif(clean->>'video_id',''),nullif(clean->>'title',''),nullif(clean->>'error',''));
-  end if;
-  update public.rooms set last_seen_at=v_now,player_status=clean where id=v_room;
-end $$;
-revoke all on function public.player_heartbeat(uuid,jsonb) from public;
-grant execute on function public.player_heartbeat(uuid,jsonb) to anon,authenticated;
-
-create or replace function public.admin_playback_today()
-returns jsonb language plpgsql stable security definer set search_path=public as $$
-declare s public.app_settings; v_now timestamp; v_day date; v_elapsed int; v_total int; v_rooms jsonb; v_overall jsonb;
-begin
-  if not public.is_admin() then raise exception 'not allowed'; end if;
-  select * into s from public.app_settings where id=1;
-  v_now:=clock_timestamp() at time zone 'Asia/Seoul'; v_day:=v_now::date;
-  v_total:=greatest(0,extract(epoch from (s.operating_end-s.operating_start))::int);
-  if v_now::time<=s.operating_start then v_elapsed:=0;
-  elsif v_now::time>=s.operating_end then v_elapsed:=v_total;
-  else v_elapsed:=greatest(0,extract(epoch from (v_now::time-s.operating_start))::int); end if;
-  select coalesce(jsonb_agg(jsonb_build_object('room_id',r.id,'name',r.name,'group_name',g.name,'planned_seconds',v_elapsed,
-    'online_seconds',coalesce(d.online_seconds,0),'playing_seconds',least(v_elapsed,coalesce(d.playing_seconds,0)),
-    'default_seconds',coalesce(d.default_seconds,0),'custom_seconds',coalesce(d.custom_seconds,0),'override_seconds',coalesce(d.override_seconds,0),
-    'error_seconds',coalesce(d.error_seconds,0),'paused_seconds',coalesce(d.paused_seconds,0),'error_count',coalesce(d.error_count,0),'reconnect_count',coalesce(d.reconnect_count,0),
-    'rate',case when v_elapsed>0 then round(least(100,coalesce(d.playing_seconds,0)*100.0/v_elapsed),1) else 0 end,
-    'last_seen_at',r.last_seen_at) order by coalesce(g.sort_order,2147483647),r.sort_order,r.created_at),'[]'::jsonb) into v_rooms
-  from public.rooms r left join public.signage_groups g on g.id=r.group_id left join public.room_playback_daily d on d.room_id=r.id and d.day=v_day;
-  select jsonb_build_object('planned_seconds',v_elapsed*count(*),'playing_seconds',coalesce(sum(least(v_elapsed,coalesce(d.playing_seconds,0))),0),
-    'error_count',coalesce(sum(d.error_count),0),'reconnect_count',coalesce(sum(d.reconnect_count),0),
-    'rate',case when v_elapsed>0 and count(*)>0 then round(coalesce(sum(least(v_elapsed,coalesce(d.playing_seconds,0))),0)*100.0/(v_elapsed*count(*)),1) else 0 end) into v_overall
-  from public.rooms r left join public.room_playback_daily d on d.room_id=r.id and d.day=v_day;
-  return jsonb_build_object('day',v_day,'operating_start',s.operating_start,'operating_end',s.operating_end,'elapsed_seconds',v_elapsed,'overall',v_overall,'rooms',v_rooms);
-end $$;
-revoke all on function public.admin_playback_today() from public;
-grant execute on function public.admin_playback_today() to anon,authenticated;
-
-
--- Clinic Signage v2.17 — weekday/weekend operating hours + aggregate playback stats
--- Safe to rerun after v2.16.
-
-alter table public.app_settings add column if not exists operating_weekday_enabled boolean not null default true;
-alter table public.app_settings add column if not exists operating_weekday_start time not null default '09:00';
-alter table public.app_settings add column if not exists operating_weekday_end time not null default '20:00';
-alter table public.app_settings add column if not exists operating_saturday_enabled boolean not null default true;
-alter table public.app_settings add column if not exists operating_saturday_start time not null default '09:00';
-alter table public.app_settings add column if not exists operating_saturday_end time not null default '17:00';
-alter table public.app_settings add column if not exists operating_sunday_enabled boolean not null default false;
-alter table public.app_settings add column if not exists operating_sunday_start time not null default '09:00';
-alter table public.app_settings add column if not exists operating_sunday_end time not null default '17:00';
-
--- Carry the old global hours into weekday hours once when still on defaults.
-update public.app_settings
-set operating_weekday_start=coalesce(operating_start,'09:00'::time),
-    operating_weekday_end=coalesce(operating_end,'20:00'::time)
-where id=1;
-
-create or replace function public.signage_operating_window(p_day date)
-returns table(is_open boolean,start_time time,end_time time,planned_seconds int)
-language plpgsql stable security definer set search_path=public as $$
-declare s public.app_settings; dow int;
-begin
-  select * into s from public.app_settings where id=1;
-  dow:=extract(isodow from p_day)::int;
-  if dow between 1 and 5 then
-    is_open:=s.operating_weekday_enabled; start_time:=s.operating_weekday_start; end_time:=s.operating_weekday_end;
-  elsif dow=6 then
-    is_open:=s.operating_saturday_enabled; start_time:=s.operating_saturday_start; end_time:=s.operating_saturday_end;
-  else
-    is_open:=s.operating_sunday_enabled; start_time:=s.operating_sunday_start; end_time:=s.operating_sunday_end;
-  end if;
-  if not is_open or start_time is null or end_time is null or end_time<=start_time then
-    is_open:=false; planned_seconds:=0;
-  else
-    planned_seconds:=extract(epoch from (end_time-start_time))::int;
-  end if;
-  return next;
-end $$;
-revoke all on function public.signage_operating_window(date) from public;
-grant execute on function public.signage_operating_window(date) to anon,authenticated;
-
-create or replace function public.player_heartbeat(p_key uuid,p_status jsonb)
-returns void language plpgsql security definer set search_path=public as $$
-declare
-  clean jsonb; v_room uuid; v_prev jsonb; v_last timestamptz; v_now timestamptz:=clock_timestamp();
-  v_delta int:=0; v_day date; v_local_time time; v_start time; v_end time; v_open boolean:=false; v_in_hours boolean:=false;
-  v_state text; v_mode text; v_prev_state text; v_prev_mode text; v_reconnect int:=0; v_error_transition int:=0;
-begin
-  select id,player_status,last_seen_at into v_room,v_prev,v_last from public.rooms where player_key=p_key for update;
-  if v_room is null then return; end if;
-  if p_status is null or jsonb_typeof(p_status)<>'object' or pg_column_size(p_status)>4096 then
-    update public.rooms set heartbeat_rejected_count=heartbeat_rejected_count+1 where id=v_room; return;
-  end if;
-  clean=jsonb_build_object(
-    'video_id',case when jsonb_typeof(p_status->'video_id')='string' then left(p_status->>'video_id',64) else null end,
-    'title',left(coalesce(p_status->>'title',''),160),'mode',left(coalesce(p_status->>'mode',''),32),
-    'playback_state',left(coalesce(p_status->>'playback_state',''),32),
-    'current_time',case when jsonb_typeof(p_status->'current_time')='number' then greatest(0,least((p_status->>'current_time')::numeric,86400)) else 0 end,
-    'duration',case when jsonb_typeof(p_status->'duration')='number' then greatest(0,least((p_status->>'duration')::numeric,86400)) else 0 end,
-    'muted',case when jsonb_typeof(p_status->'muted')='boolean' then (p_status->>'muted')::boolean else false end,
-    'volume',case when jsonb_typeof(p_status->'volume')='number' then greatest(0,least((p_status->>'volume')::int,100)) else 0 end,
-    'online',case when jsonb_typeof(p_status->'online')='boolean' then (p_status->>'online')::boolean else false end,
-    'error',left(coalesce(p_status->>'error',''),300),'source',left(coalesce(p_status->>'source',''),64),
-    'playlist_titles',coalesce((select jsonb_agg(left(x.value,120) order by x.ord) from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_titles')='array' then p_status->'playlist_titles' else '[]'::jsonb end) with ordinality as x(value,ord) where x.ord<=12),'[]'::jsonb),
-    'playlist_count',case when jsonb_typeof(p_status->'playlist_count')='number' then greatest(0,least((p_status->>'playlist_count')::int,500)) else 0 end,
-    'current_index',case when jsonb_typeof(p_status->'current_index')='number' then greatest(0,least((p_status->>'current_index')::int,499)) else 0 end,
-    'next_title',left(coalesce(p_status->>'next_title',''),160),'app_version',left(coalesce(p_status->>'app_version',''),24),'reported_at',left(coalesce(p_status->>'reported_at',''),48)
-  );
-  v_state:=clean->>'playback_state'; v_mode:=clean->>'mode'; v_prev_state:=coalesce(v_prev->>'playback_state',''); v_prev_mode:=coalesce(v_prev->>'mode','');
-  v_day:=(v_now at time zone 'Asia/Seoul')::date; v_local_time:=(v_now at time zone 'Asia/Seoul')::time;
-  select is_open,start_time,end_time into v_open,v_start,v_end from public.signage_operating_window(v_day);
-  v_in_hours:=v_open and v_local_time>=v_start and v_local_time<v_end;
-  if v_last is not null then
-    v_delta:=greatest(0,least(60,extract(epoch from (v_now-v_last))::int));
-    if extract(epoch from (v_now-v_last))>30 then v_reconnect:=1; end if;
-  end if;
-  if coalesce(clean->>'error','')<>'' and coalesce(v_prev->>'error','')='' then v_error_transition:=1; end if;
-  if v_in_hours and v_delta>0 then
-    insert into public.room_playback_daily(day,room_id,online_seconds,playing_seconds,default_seconds,custom_seconds,override_seconds,error_seconds,paused_seconds,reconnect_count,error_count,updated_at)
-    values(v_day,v_room,v_delta,
-      case when v_state in ('playing','emergency') then v_delta else 0 end,
-      case when v_state in ('playing','emergency') and v_mode='default' then v_delta else 0 end,
-      case when v_state in ('playing','emergency') and v_mode in ('patient','session') then v_delta else 0 end,
-      case when v_state in ('playing','emergency') and v_mode in ('broadcast','broadcast_schedule','group','group_schedule','manual') then v_delta else 0 end,
-      case when v_state='error' then v_delta else 0 end,
-      case when v_state='paused' then v_delta else 0 end,v_reconnect,v_error_transition,v_now)
-    on conflict(day,room_id) do update set
-      online_seconds=room_playback_daily.online_seconds+excluded.online_seconds,
-      playing_seconds=room_playback_daily.playing_seconds+excluded.playing_seconds,
-      default_seconds=room_playback_daily.default_seconds+excluded.default_seconds,
-      custom_seconds=room_playback_daily.custom_seconds+excluded.custom_seconds,
-      override_seconds=room_playback_daily.override_seconds+excluded.override_seconds,
-      error_seconds=room_playback_daily.error_seconds+excluded.error_seconds,
-      paused_seconds=room_playback_daily.paused_seconds+excluded.paused_seconds,
-      reconnect_count=room_playback_daily.reconnect_count+excluded.reconnect_count,
-      error_count=room_playback_daily.error_count+excluded.error_count,updated_at=v_now;
-  end if;
-  if v_prev is null or v_state<>v_prev_state or v_mode<>v_prev_mode or coalesce(clean->>'video_id','')<>coalesce(v_prev->>'video_id','') or coalesce(clean->>'error','')<>coalesce(v_prev->>'error','') then
-    insert into public.player_events(room_id,event_type,mode,playback_state,video_id,title,error)
-    values(v_room,'state_change',nullif(v_mode,''),nullif(v_state,''),nullif(clean->>'video_id',''),nullif(clean->>'title',''),nullif(clean->>'error',''));
-  end if;
-  update public.rooms set last_seen_at=v_now,player_status=clean where id=v_room;
-end $$;
 revoke all on function public.player_heartbeat(uuid,jsonb) from public;
 grant execute on function public.player_heartbeat(uuid,jsonb) to anon,authenticated;
 
@@ -1683,6 +1310,56 @@ begin
   return jsonb_build_object('day',v_day,'is_open',v_open,'operating_start',v_start,'operating_end',v_end,'elapsed_seconds',v_elapsed,'overall',v_overall,'rooms',v_rooms,
     'periods',jsonb_build_object('today',v_today_summary,'week',v_week_summary,'month',v_month_summary));
 end $$;
+revoke all on function public.admin_playback_today() from public;
+grant execute on function public.admin_playback_today() to anon,authenticated;
+
+
+-- Clinic Signage v2.17 — weekday/weekend operating hours + aggregate playback stats
+-- Safe to rerun after v2.16.
+
+alter table public.app_settings add column if not exists operating_weekday_enabled boolean not null default true;
+alter table public.app_settings add column if not exists operating_weekday_start time not null default '09:00';
+alter table public.app_settings add column if not exists operating_weekday_end time not null default '20:00';
+alter table public.app_settings add column if not exists operating_saturday_enabled boolean not null default true;
+alter table public.app_settings add column if not exists operating_saturday_start time not null default '09:00';
+alter table public.app_settings add column if not exists operating_saturday_end time not null default '17:00';
+alter table public.app_settings add column if not exists operating_sunday_enabled boolean not null default false;
+alter table public.app_settings add column if not exists operating_sunday_start time not null default '09:00';
+alter table public.app_settings add column if not exists operating_sunday_end time not null default '17:00';
+
+-- Carry the old global hours into weekday hours once when still on defaults.
+update public.app_settings
+set operating_weekday_start=coalesce(operating_start,'09:00'::time),
+    operating_weekday_end=coalesce(operating_end,'20:00'::time)
+where id=1;
+
+create or replace function public.signage_operating_window(p_day date)
+returns table(is_open boolean,start_time time,end_time time,planned_seconds int)
+language plpgsql stable security definer set search_path=public as $$
+declare s public.app_settings; dow int;
+begin
+  select * into s from public.app_settings where id=1;
+  dow:=extract(isodow from p_day)::int;
+  if dow between 1 and 5 then
+    is_open:=s.operating_weekday_enabled; start_time:=s.operating_weekday_start; end_time:=s.operating_weekday_end;
+  elsif dow=6 then
+    is_open:=s.operating_saturday_enabled; start_time:=s.operating_saturday_start; end_time:=s.operating_saturday_end;
+  else
+    is_open:=s.operating_sunday_enabled; start_time:=s.operating_sunday_start; end_time:=s.operating_sunday_end;
+  end if;
+  if not is_open or start_time is null or end_time is null or end_time<=start_time then
+    is_open:=false; planned_seconds:=0;
+  else
+    planned_seconds:=extract(epoch from (end_time-start_time))::int;
+  end if;
+  return next;
+end $$;
+revoke all on function public.signage_operating_window(date) from public;
+grant execute on function public.signage_operating_window(date) to anon,authenticated;
+
+revoke all on function public.player_heartbeat(uuid,jsonb) from public;
+grant execute on function public.player_heartbeat(uuid,jsonb) to anon,authenticated;
+
 revoke all on function public.admin_playback_today() from public;
 grant execute on function public.admin_playback_today() to anon,authenticated;
 -- Clinic Signage v2.18 — per-space playlist / single-video controls
@@ -1798,30 +1475,6 @@ begin
   if not found then raise exception '공간을 찾을 수 없습니다'; end if;
 end $$;
 
-create or replace function public.staff_reception_state()
-returns jsonb language plpgsql stable security definer set search_path=public as $$
-declare v_rooms jsonb; v_patients jsonb; v_broadcast jsonb; v_playlists jsonb; v_videos jsonb;
-begin
-  if not public.is_member() then raise exception 'not allowed'; end if;
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'id',r.id,'name',r.name,'sort_order',r.sort_order,'group_id',r.group_id,'group_name',g.name,'room_mode',r.room_mode,
-    'last_seen_at',r.last_seen_at,'player_status',coalesce(r.player_status,'{}'::jsonb),'session_timeout_min',r.session_timeout_min,
-    'session_started_at',r.session_started_at,'session_age_group',r.session_age_group,'session_gender',r.session_gender,'session_treatment',r.session_treatment,
-    'default_playlist_id',r.default_playlist_id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids
-  ) order by coalesce(g.sort_order,2147483647),r.sort_order,r.created_at),'[]'::jsonb) into v_rooms
-  from public.rooms r left join public.signage_groups g on g.id=r.group_id;
-
-  select coalesce(jsonb_agg(to_jsonb(x) order by case x.status when 'in_progress' then 0 when 'assigned' then 1 when 'waiting' then 2 else 3 end,x.waiting_started_at),'[]'::jsonb) into v_patients
-  from (select * from public.patient_sessions where (status in ('waiting','assigned','in_progress')) or (status='completed' and completed_at>=date_trunc('day',clock_timestamp())) ) x;
-
-  select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'kind',p.kind,'active',p.active,'sort_order',p.sort_order,'target_treatment',p.target_treatment,'target_age',p.target_age,'target_gender',p.target_gender) order by p.sort_order,p.created_at),'[]'::jsonb)
-    into v_playlists from public.playlists p where p.active;
-  select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'active',v.active) order by v.sort_order,v.created_at),'[]'::jsonb)
-    into v_videos from public.videos v where v.active and (v.source<>'local' or v.available);
-  select jsonb_build_object('active',active,'notice_text',notice_text) into v_broadcast from public.broadcast where id=1;
-
-  return jsonb_build_object('rooms',v_rooms,'patients',v_patients,'playlists',v_playlists,'videos',v_videos,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
-end $$;
 
 revoke all on function public.admin_set_room_playlist(uuid,uuid) from public;
 revoke all on function public.admin_add_room_video(uuid,uuid) from public;
@@ -1882,74 +1535,6 @@ end $$;
 drop trigger if exists room_video_rules_notify on public.room_video_rules;
 create trigger room_video_rules_notify after insert or update or delete on public.room_video_rules for each row execute function public.notify_room_video_rule();
 
-create or replace function public.player_get_state(p_key uuid)
-returns jsonb language plpgsql security definer set search_path=public as $$
-declare
-  r public.rooms; b public.broadcast; s public.app_settings; gb public.group_broadcasts; hs public.broadcast_schedules; gs public.broadcast_schedules;
-  v_mode text; v_expires timestamptz; v_playlist jsonb:='[]'::jsonb; v_emergency jsonb; v_playlist_id uuid;
-  v_notice text; v_effective timestamptz; v_revision text:='0'; v_next_transition timestamptz;
-begin
-  select * into r from public.rooms where player_key=p_key; if not found then return null; end if;
-  select * into b from public.broadcast where id=1; select * into s from public.app_settings where id=1;
-  if r.group_id is not null then select * into gb from public.group_broadcasts where group_id=r.group_id; end if;
-  select * into hs from public.broadcast_schedules x where x.enabled and x.scope_type='hospital' and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1;
-  if r.group_id is not null then select * into gs from public.broadcast_schedules x where x.enabled and x.scope_type='group' and x.group_id=r.group_id and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1; end if;
-  select min(t) into v_next_transition from (select starts_at t from public.broadcast_schedules x where x.enabled and x.starts_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id)) union all select ends_at t from public.broadcast_schedules x where x.enabled and x.ends_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id)) union all select starts_at t from public.room_video_rules rr where rr.room_id=r.id and rr.starts_at>clock_timestamp() union all select ends_at t from public.room_video_rules rr where rr.room_id=r.id and rr.ends_at>clock_timestamp()) q;
-  if r.session_started_at is not null and r.session_timeout_min>0 then v_expires:=r.session_started_at+make_interval(mins=>r.session_timeout_min); end if;
-
-  if b.active and coalesce(array_length(b.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(b.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast';v_notice:=b.notice_text;v_effective:=b.effective_at;v_revision:='b:'||b.revision; end if;
-  end if;
-  if v_mode is null and hs.id is not null then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(hs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(hs.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast_schedule';v_notice:=hs.notice_text;v_effective:=hs.starts_at;v_revision:='hs:'||hs.id::text||':'||extract(epoch from hs.starts_at)::bigint; end if;
-  end if;
-  if v_mode is null and r.manual_active and coalesce(array_length(r.manual_video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='manual';v_revision:='m:'||coalesce(extract(epoch from r.manual_updated_at)::bigint,0); end if;
-  end if;
-  if v_mode is null and gb.group_id is not null and gb.active and coalesce(array_length(gb.video_ids,1),0)>0 then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(gb.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gb.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='group';v_notice:=gb.notice_text;v_effective:=gb.effective_at;v_revision:='g:'||gb.revision; end if;
-  end if;
-  if v_mode is null and gs.id is not null then
-    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(gs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gs.video_ids) and v.active and (v.source<>'local' or v.available);
-    if jsonb_array_length(v_playlist)>0 then v_mode:='group_schedule';v_notice:=gs.notice_text;v_effective:=gs.starts_at;v_revision:='gs:'||gs.id::text||':'||extract(epoch from gs.starts_at)::bigint; end if;
-  end if;
-
-  if v_mode is null and r.room_mode in ('treatment','consultation') and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>clock_timestamp()) then
-    select p.id into v_playlist_id from public.playlists p where p.active and p.kind='patient'
-      and (coalesce(array_length(p.target_treatment,1),0)=0 or r.session_treatment=any(p.target_treatment))
-      and (coalesce(array_length(p.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(p.target_age)))
-      and (coalesce(array_length(p.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(p.target_gender)))
-    order by (case when coalesce(array_length(p.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(p.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(p.target_gender,1),0)>0 then 5 else 0 end) desc,p.sort_order,p.created_at limit 1;
-    if v_playlist_id is not null then
-      select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available);
-      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='pp:'||v_playlist_id::text||':'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
-    end if;
-    if v_mode is null then
-      with candidates as (select v.*,(case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) score from public.videos v where v.active and (v.source<>'local' or v.available) and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment)) and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age))) and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))), best as (select max(score) score from candidates)
-      select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb) into v_playlist from candidates c cross join best where c.score=best.score;
-      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='legacy-p:'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
-    end if;
-  end if;
-
-  if v_mode is null then
-    v_mode:='default';v_expires:=null;
-    v_playlist_id:=r.default_playlist_id;
-    if v_playlist_id is null then select id into v_playlist_id from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
-    if v_playlist_id is not null then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available); end if;
-    if jsonb_array_length(v_playlist)=0 then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags; end if;
-    v_revision:='d:'||coalesce(v_playlist_id::text,'legacy');
-  end if;
-  if v_mode in ('manual','patient','default') then
-    v_playlist:=public.apply_room_video_rules(r.id,v_playlist);
-    v_revision:=v_revision||':rr:'||coalesce((select extract(epoch from max(updated_at))::bigint::text from public.room_video_rules where room_id=r.id),'0');
-  end if;
-  if s.emergency_video_id is not null then select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available); end if;
-  return jsonb_build_object('room',jsonb_build_object('id',r.id,'name',r.name,'group_id',r.group_id,'room_mode',r.room_mode,'force_mute',r.force_mute,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),'mode',v_mode,'session_expires_at',case when v_mode='patient' then v_expires end,'notice_text',v_notice,'playlist',v_playlist,'emergency_video',v_emergency,'sync_effective_at',v_effective,'sync_revision',v_revision,'next_transition_at',v_next_transition,'media_server_url',coalesce(s.media_server_url,''),'server_time',clock_timestamp());
-end $$;
 
 create or replace function public.admin_set_room_video_rule(p_room uuid,p_video uuid,p_enabled boolean,p_starts_at timestamptz default null,p_ends_at timestamptz default null)
 returns void language plpgsql security definer set search_path=public as $$
@@ -2022,27 +1607,6 @@ begin
   return v_count;
 end $$;
 
-create or replace function public.staff_reception_state()
-returns jsonb language plpgsql stable security definer set search_path=public as $$
-declare v_rooms jsonb; v_patients jsonb; v_broadcast jsonb; v_playlists jsonb; v_videos jsonb; v_items jsonb; v_rules jsonb;
-begin
-  if not public.is_member() then raise exception 'not allowed'; end if;
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'id',r.id,'name',r.name,'sort_order',r.sort_order,'group_id',r.group_id,'group_name',g.name,'room_mode',r.room_mode,
-    'last_seen_at',r.last_seen_at,'player_status',coalesce(r.player_status,'{}'::jsonb),'session_timeout_min',r.session_timeout_min,
-    'session_started_at',r.session_started_at,'session_age_group',r.session_age_group,'session_gender',r.session_gender,'session_treatment',r.session_treatment,
-    'default_playlist_id',r.default_playlist_id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids
-  ) order by coalesce(g.sort_order,2147483647),r.sort_order,r.created_at),'[]'::jsonb) into v_rooms
-  from public.rooms r left join public.signage_groups g on g.id=r.group_id;
-  select coalesce(jsonb_agg(to_jsonb(x) order by case x.status when 'in_progress' then 0 when 'assigned' then 1 when 'waiting' then 2 else 3 end,x.waiting_started_at),'[]'::jsonb) into v_patients
-  from (select * from public.patient_sessions where (status in ('waiting','assigned','in_progress')) or (status='completed' and completed_at>=date_trunc('day',clock_timestamp())) ) x;
-  select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'kind',p.kind,'active',p.active,'sort_order',p.sort_order,'target_treatment',p.target_treatment,'target_age',p.target_age,'target_gender',p.target_gender) order by p.sort_order,p.created_at),'[]'::jsonb) into v_playlists from public.playlists p where p.active;
-  select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'active',v.active,'duration_sec',v.duration_sec,'thumbnail_data_url',v.thumbnail_data_url,'target_treatment',v.target_treatment,'target_age',v.target_age,'target_gender',v.target_gender) order by v.sort_order,v.created_at),'[]'::jsonb) into v_videos from public.videos v where v.active and (v.source<>'local' or v.available);
-  select coalesce(jsonb_agg(jsonb_build_object('playlist_id',pi.playlist_id,'video_id',pi.video_id,'sort_order',pi.sort_order) order by pi.playlist_id,pi.sort_order,pi.created_at),'[]'::jsonb) into v_items from public.playlist_items pi;
-  select coalesce(jsonb_agg(jsonb_build_object('room_id',rr.room_id,'video_id',rr.video_id,'enabled',rr.enabled,'sort_order',rr.sort_order,'starts_at',rr.starts_at,'ends_at',rr.ends_at,'updated_at',rr.updated_at)),'[]'::jsonb) into v_rules from public.room_video_rules rr;
-  select jsonb_build_object('active',active,'notice_text',notice_text) into v_broadcast from public.broadcast where id=1;
-  return jsonb_build_object('rooms',v_rooms,'patients',v_patients,'playlists',v_playlists,'videos',v_videos,'playlist_items',v_items,'room_video_rules',v_rules,'broadcast',coalesce(v_broadcast,'{}'::jsonb),'server_time',clock_timestamp());
-end $$;
 
 revoke all on function public.admin_set_room_video_rule(uuid,uuid,boolean,timestamptz,timestamptz) from public;
 revoke all on function public.staff_set_room_video_rule(uuid,uuid,boolean) from public;
@@ -2114,15 +1678,7 @@ end $$;
 -- 여러 번 실행해도 안전합니다.
 -- =====================================================================
 
-create or replace function public.is_member()
-returns boolean language sql stable security definer set search_path = public as $$
-  select coalesce(public.pin_session_role() in ('admin', 'staff'), false);
-$$;
 
-create or replace function public.is_admin()
-returns boolean language sql stable security definer set search_path = public as $$
-  select coalesce(public.pin_session_role() = 'admin', false);
-$$;
 
 alter function public.admin_change_pin(text, text) set search_path = public, extensions;
 
@@ -2336,74 +1892,354 @@ returns text language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.pin_request_ip() from public, anon, authenticated;
 
-create or replace function public.pin_login(p_pin text, p_client_id text)
-returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare
-  v_client text := left(trim(coalesce(p_client_id, '')), 100);
-  v_ip_key text := 'ip:' || coalesce(public.pin_request_ip(), 'unknown');
-  v_fail int := 0; v_locked timestamptz;
-  v_ip_fail int := 0; v_ip_locked timestamptz; v_ip_updated timestamptz;
-  v_account public.pin_accounts; v_token text; v_exp timestamptz;
-  v_now timestamptz := clock_timestamp();
-  c_ip_window constant interval := interval '15 minutes';
-  c_ip_max constant int := 20;
-begin
-  if v_client = '' or v_client !~ '^[A-Za-z0-9._:-]{8,100}$' then return jsonb_build_object('ok', false, 'error', 'invalid_client'); end if;
-  if p_pin !~ '^[0-9]{4,6}$' then return jsonb_build_object('ok', false, 'error', 'invalid_pin'); end if;
-
-  -- IP 잠금
-  select failed_count, locked_until, updated_at into v_ip_fail, v_ip_locked, v_ip_updated
-    from public.pin_login_throttle where client_id = v_ip_key;
-  if v_ip_locked is not null and v_ip_locked > v_now then
-    return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', greatest(1, ceil(extract(epoch from (v_ip_locked - v_now)))::int));
-  end if;
-  if v_ip_updated is null or v_ip_updated < v_now - c_ip_window then v_ip_fail := 0; end if;
-
-  -- 기기(client_id) 잠금
-  select failed_count, locked_until into v_fail, v_locked from public.pin_login_throttle where client_id = v_client;
-  if v_locked is not null and v_locked > v_now then
-    return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', greatest(1, ceil(extract(epoch from (v_locked - v_now)))::int));
-  end if;
-
-  select a.* into v_account
-    from public.pin_accounts a
-   where a.enabled and crypt(p_pin, a.pin_hash) = a.pin_hash
-   order by case a.role when 'admin' then 0 else 1 end
-   limit 1;
-
-  if not found then
-    -- IP 카운터
-    v_ip_fail := coalesce(v_ip_fail, 0) + 1;
-    insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
-    values (v_ip_key, case when v_ip_fail >= c_ip_max then 0 else v_ip_fail end,
-            case when v_ip_fail >= c_ip_max then v_now + c_ip_window end, v_now)
-    on conflict (client_id) do update set failed_count = excluded.failed_count, locked_until = excluded.locked_until, updated_at = excluded.updated_at;
-    if v_ip_fail >= c_ip_max then
-      return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', extract(epoch from c_ip_window)::int);
-    end if;
-
-    -- 기기 카운터 (기존 동작)
-    v_fail := coalesce(v_fail, 0) + 1;
-    if v_fail >= 5 then
-      insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
-      values (v_client, 0, v_now + interval '5 minutes', v_now)
-      on conflict (client_id) do update set failed_count = 0, locked_until = excluded.locked_until, updated_at = v_now;
-      return jsonb_build_object('ok', false, 'error', 'locked', 'retry_after_sec', 300);
-    else
-      insert into public.pin_login_throttle(client_id, failed_count, locked_until, updated_at)
-      values (v_client, v_fail, null, v_now)
-      on conflict (client_id) do update set failed_count = excluded.failed_count, locked_until = null, updated_at = v_now;
-      return jsonb_build_object('ok', false, 'error', 'invalid_pin');
-    end if;
-  end if;
-
-  delete from public.pin_login_throttle where client_id in (v_client, v_ip_key);
-  delete from public.pin_login_throttle where locked_until is null and updated_at < v_now - interval '1 day';
-  delete from public.pin_sessions where expires_at <= v_now;
-  v_token := encode(gen_random_bytes(32), 'hex');
-  v_exp := v_now + interval '12 hours';
-  insert into public.pin_sessions(account_id, token_hash, expires_at) values (v_account.id, digest(v_token, 'sha256'), v_exp);
-  return jsonb_build_object('ok', true, 'token', v_token, 'role', v_account.role, 'expires_at', v_exp);
-end $$;
 revoke all on function public.pin_login(text, text) from public;
 grant execute on function public.pin_login(text, text) to anon, authenticated;
+
+
+-- =====================================================================
+-- Required player control signal channel (canonical)
+-- =====================================================================
+-- Clinic Signage v2.21.10 — reliable player wake-up channel
+-- Safe to rerun.
+-- Root cause fixed: player pages use the anon role, while public.rooms and other control
+-- tables are protected by member/admin RLS. Postgres Realtime therefore could not deliver
+-- those row changes to anonymous players. A dedicated non-sensitive signal table is used
+-- as the only canonical player wake-up stream.
+
+create table if not exists public.player_control_signals (
+  room_id uuid primary key references public.rooms(id) on delete cascade,
+  revision bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.player_control_signals enable row level security;
+
+drop policy if exists player_control_signals_read on public.player_control_signals;
+create policy player_control_signals_read
+  on public.player_control_signals
+  for select
+  to anon, authenticated
+  using (true);
+
+-- No direct INSERT/UPDATE/DELETE policy is intentionally provided. Writes only occur
+-- through the SECURITY DEFINER function below after member/admin authorization.
+
+insert into public.player_control_signals(room_id,revision,updated_at)
+select r.id,0,now()
+from public.rooms r
+on conflict (room_id) do nothing;
+
+create or replace function public.signal_signage_rooms(
+  p_room_ids uuid[] default null,
+  p_group uuid default null,
+  p_all boolean default false
+)
+returns integer
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_count integer:=0;
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  if (coalesce(p_all,false) or p_group is not null) and not public.is_admin() then
+    raise exception 'not allowed';
+  end if;
+  if not coalesce(p_all,false) and p_group is null and coalesce(array_length(p_room_ids,1),0)=0 then
+    return 0;
+  end if;
+
+  insert into public.player_control_signals(room_id,revision,updated_at)
+  select r.id,1,clock_timestamp()
+  from public.rooms r
+  where coalesce(p_all,false)
+     or (p_group is not null and r.group_id=p_group)
+     or (coalesce(array_length(p_room_ids,1),0)>0 and r.id=any(p_room_ids))
+  on conflict (room_id) do update
+     set revision=public.player_control_signals.revision+1,
+         updated_at=excluded.updated_at;
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end $$;
+
+revoke all on function public.signal_signage_rooms(uuid[],uuid,boolean) from public;
+grant execute on function public.signal_signage_rooms(uuid[],uuid,boolean) to anon,authenticated;
+
+-- Realtime publication for the dedicated player-safe signal table.
+do $$
+begin
+  if exists(select 1 from pg_publication where pubname='supabase_realtime')
+     and not exists(
+       select 1 from pg_publication_tables
+       where pubname='supabase_realtime'
+         and schemaname='public'
+         and tablename='player_control_signals'
+     ) then
+    execute 'alter publication supabase_realtime add table public.player_control_signals';
+  end if;
+end $$;
+
+-- Ensure future rooms get a signal row even before their first control action.
+create or replace function public.ensure_player_control_signal()
+returns trigger
+language plpgsql
+security definer
+set search_path=public
+as $$
+begin
+  insert into public.player_control_signals(room_id,revision,updated_at)
+  values(new.id,0,now())
+  on conflict (room_id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists rooms_ensure_player_control_signal on public.rooms;
+create trigger rooms_ensure_player_control_signal
+after insert on public.rooms
+for each row execute function public.ensure_player_control_signal();
+
+-- ===== v2.27.0 canonical timed output =====
+-- Clinic Signage v2.27.0 — timed hospital and per-room output
+-- Safe to run repeatedly after v2.25.0+ canonical schema.
+
+alter table public.broadcast add column if not exists starts_at timestamptz;
+alter table public.broadcast add column if not exists ends_at timestamptz;
+alter table public.rooms add column if not exists manual_starts_at timestamptz;
+alter table public.rooms add column if not exists manual_ends_at timestamptz;
+
+do $$ begin
+  if not exists(select 1 from pg_constraint where conname='broadcast_time_window_check') then
+    alter table public.broadcast add constraint broadcast_time_window_check check(ends_at is null or starts_at is null or ends_at>starts_at);
+  end if;
+  if not exists(select 1 from pg_constraint where conname='rooms_manual_time_window_check') then
+    alter table public.rooms add constraint rooms_manual_time_window_check check(manual_ends_at is null or manual_starts_at is null or manual_ends_at>manual_starts_at);
+  end if;
+end $$;
+
+create or replace function public.admin_set_broadcast(p_active boolean,p_video_ids uuid[],p_notice text default null,p_delay_ms int default 3000)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_ids uuid[]; v_before jsonb; v_after jsonb;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  select to_jsonb(b) into v_before from public.broadcast b where id=1;
+  if coalesce(p_active,false) then
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[]) into v_ids
+    from public.videos v where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else v_ids:=coalesce(p_video_ids,'{}'::uuid[]); end if;
+  update public.broadcast set
+    active=coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0,
+    video_ids=v_ids,notice_text=nullif(trim(coalesce(p_notice,'')),''),
+    starts_at=null,ends_at=null,
+    effective_at=case when coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0 then clock_timestamp()+make_interval(secs=>greatest(0,least(coalesce(p_delay_ms,3000),10000))/1000.0) else null end,
+    revision=revision+1,updated_at=clock_timestamp() where id=1;
+  select to_jsonb(b) into v_after from public.broadcast b where id=1;
+  insert into public.control_history(scope_type,action,label,before_state,after_state) values('hospital',case when p_active then 'start' else 'stop' end,'전체 병원',v_before,v_after);
+end $$;
+
+create or replace function public.admin_set_broadcast_timed(p_active boolean,p_video_ids uuid[],p_notice text default null,p_starts_at timestamptz default null,p_ends_at timestamptz default null)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_ids uuid[]; v_before jsonb; v_after jsonb; v_start timestamptz;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if p_starts_at is not null and p_ends_at is not null and p_ends_at<=p_starts_at then raise exception '종료시각은 시작시각 이후여야 합니다'; end if;
+  if p_ends_at is not null and p_starts_at is null and p_ends_at<=clock_timestamp() then raise exception '종료시각은 현재 이후여야 합니다'; end if;
+  select to_jsonb(b) into v_before from public.broadcast b where id=1;
+  if coalesce(p_active,false) then
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[]) into v_ids from public.videos v
+    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else v_ids:=coalesce(p_video_ids,'{}'::uuid[]); end if;
+  v_start:=case when coalesce(p_active,false) then p_starts_at else null end;
+  update public.broadcast set
+    active=coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0,video_ids=v_ids,notice_text=nullif(trim(coalesce(p_notice,'')),''),
+    starts_at=v_start,ends_at=case when coalesce(p_active,false) then p_ends_at else null end,
+    effective_at=case when coalesce(p_active,false) and coalesce(array_length(v_ids,1),0)>0 then coalesce(v_start,clock_timestamp()) else null end,
+    revision=revision+1,updated_at=clock_timestamp() where id=1;
+  select to_jsonb(b) into v_after from public.broadcast b where id=1;
+  insert into public.control_history(scope_type,action,label,before_state,after_state) values('hospital',case when p_active then 'timed_start' else 'stop' end,'전체 병원',v_before,v_after);
+end $$;
+
+create or replace function public.admin_set_rooms_manual(p_rooms uuid[],p_video_ids uuid[],p_active boolean)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_ids uuid[]; v_before jsonb; v_after jsonb; v_count int;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if coalesce(array_length(p_rooms,1),0)=0 then return; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('id',r.id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids,'manual_starts_at',r.manual_starts_at,'manual_ends_at',r.manual_ends_at)),'[]'::jsonb),count(*) into v_before,v_count from public.rooms r where r.id=any(p_rooms);
+  if p_active then
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[]) into v_ids from public.videos v
+    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else v_ids:='{}'::uuid[]; end if;
+  update public.rooms set manual_video_ids=v_ids,manual_active=p_active and coalesce(array_length(v_ids,1),0)>0,manual_starts_at=null,manual_ends_at=null,manual_updated_at=clock_timestamp() where id=any(p_rooms);
+  select coalesce(jsonb_agg(jsonb_build_object('id',r.id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids,'manual_starts_at',r.manual_starts_at,'manual_ends_at',r.manual_ends_at)),'[]'::jsonb) into v_after from public.rooms r where r.id=any(p_rooms);
+  insert into public.control_history(scope_type,action,label,before_state,after_state) values('rooms',case when p_active then 'manual_start' else 'manual_clear' end,v_count||'개 공간',v_before,v_after);
+end $$;
+
+create or replace function public.admin_set_rooms_manual_timed(p_rooms uuid[],p_video_ids uuid[],p_active boolean,p_starts_at timestamptz default null,p_ends_at timestamptz default null)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_ids uuid[]; v_before jsonb; v_after jsonb; v_count int;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  if coalesce(array_length(p_rooms,1),0)=0 then return; end if;
+  if p_starts_at is not null and p_ends_at is not null and p_ends_at<=p_starts_at then raise exception '종료시각은 시작시각 이후여야 합니다'; end if;
+  if p_ends_at is not null and p_starts_at is null and p_ends_at<=clock_timestamp() then raise exception '종료시각은 현재 이후여야 합니다'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('id',r.id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids,'manual_starts_at',r.manual_starts_at,'manual_ends_at',r.manual_ends_at)),'[]'::jsonb),count(*) into v_before,v_count from public.rooms r where r.id=any(p_rooms);
+  if p_active then
+    select coalesce(array_agg(v.id order by array_position(p_video_ids,v.id)),'{}'::uuid[]) into v_ids from public.videos v
+    where v.id=any(coalesce(p_video_ids,'{}'::uuid[])) and v.active and (v.source<>'local' or v.available);
+  else v_ids:='{}'::uuid[]; end if;
+  update public.rooms set manual_video_ids=v_ids,manual_active=p_active and coalesce(array_length(v_ids,1),0)>0,
+    manual_starts_at=case when p_active then p_starts_at else null end,manual_ends_at=case when p_active then p_ends_at else null end,manual_updated_at=clock_timestamp()
+  where id=any(p_rooms);
+  select coalesce(jsonb_agg(jsonb_build_object('id',r.id,'manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids,'manual_starts_at',r.manual_starts_at,'manual_ends_at',r.manual_ends_at)),'[]'::jsonb) into v_after from public.rooms r where r.id=any(p_rooms);
+  insert into public.control_history(scope_type,action,label,before_state,after_state) values('rooms',case when p_active then 'manual_timed' else 'manual_clear' end,v_count||'개 공간',v_before,v_after);
+end $$;
+
+create or replace function public.player_get_state(p_key uuid)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  r public.rooms; b public.broadcast; s public.app_settings; gb public.group_broadcasts; hs public.broadcast_schedules; gs public.broadcast_schedules;
+  v_mode text; v_expires timestamptz; v_playlist jsonb:='[]'::jsonb; v_emergency jsonb; v_playlist_id uuid;
+  v_notice text; v_effective timestamptz; v_revision text:='0'; v_next_transition timestamptz;
+begin
+  select * into r from public.rooms where player_key=p_key; if not found then return null; end if;
+  select * into b from public.broadcast where id=1; select * into s from public.app_settings where id=1;
+  if r.group_id is not null then select * into gb from public.group_broadcasts where group_id=r.group_id; end if;
+  select * into hs from public.broadcast_schedules x where x.enabled and x.scope_type='hospital' and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1;
+  if r.group_id is not null then select * into gs from public.broadcast_schedules x where x.enabled and x.scope_type='group' and x.group_id=r.group_id and x.starts_at<=clock_timestamp() and x.ends_at>clock_timestamp() order by x.starts_at desc limit 1; end if;
+  select min(t) into v_next_transition from (
+    select starts_at t from public.broadcast_schedules x where x.enabled and x.starts_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id))
+    union all select ends_at t from public.broadcast_schedules x where x.enabled and x.ends_at>clock_timestamp() and (x.scope_type='hospital' or (x.scope_type='group' and x.group_id=r.group_id))
+    union all select b.starts_at where b.active and b.starts_at is not null and b.starts_at>clock_timestamp()
+    union all select b.ends_at where b.active and b.ends_at is not null and b.ends_at>clock_timestamp()
+    union all select r.manual_starts_at where r.manual_active and r.manual_starts_at is not null and r.manual_starts_at>clock_timestamp()
+    union all select r.manual_ends_at where r.manual_active and r.manual_ends_at is not null and r.manual_ends_at>clock_timestamp()
+    union all select starts_at t from public.room_video_rules rr where rr.room_id=r.id and rr.starts_at>clock_timestamp()
+    union all select ends_at t from public.room_video_rules rr where rr.room_id=r.id and rr.ends_at>clock_timestamp()
+  ) q;
+  if r.session_started_at is not null and r.session_timeout_min>0 then v_expires:=r.session_started_at+make_interval(mins=>r.session_timeout_min); end if;
+
+  if b.active and (b.starts_at is null or b.starts_at<=clock_timestamp()) and (b.ends_at is null or b.ends_at>clock_timestamp()) and coalesce(array_length(b.video_ids,1),0)>0 then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(b.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(b.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast';v_notice:=b.notice_text;v_effective:=b.effective_at;v_revision:='b:'||b.revision; end if;
+  end if;
+  if v_mode is null and hs.id is not null then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(hs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(hs.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='broadcast_schedule';v_notice:=hs.notice_text;v_effective:=hs.starts_at;v_revision:='hs:'||hs.id::text||':'||extract(epoch from hs.starts_at)::bigint; end if;
+  end if;
+  if v_mode is null and r.manual_active and (r.manual_starts_at is null or r.manual_starts_at<=clock_timestamp()) and (r.manual_ends_at is null or r.manual_ends_at>clock_timestamp()) and coalesce(array_length(r.manual_video_ids,1),0)>0 then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(r.manual_video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(r.manual_video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='manual';v_revision:='m:'||coalesce(extract(epoch from r.manual_updated_at)::bigint,0); end if;
+  end if;
+  if v_mode is null and gb.group_id is not null and gb.active and coalesce(array_length(gb.video_ids,1),0)>0 then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(gb.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gb.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='group';v_notice:=gb.notice_text;v_effective:=gb.effective_at;v_revision:='g:'||gb.revision; end if;
+  end if;
+  if v_mode is null and gs.id is not null then
+    select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by array_position(gs.video_ids,v.id)),'[]'::jsonb) into v_playlist from public.videos v where v.id=any(gs.video_ids) and v.active and (v.source<>'local' or v.available);
+    if jsonb_array_length(v_playlist)>0 then v_mode:='group_schedule';v_notice:=gs.notice_text;v_effective:=gs.starts_at;v_revision:='gs:'||gs.id::text||':'||extract(epoch from gs.starts_at)::bigint; end if;
+  end if;
+
+  if v_mode is null and r.room_mode in ('treatment','consultation') and r.session_treatment is not null and r.session_started_at is not null and (v_expires is null or v_expires>clock_timestamp()) then
+    select p.id into v_playlist_id from public.playlists p where p.active and p.kind='patient'
+      and (coalesce(array_length(p.target_treatment,1),0)=0 or r.session_treatment=any(p.target_treatment))
+      and (coalesce(array_length(p.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(p.target_age)))
+      and (coalesce(array_length(p.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(p.target_gender)))
+    order by (case when coalesce(array_length(p.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(p.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(p.target_gender,1),0)>0 then 5 else 0 end) desc,p.sort_order,p.created_at limit 1;
+    if v_playlist_id is not null then
+      select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available);
+      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='pp:'||v_playlist_id::text||':'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
+    end if;
+    if v_mode is null then
+      with candidates as (select v.*,(case when coalesce(array_length(v.target_treatment,1),0)>0 then 100 else 0 end + case when coalesce(array_length(v.target_age,1),0)>0 then 10 else 0 end + case when coalesce(array_length(v.target_gender,1),0)>0 then 5 else 0 end) score from public.videos v where v.active and (v.source<>'local' or v.available) and (coalesce(array_length(v.target_treatment,1),0)=0 or r.session_treatment=any(v.target_treatment)) and (coalesce(array_length(v.target_age,1),0)=0 or (r.session_age_group is not null and r.session_age_group=any(v.target_age))) and (coalesce(array_length(v.target_gender,1),0)=0 or (r.session_gender is not null and r.session_gender=any(v.target_gender)))), best as (select max(score) score from candidates)
+      select coalesce(jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source',c.source,'file_path',c.file_path,'url',c.url,'size',c.size_bytes,'file_modified_at',c.file_modified_at) order by c.sort_order,c.created_at),'[]'::jsonb) into v_playlist from candidates c cross join best where c.score=best.score;
+      if jsonb_array_length(v_playlist)>0 then v_mode:='patient';v_revision:='legacy-p:'||coalesce(extract(epoch from r.session_started_at)::bigint,0); end if;
+    end if;
+  end if;
+
+  if v_mode is null then
+    v_mode:='default';v_expires:=null;
+    v_playlist_id:=r.default_playlist_id;
+    if v_playlist_id is null then select id into v_playlist_id from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
+    if v_playlist_id is not null then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by pi.sort_order,pi.created_at),'[]'::jsonb) into v_playlist from public.playlist_items pi join public.videos v on v.id=pi.video_id where pi.playlist_id=v_playlist_id and v.active and (v.source<>'local' or v.available); end if;
+    if jsonb_array_length(v_playlist)=0 then select coalesce(jsonb_agg(jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) order by v.sort_order,v.created_at),'[]'::jsonb) into v_playlist from public.videos v where v.active and (v.source<>'local' or v.available) and v.tags&&r.default_tags; end if;
+    v_revision:='d:'||coalesce(v_playlist_id::text,'legacy');
+  end if;
+  if v_mode in ('manual','patient','default') then
+    v_playlist:=public.apply_room_video_rules(r.id,v_playlist);
+    v_revision:=v_revision||':rr:'||coalesce((select extract(epoch from max(updated_at))::bigint::text from public.room_video_rules where room_id=r.id),'0');
+  end if;
+  if s.emergency_video_id is not null then select jsonb_build_object('id',v.id,'title',v.title,'source',v.source,'file_path',v.file_path,'url',v.url,'size',v.size_bytes,'file_modified_at',v.file_modified_at,'thumbnail',v.thumbnail_data_url) into v_emergency from public.videos v where v.id=s.emergency_video_id and v.active and (v.source<>'local' or v.available); end if;
+  return jsonb_build_object('room',jsonb_build_object('id',r.id,'name',r.name,'group_id',r.group_id,'room_mode',r.room_mode,'force_mute',r.force_mute,'volume',r.volume,'paused',r.paused,'overlay_text',r.overlay_text,'reload_nonce',r.reload_nonce),'mode',v_mode,'session_expires_at',case when v_mode='patient' then v_expires end,'notice_text',v_notice,'playlist',v_playlist,'emergency_video',v_emergency,'sync_effective_at',v_effective,'sync_revision',v_revision,'next_transition_at',v_next_transition,'media_server_url',coalesce(s.media_server_url,''),'server_time',clock_timestamp());
+end $$;
+
+
+create or replace function public.admin_add_room_video(p_room uuid,p_video uuid)
+returns void language plpgsql security definer set search_path=public as $$
+declare
+  r public.rooms; v_ids uuid[]; v_title text; v_playlist uuid; v_before jsonb; v_keep_window boolean;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  select * into r from public.rooms where id=p_room for update;
+  if not found then raise exception '공간을 찾을 수 없습니다'; end if;
+  select title into v_title from public.videos where id=p_video and active and (source<>'local' or available);
+  if v_title is null then raise exception '사용 가능한 영상이 아닙니다'; end if;
+  v_keep_window:=r.manual_active and (r.manual_ends_at is null or r.manual_ends_at>clock_timestamp());
+  v_before:=jsonb_build_object('manual_active',r.manual_active,'manual_video_ids',r.manual_video_ids,'manual_starts_at',r.manual_starts_at,'manual_ends_at',r.manual_ends_at,'default_playlist_id',r.default_playlist_id);
+  if v_keep_window and coalesce(array_length(r.manual_video_ids,1),0)>0 then
+    v_ids:=r.manual_video_ids;
+  else
+    v_playlist:=r.default_playlist_id;
+    if v_playlist is null then select id into v_playlist from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
+    select coalesce(array_agg(v.id order by pi.sort_order,pi.created_at),'{}'::uuid[]) into v_ids
+      from public.playlist_items pi join public.videos v on v.id=pi.video_id
+     where pi.playlist_id=v_playlist and v.active and (v.source<>'local' or v.available);
+  end if;
+  if not (p_video=any(coalesce(v_ids,'{}'::uuid[]))) then v_ids:=array_append(coalesce(v_ids,'{}'::uuid[]),p_video); end if;
+  update public.rooms set manual_video_ids=v_ids,manual_active=true,
+    manual_starts_at=case when v_keep_window then r.manual_starts_at else null end,
+    manual_ends_at=case when v_keep_window then r.manual_ends_at else null end,
+    manual_updated_at=clock_timestamp() where id=p_room;
+  insert into public.control_history(scope_type,scope_id,action,label,before_state,after_state)
+  values('rooms',p_room,'video_add',v_title,v_before,(select jsonb_build_object('manual_active',manual_active,'manual_video_ids',manual_video_ids,'manual_starts_at',manual_starts_at,'manual_ends_at',manual_ends_at,'default_playlist_id',default_playlist_id) from public.rooms where id=p_room));
+end $$;
+
+create or replace function public.staff_add_room_video(p_room uuid,p_video uuid)
+returns void language plpgsql security definer set search_path=public as $$
+declare r public.rooms; v_ids uuid[]; v_playlist uuid; v_title text; v_keep_window boolean;
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  select * into r from public.rooms where id=p_room for update;
+  if not found then raise exception '공간을 찾을 수 없습니다'; end if;
+  select title into v_title from public.videos where id=p_video and active and (source<>'local' or available);
+  if v_title is null then raise exception '사용 가능한 영상이 아닙니다'; end if;
+  v_keep_window:=r.manual_active and (r.manual_ends_at is null or r.manual_ends_at>clock_timestamp());
+  if v_keep_window and coalesce(array_length(r.manual_video_ids,1),0)>0 then
+    v_ids:=r.manual_video_ids;
+  else
+    v_playlist:=r.default_playlist_id;
+    if v_playlist is null then select id into v_playlist from public.playlists where active and kind='default' order by sort_order,created_at limit 1; end if;
+    select coalesce(array_agg(v.id order by pi.sort_order,pi.created_at),'{}'::uuid[]) into v_ids
+      from public.playlist_items pi join public.videos v on v.id=pi.video_id
+     where pi.playlist_id=v_playlist and v.active and (v.source<>'local' or v.available);
+  end if;
+  if not (p_video=any(coalesce(v_ids,'{}'::uuid[]))) then v_ids:=array_append(coalesce(v_ids,'{}'::uuid[]),p_video); end if;
+  update public.rooms set manual_video_ids=v_ids,manual_active=true,
+    manual_starts_at=case when v_keep_window then r.manual_starts_at else null end,
+    manual_ends_at=case when v_keep_window then r.manual_ends_at else null end,
+    manual_updated_at=clock_timestamp() where id=p_room;
+end $$;
+
+create or replace function public.staff_clear_room_manual(p_room uuid)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  update public.rooms set manual_active=false,manual_video_ids='{}'::uuid[],manual_starts_at=null,manual_ends_at=null,manual_updated_at=clock_timestamp() where id=p_room;
+end $$;
+
+revoke all on function public.admin_set_broadcast_timed(boolean,uuid[],text,timestamptz,timestamptz) from public;
+revoke all on function public.admin_set_rooms_manual_timed(uuid[],uuid[],boolean,timestamptz,timestamptz) from public;
+grant execute on function public.admin_set_broadcast_timed(boolean,uuid[],text,timestamptz,timestamptz) to anon,authenticated;
+grant execute on function public.admin_set_rooms_manual_timed(uuid[],uuid[],boolean,timestamptz,timestamptz) to anon,authenticated;
+
