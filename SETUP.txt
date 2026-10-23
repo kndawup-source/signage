@@ -23,7 +23,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 
 2. 웹 설정
 - js/config.js에 Supabase URL / anon key 입력
-- 30실 기본값: pollMs 30000 / heartbeatMs 10000 / onlineThresholdMs 35000
+- 현재 기준값: pollMs 120000 / heartbeatMs 60000 / livePresenceMs 60000 / livePollMs 60000 / onlineThresholdMs 180000
 
 3. 영상 서버 PC
 - Node.js LTS 설치
@@ -68,7 +68,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 전체 송출 중 영상을 변경하면 새 revision + 새 effective_at으로 다시 동기 시작
 
 9. 실제 송출 상태
-- heartbeat 10초 + 재생/정지/오류/영상변경 즉시 보고
+- 상태 변경은 즉시 player_report, presence/통계 heartbeat는 60초 기준
 - 관리자에는 명령값이 아니라 실제 재생 영상/모드/상태/위치/음소거/오류 표시
 - heartbeat JSON은 DB에서 최대 크기 및 허용 필드만 정규화하여 저장
 
@@ -96,7 +96,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - 30실 전체를 Wi-Fi만으로 운영하는 것은 권장하지 않음
 
 13. 장애 시 동작
-- Realtime 장애: 30초 polling
+- 관리자/스태프 상태 보정: 화면이 보일 때 60초 변경분 조회 + 제어 직후 해당 공간 ACK
 - Supabase 일시 장애: 열린 플레이어는 마지막 상태 유지
 - 영상 서버 장애: 현재 플레이리스트 1회 확인 후 로컬 비상영상 전환
 - 서버 복구: 15초 간격 확인 후 정상 영상 자동 복귀
@@ -123,7 +123,7 @@ CLINIC SIGNAGE v2.5 · PIN 전용 로그인 · 30개 진료실 운영형
 - PIN 원문은 js/config.js, HTML, localStorage에 저장하지 않음
 - 브라우저에는 12시간짜리 임의 세션 토큰만 저장
 - RLS는 Supabase Auth 이메일 계정이 아니라 PIN 세션 헤더를 검증
-- 관리자 실시간 상태 화면은 보안을 위해 테이블 Realtime 구독 대신 5초 경량 상태 갱신 사용
+- 관리자/스태프 상태 화면은 테이블 Realtime 구독 대신 60초 변경분 조회와 제어 직후 공간별 ACK를 사용
 - 전체/개별 송출 명령은 기존 realtime.send 경로를 그대로 사용하므로 플레이어 전환 속도에는 영향 없음
 
 
@@ -147,12 +147,20 @@ SQL 실행 순서 (Supabase SQL Editor, 여러 번 실행해도 안전)
   1) supabase/v2.24.0-security-hotfix.sql   ← 반드시 먼저. PIN 없이 admin_*/staff_* RPC가 실행되던 문제 수정
   2) supabase/v2.24.1-live-status-lite.sql  ← 상태 보고/조회 RPC, 썸네일 없는 플레이어 상태
   3) supabase/v2.24.2-pin-ip-throttle.sql   ← (권장) PIN 무차별 대입 IP 기준 잠금
+  4) supabase/v2.25.0-canonical-refactor.sql ← 현재 코드가 사용하는 player_control_signals 보장 (재실행 안전)
   * schema.sql 끝에도 같은 내용이 붙어 있어 신규 설치는 schema.sql 하나로 됩니다.
   * 프론트는 새 RPC가 없으면 기존 RPC로 자동 fallback → SQL/프론트 배포 순서 무관.
 
 송출 상태 확인 방식
 - 플레이어: 영상 전환·재생/정지/오류·상태 수신 시 즉시 보고 + 변화 없으면 60초 presence 1회
-- 관리자/스텝: 화면이 보일 때만 30초마다 "변경된 행만" 조회 (config.js livePollMs, 0이면 수동)
+- 관리자/스텝: 화면이 보일 때만 60초마다 "변경된 행만" 조회 (config.js livePollMs, 0이면 수동)
 - 제어 직후: 해당 공간만 0.8~20초 사이 최대 8회 조회 → 플레이어가 새 상태를 실제 재생하면 즉시 종료
   카드 배지: 적용 확인 중 → 송출 중 / 적용 미확인 / 적용 오류
 - Realtime은 "플레이어 깨우기"(room:{key}, player_control_signals, 전체 송출 브로드캐스트)에만 사용
+
+
+[v2.25.0 canonical refactor]
+- 앱/플레이어/정적자산 버전 2.25.0 통일
+- 관리자/스태프 live status 변경분 조회 60초
+- 제어 직후 해당 공간 ACK 유지
+- schema.sql 중복 함수 정의를 최종 정의 기준으로 정리

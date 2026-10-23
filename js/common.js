@@ -8,7 +8,7 @@
     pollMs: 120000,
     heartbeatMs: 60000,
     livePresenceMs: 60000,
-    livePollMs: 30000,
+    livePollMs: 60000,
     onlineThresholdMs: 180000
   });
   const suppliedConfig = window.CLINIC_SIGNAGE_CONFIG && typeof window.CLINIC_SIGNAGE_CONFIG === 'object'

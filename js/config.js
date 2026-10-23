@@ -12,7 +12,7 @@ window.CLINIC_SIGNAGE_CONFIG = Object.freeze({
   // Player: presence report when nothing changed. State changes are reported immediately.
   livePresenceMs: 60000,
   // Admin / staff: changed-rows-only status poll while the tab is visible. 0 = off.
-  livePollMs: 30000,
+  livePollMs: 60000,
   // Admin / staff: no presence for this long -> offline.
   onlineThresholdMs: 180000
 });
