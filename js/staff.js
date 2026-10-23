@@ -117,6 +117,24 @@
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
   }
   const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'지원',name:'기공실'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
+  const FLOOR_GUIDES={
+    1:{flow:'입구 → 접수·안내 → 엘리베이터',purpose:'첫 방문 안내와 병원 신뢰 형성',content:'병원 소개 · 진료 분야 · 이용 안내',exposure:'로비 · 접수 대기'},
+    2:{flow:'접수·검사 → 대기 → 다음 진료 이동',purpose:'대기 중 정보 제공과 불안 완화',content:'치료 전 안내 · 자주 묻는 질문 · 케이스 소개',exposure:'대기공간 · 이동 동선'},
+    3:{flow:'엘리베이터 → 대기 → 진료실',purpose:'진료 전 치료 이해도 높이기',content:'진료 과정 · 치료 전후 주의사항 · 케이스',exposure:'대기공간 · 진료실 앞'},
+    4:{flow:'대기 → 상담 → 진료·검사',purpose:'교정·임플란트 치료 이해와 상담 보조',content:'치료 과정 · 장비/기술 설명 · 전후 관리',exposure:'상담 대기 · 진료실 앞'},
+    5:{flow:'직원·내부 이동 중심',purpose:'공간 목적에 맞는 안내',content:'운영 안내 · 필요 콘텐츠',exposure:'주요 체류 지점'},
+    6:{flow:'직원·기공 업무 동선',purpose:'내부 업무 지원과 공지',content:'업무 안내 · 교육 · 내부 공지',exposure:'업무 공간'},
+    7:{flow:'엘리베이터 → 대기 → 진료실',purpose:'예방·진료 이해와 치료 준비',content:'예방 관리 · 치료 과정 · 주의사항',exposure:'대기공간 · 진료실 앞'},
+    8:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 신뢰 형성',content:'미니쉬 과정 · 케이스 · 치료 후 관리',exposure:'대기공간 · 진료실 앞'},
+    9:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 치료 선택 지원',content:'미니쉬 과정 · 전후 사례 · FAQ',exposure:'대기공간 · 진료실 앞'},
+    10:{flow:'엘리베이터 → 대기 → 진료실',purpose:'치료 이해와 긴장 완화',content:'미니쉬 치료 과정 · 전후 관리 · 브랜드 신뢰',exposure:'대기공간 · 진료실 앞 · 상담실'},
+    11:{flow:'의료진·직원 내부 이동',purpose:'내부 커뮤니케이션 지원',content:'교육 · 공지 · 운영 안내',exposure:'의국 · 공용 공간'},
+    12:{flow:'직원 내부 이동',purpose:'업무 정보와 내부 공지 전달',content:'운영 공지 · 교육 · 캠페인',exposure:'사무 공용 공간'},
+    13:{flow:'직원·방문객 식사 및 휴식',purpose:'휴식 공간 정보 제공',content:'병원 소식 · 캠페인 · 가벼운 브랜드 콘텐츠',exposure:'식당 · 휴게공간'},
+    14:{flow:'상담·진료 후 → 라운지 → 퇴원/이동',purpose:'진료 후 신뢰 강화와 관리 안내',content:'치료 후 관리 · 브랜드 스토리 · 케이스',exposure:'라운지 · 상담 대기'}
+  };
+  const floorGuide=(g)=>FLOOR_GUIDES[floorNumber(g)]||{flow:'주요 이동 동선',purpose:'공간 목적에 맞는 영상 송출',content:'안내 · 치료 정보 · 운영 콘텐츠',exposure:'대기 및 주요 체류 지점'};
+
   function staffBuildingFloor(n,g){
     const rooms=g?g.rooms||state.rooms.filter(r=>r.group_id===g.id):[],st=g?groupStatusSummary(rooms):{key:'idle',issues:0,offline:0,live:0,total:0};
     const def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
@@ -131,10 +149,11 @@
     return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" title="${esc(r.name)} · ${esc(st.label)}" aria-label="${esc(r.name)} · ${esc(st.label)}"><span class="display-screen-icon"></span><span class="floor-display-dot"></span></button>`;
   }
   function staffFloorPanelMarkup(g){
-    if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 건물에서 층을 선택하면 해당 층의 실제 도면과 디스플레이 위치가 표시됩니다.</p></div></section>`;
+    if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 층을 선택하면 실제 도면, 공간 영역, 디스플레이 위치와 이 층의 영상 운영 목적이 함께 표시됩니다.</p></div></section>`;
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
-    const n=floorNumber(g),def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},purpose=g.signage_purpose||`${def.name} 영상 송출`,audience=g.target_audience||'이 층을 이용하는 고객·직원',reason=g.signage_reason||'해당 공간에 필요한 영상을 안내합니다.';
-    return `<section class="building-plan-pane"><div class="building-plan-head"><div><span class="eyebrow">${esc(careTypeLabel(g.care_type)||def.kind)}</span><h3>${n?`${n}F`:esc(groupDisplayName(g.name))} · ${esc(g.name||def.name)}</h3><p>${esc(purpose)}</p></div><div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div></div><div class="building-plan-explain"><span><small>대상</small><b>${esc(audience)}</b></span><span><small>이유</small><b>${esc(reason)}</b></span></div>${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(staffFloorMarker).join('')}</div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>병원 설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>도면 등록</button></div>`}<div class="building-plan-foot"><span>확인 필요 ${sum.issues}</span><span>오프라인 ${sum.offline}</span><span>수동 ${sum.manual+sum.manualNeedsCheck}</span>${unplaced.length?`<span>위치 미설정 ${unplaced.length}</span>`:''}</div></section>`;
+    const n=floorNumber(g),def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},guide=floorGuide(g);
+    const purpose=g.signage_purpose||guide.purpose,flow=g.waiting_area_note||guide.flow,playlist=playlistById(g.default_playlist_id),content=playlist?.name||guide.content,exposure=g.signage_reason||guide.exposure;
+    return `<section class="building-plan-pane"><div class="building-plan-head"><div><span class="eyebrow">${esc(careTypeLabel(g.care_type)||def.kind)}</span><h3>${n?`${n}F`:esc(groupDisplayName(g.name))} · ${esc(g.name||def.name)}</h3><p>${esc(purpose)}</p></div><div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div></div><div class="floor-ops-brief" aria-label="층별 영상 운영 안내"><span><small>고객 동선</small><b>${esc(flow)}</b></span><span><small>송출 목적</small><b>${esc(purpose)}</b></span><span><small>권장 영상</small><b>${esc(content)}</b></span><span><small>주요 노출</small><b>${esc(exposure)}</b></span></div>${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(staffFloorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector"><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>사각 라인은 공간, 원형 점은 디스플레이 설치 위치입니다.</p></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>병원 설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>도면 등록</button></div>`}<div class="building-plan-foot"><span>확인 필요 ${sum.issues}</span><span>오프라인 ${sum.offline}</span><span>수동 ${sum.manual+sum.manualNeedsCheck}</span>${unplaced.length?`<span>위치 미설정 ${unplaced.length}</span>`:''}</div></section>`;
   }
   function staffBuildingOverview(groups){
     const floorGroups=groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14),byFloor=new Map(floorGroups.map(g=>[floorNumber(g),g]));

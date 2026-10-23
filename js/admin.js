@@ -218,6 +218,24 @@
   function contentWarnings(){return state.rooms.map(r=>{const items=roomOutputItems(r).filter(x=>x.enabled),known=items.filter(x=>Number(x.video.duration_sec)>0),sec=known.reduce((s,x)=>s+Number(x.video.duration_sec||0),0);if(items.length===0)return `${r.name}: 재생 영상 없음`;if(items.length===1)return `${r.name}: 재생 영상 1개`;if(known.length===items.length&&sec<180)return `${r.name}: 전체 길이 ${Math.ceil(sec/60)}분 미만`;return null;}).filter(Boolean);}
   const CARE_TYPES=[['general','일반진료'],['minish','MINISH'],['common','공용'],['support','지원'],['other','기타']];
   const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'지원',name:'기공실'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
+  const FLOOR_GUIDES={
+    1:{flow:'입구 → 접수·안내 → 엘리베이터',purpose:'첫 방문 안내와 병원 신뢰 형성',content:'병원 소개 · 진료 분야 · 이용 안내',exposure:'로비 · 접수 대기'},
+    2:{flow:'접수·검사 → 대기 → 다음 진료 이동',purpose:'대기 중 정보 제공과 불안 완화',content:'치료 전 안내 · 자주 묻는 질문 · 케이스 소개',exposure:'대기공간 · 이동 동선'},
+    3:{flow:'엘리베이터 → 대기 → 진료실',purpose:'진료 전 치료 이해도 높이기',content:'진료 과정 · 치료 전후 주의사항 · 케이스',exposure:'대기공간 · 진료실 앞'},
+    4:{flow:'대기 → 상담 → 진료·검사',purpose:'교정·임플란트 치료 이해와 상담 보조',content:'치료 과정 · 장비/기술 설명 · 전후 관리',exposure:'상담 대기 · 진료실 앞'},
+    5:{flow:'직원·내부 이동 중심',purpose:'공간 목적에 맞는 안내',content:'운영 안내 · 필요 콘텐츠',exposure:'주요 체류 지점'},
+    6:{flow:'직원·기공 업무 동선',purpose:'내부 업무 지원과 공지',content:'업무 안내 · 교육 · 내부 공지',exposure:'업무 공간'},
+    7:{flow:'엘리베이터 → 대기 → 진료실',purpose:'예방·진료 이해와 치료 준비',content:'예방 관리 · 치료 과정 · 주의사항',exposure:'대기공간 · 진료실 앞'},
+    8:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 신뢰 형성',content:'미니쉬 과정 · 케이스 · 치료 후 관리',exposure:'대기공간 · 진료실 앞'},
+    9:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 치료 선택 지원',content:'미니쉬 과정 · 전후 사례 · FAQ',exposure:'대기공간 · 진료실 앞'},
+    10:{flow:'엘리베이터 → 대기 → 진료실',purpose:'치료 이해와 긴장 완화',content:'미니쉬 치료 과정 · 전후 관리 · 브랜드 신뢰',exposure:'대기공간 · 진료실 앞 · 상담실'},
+    11:{flow:'의료진·직원 내부 이동',purpose:'내부 커뮤니케이션 지원',content:'교육 · 공지 · 운영 안내',exposure:'의국 · 공용 공간'},
+    12:{flow:'직원 내부 이동',purpose:'업무 정보와 내부 공지 전달',content:'운영 공지 · 교육 · 캠페인',exposure:'사무 공용 공간'},
+    13:{flow:'직원·방문객 식사 및 휴식',purpose:'휴식 공간 정보 제공',content:'병원 소식 · 캠페인 · 가벼운 브랜드 콘텐츠',exposure:'식당 · 휴게공간'},
+    14:{flow:'상담·진료 후 → 라운지 → 퇴원/이동',purpose:'진료 후 신뢰 강화와 관리 안내',content:'치료 후 관리 · 브랜드 스토리 · 케이스',exposure:'라운지 · 상담 대기'}
+  };
+  const floorGuide=(g)=>FLOOR_GUIDES[floorNumber(g)]||{flow:'주요 이동 동선',purpose:'공간 목적에 맞는 영상 송출',content:'안내 · 치료 정보 · 운영 콘텐츠',exposure:'대기 및 주요 체류 지점'};
+
   const careTypeLabel=(v)=>CARE_TYPES.find(([id])=>id===v)?.[1]||'미설정';
   const floorNumber=(g)=>Number(g?.floor_number||(/^\d+$/.test(String(g?.name||'').trim())?String(g.name).trim():String(g?.name||'').match(/(\d+)/)?.[1]||0));
   const floorTitle=(g)=>{const n=floorNumber(g);return n?`${n}F`:groupDisplayName(g);};
@@ -267,19 +285,25 @@
     return `<button type="button" class="${cls}" data-building-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}F</b><span>${esc(shortName)}</span><em>${esc(status)}</em><i aria-hidden="true"></i></button>`;
   }
     function buildingFloorPanelMarkup(g){
-    if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 건물에서 확인할 층을 선택하면 실제 평면도와 디스플레이 위치가 여기에 표시됩니다.</p></div></section>`;
+    if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 층을 선택하면 실제 도면, 공간 영역, 디스플레이 위치와 이 층의 영상 운영 목적이 함께 표시됩니다.</p></div></section>`;
     const rooms=state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
-    const def=FLOOR_DEFAULTS[floorNumber(g)]||{name:'공간'};
-    const purpose=g.signage_purpose||`${def.name} 영상 송출`;
-    const audience=g.target_audience||'이 층을 이용하는 고객·직원';
-    const reason=g.signage_reason||'해당 공간에 필요한 영상을 안내합니다.';
+    const def=FLOOR_DEFAULTS[floorNumber(g)]||{name:'공간'},guide=floorGuide(g);
+    const purpose=g.signage_purpose||guide.purpose;
+    const flow=g.waiting_area_note||guide.flow;
+    const content=floorPlaylistName(g)||guide.content;
+    const exposure=g.signage_reason||guide.exposure;
     return `<section class="building-plan-pane">
       <div class="building-plan-head">
         <div><span class="eyebrow">${esc(careTypeLabel(g.care_type)||def.kind)}</span><h3>${esc(floorTitle(g))} · ${esc(g.name||def.name)}</h3><p>${esc(purpose)}</p></div>
         <div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div>
       </div>
-      <div class="building-plan-explain"><span><small>대상</small><b>${esc(audience)}</b></span><span><small>이유</small><b>${esc(reason)}</b></span></div>
-      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>선택한 공간의 디스플레이와 상태를 확인할 수 있습니다.</p></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
+      <div class="floor-ops-brief" aria-label="층별 영상 운영 안내">
+        <span><small>고객 동선</small><b>${esc(flow)}</b></span>
+        <span><small>송출 목적</small><b>${esc(purpose)}</b></span>
+        <span><small>권장 영상</small><b>${esc(content)}</b></span>
+        <span><small>주요 노출</small><b>${esc(exposure)}</b></span>
+      </div>
+      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>사각 라인은 공간, 원형 점은 디스플레이 설치 위치입니다.</p></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
       <div class="building-plan-foot"><span>확인 필요 ${sum.issues}</span><span>오프라인 ${sum.offline}</span>${unplaced.length?`<span>위치 미설정 ${unplaced.length}</span>`:''}</div>
     </section>`;
   }
@@ -387,7 +411,16 @@
       return `<article class="hospital-row ${active?'is-active':''} ${stats.issues?'has-issue':''} ${site.active===false?'is-disabled':''}"><button type="button" class="hospital-row-main" data-select-site="${site.id}"><span class="hospital-row-identity"><b>${esc(site.name)}</b><code>/${esc(siteSlug(site))}</code></span><span class="hospital-row-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-row-stat"><b>${stats.live}</b><small>송출</small></span><span class="hospital-row-stat ${stats.issues?'has-issue':''}"><b>${stats.issues}</b><small>문제</small></span><span class="hospital-row-state">${stateLabel}</span></button><details class="hospital-row-links"><summary>접속 주소</summary><div class="hospital-row-links-body"><div><span><b>병원 관리자</b><code>${esc(absoluteAddress(adminPath))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(adminPath)}">열기</button><button type="button" data-copy-address="${esc(adminPath)}" data-copy-label="${esc(site.name)} 관리자 주소">복사</button></span></div><div><span><b>환자 화면</b><small>${players.length}개 웹 송출 화면</small></span>${players.length?`<span class="hospital-player-count">${players.length}</span>`:'<small>없음</small>'}</div>${players.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="hospital-player-link"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(path)}">열기</button><button type="button" data-copy-address="${esc(path)}" data-copy-label="${esc(site.name)} ${esc(r.name)} 환자 화면 주소">복사</button></span></div>`;}).join('')}</div></details></article>`;
     }).join('');
     const issueSites=state.sites.filter(x=>sitePortfolioStats(x).issues>0).length;
-    return `<section class="hospital-portfolio"><div class="hospital-portfolio-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>병원 전체 현황</h2><p>문제가 있는 병원을 먼저 보여줍니다.</p></div><div class="hospital-portfolio-total"><span><b>${state.sites.length}</b><small>병원</small></span><span><b>${totals.displays}</b><small>디스플레이</small></span><span class="${totals.issues?'has-issue':''}"><b>${totals.issues}</b><small>확인 필요</small></span></div></div><div class="hospital-toolbar"><label class="hospital-search"><span class="sr-only">병원 검색</span><input id="hospitalSearch" type="search" value="${esc(hospitalSearch)}" placeholder="병원명 또는 슬러그 검색"></label><div class="hospital-filter" role="group" aria-label="병원 상태 필터"><button type="button" class="${hospitalFilter==='all'?'on':''}" data-hospital-filter="all">전체 ${state.sites.length}</button><button type="button" class="${hospitalFilter==='issues'?'on':''}" data-hospital-filter="issues">문제 ${issueSites}</button></div></div><div class="hospital-list">${rows||'<div class="hospital-empty">조건에 맞는 병원이 없습니다.</div>'}</div></section>`;
+    return `<section class="hospital-portfolio">
+      <div class="hospital-portfolio-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>전체 병원</h2><p>먼저 문제 병원을 확인하고, 병원을 선택한 뒤 아래에서 층·도면을 확인하세요.</p></div><div class="hospital-portfolio-total"><span><b>${state.sites.length}</b><small>병원</small></span><span><b>${totals.displays}</b><small>디스플레이</small></span><span class="${totals.issues?'has-issue':''}"><b>${totals.issues}</b><small>확인 필요</small></span></div></div>
+      <div class="superadmin-focus">
+        <div class="${issueSites?'is-problem':'is-clear'}"><small>1 · 먼저 확인</small><b>${issueSites?`문제 병원 ${issueSites}곳`:'문제 병원 없음'}</b><span>${issueSites?'문제 있는 병원을 목록 상단에 표시합니다.':'전체 병원이 정상 범위입니다.'}</span></div>
+        <div><small>2 · 병원 선택</small><b>${esc(state.currentSite?.name||'병원을 선택하세요')}</b><span>병원 행을 누르면 해당 병원 관제로 전환됩니다.</span></div>
+        <div><small>3 · 층 확인</small><b>층 → 도면 → 디스플레이</b><span>선택한 층의 위치와 송출 목적을 바로 확인합니다.</span></div>
+      </div>
+      <div class="hospital-toolbar"><label class="hospital-search"><span class="sr-only">병원 검색</span><input id="hospitalSearch" type="search" value="${esc(hospitalSearch)}" placeholder="병원명 또는 슬러그 검색"></label><div class="hospital-filter" role="group" aria-label="병원 상태 필터"><button type="button" class="${hospitalFilter==='all'?'on':''}" data-hospital-filter="all">전체 ${state.sites.length}</button><button type="button" class="${hospitalFilter==='issues'?'on':''}" data-hospital-filter="issues">문제 ${issueSites}</button></div></div>
+      <div class="hospital-list">${rows||'<div class="hospital-empty">조건에 맞는 병원이 없습니다.</div>'}</div>
+    </section>`;
   }
 
   function renderDashboard(){
