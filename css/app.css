@@ -1347,3 +1347,12 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     flex-wrap:wrap;
   }
 }
+
+/* v2.33.16 — patient waiting/assignment management removed */
+.patient-management,
+.patient-management-body,
+.patient-management-toolbar,
+.reception-create,
+.reception-layout,
+.patient-stack,
+.patient-completed-note{display:none!important}

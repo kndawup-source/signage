@@ -58,7 +58,8 @@
     const urlSlug=new URLSearchParams(location.search).get('site')||'';
     const savedSite=localStorage.getItem('clinic_signage_superadmin_site')||'';
     const currentSite=siteList.find(x=>String(x.code||'')===urlSlug)||siteList.find(x=>x.id===savedSite)||defaultSite;
-    if(currentSite?.id){localStorage.setItem('clinic_signage_superadmin_site',currentSite.id);const canonicalSlug=String(currentSite.code||'').trim();if(canonicalSlug&&urlSlug!==canonicalSlug){const url=new URL(location.href);url.searchParams.set('site',canonicalSlug);window.history.replaceState(null,'',url);}}
+    if(currentSite?.id)localStorage.setItem('clinic_signage_superadmin_site',currentSite.id);
+    if(location.search){const canonical=new URL('/admin.html',location.origin);window.history.replaceState(null,'',canonical.pathname);}
     const analyticsArgs=currentSite?.id?{p_site:currentSite.id}:{};
     const [playbackToday,building7d]=await Promise.all([
       db.rpc('admin_playback_today',analyticsArgs).then(r=>r.error?null:r.data).catch(()=>null),
@@ -730,7 +731,7 @@
   function openAddress(path){window.open(`${location.origin}${path}`,'_blank','noopener');}
 
   function accessLinksMarkup(){
-    const site=state.currentSite,staffPath=site?siteAdminPath(site):'/staff.html',adminPath=site?`/admin.html?site=${encodeURIComponent(siteSlug(site))}`:'/admin.html',players=site?sitePlayerRooms(site):[];
+    const site=state.currentSite,staffPath=site?siteAdminPath(site):'/staff.html',adminPath='/admin.html',players=site?sitePlayerRooms(site):[];
     return `<section class="settings-section access-section"><div class="settings-section-head"><div><span class="eyebrow">ACCESS</span><h2>접속 주소</h2><p>${site?`${esc(site.name)}의 관리자와 실제 환자 송출 화면 주소입니다.`:'관리 화면 주소입니다.'}</p></div></div><div class="access-grid"><article class="access-card access-card-primary"><span class="access-label">병원 관리자</span><h3>${esc(absoluteAddress(staffPath))}</h3><div class="access-actions"><button class="btn primary" data-open-address="${esc(staffPath)}">열기</button><button class="btn" data-copy-address="${esc(staffPath)}" data-copy-label="병원 관리자 주소">복사</button></div></article><article class="access-card"><span class="access-label">슈퍼어드민</span><h3>${esc(absoluteAddress(adminPath))}</h3><div class="access-actions"><button class="btn" data-open-address="${esc(adminPath)}">열기</button><button class="btn" data-copy-address="${esc(adminPath)}" data-copy-label="슈퍼어드민 주소">복사</button></div></article></div>${players.length?`<div class="access-player-list"><div class="settings-section-head compact"><div><span class="eyebrow">PATIENT DISPLAY</span><h3>환자 화면</h3><p>실제 디스플레이에서 사용하는 Player 주소입니다.</p></div><span>${players.length}개</span></div>${players.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="access-player-row"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><div class="access-actions"><button class="btn small" data-open-address="${esc(path)}">열기</button><button class="btn small" data-copy-address="${esc(path)}" data-copy-label="${esc(r.name)} 환자 화면 주소">복사</button></div></div>`;}).join('')}</div>`:`<p class="muted top-gap">현재 병원에 웹 Player를 사용하는 원격/하이브리드 디스플레이가 없습니다.</p>`}</section>`;
   }
 
@@ -875,7 +876,7 @@
     const options=state.sites.map(s=>`<option value="${s.id}" ${state.currentSite?.id===s.id?'selected':''}>${esc(s.name)} · /${esc(siteSlug(s))}${s.active===false?' · 비활성':''}</option>`).join('');
     return `<section class="settings-section product-site-manager"><div class="settings-section-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>관리 병원</h2><p>병원별 슬러그로 구분하고, 선택한 병원의 설정만 관리합니다.</p></div><div class="settings-count">${state.sites.length}개</div></div><div class="site-manager-grid"><div class="settings-card"><h3>현재 관리 병원</h3><label class="field"><span>병원 선택</span><select id="superAdminSiteSelect">${options}</select></label><label class="field"><span>슬러그</span><div class="slug-input"><i>/</i><input id="currentSiteSlug" maxlength="32" autocomplete="off" spellcheck="false" value="${esc(siteSlug(state.currentSite))}"></div></label><div class="inline"><button id="saveCurrentSiteSlug" class="btn small">슬러그 저장</button></div><p class="muted">선택한 병원의 층·공간·도면·디스플레이만 아래에 표시됩니다.</p></div><div class="settings-card"><h3>새 병원 추가</h3><label class="field"><span>병원명</span><input id="newSiteName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>슬러그</span><div class="slug-input"><i>/</i><input id="newSiteSlug" maxlength="32" autocomplete="off" spellcheck="false" placeholder="gangnam"></div><small class="field-help">영문 소문자·숫자·하이픈(-)을 권장합니다. 병원을 구분하는 고유 주소입니다.</small></label><button id="addSite" class="btn primary">병원 추가</button></div><div class="settings-card"><h3>병원 관리자 PIN</h3><p class="muted">현재 선택한 병원의 관리자(staff) 로그인 PIN입니다.</p><label class="field"><span>PIN · 4~6자리</span><input id="siteStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="saveSiteStaffPin" class="btn">PIN 변경</button></div></div></section>`;
   }
-  async function switchSite(id){if(!id||id===state.currentSite?.id)return;const site=state.sites.find(x=>x.id===id);localStorage.setItem('clinic_signage_superadmin_site',id);if(site){const url=new URL(location.href);url.searchParams.set('site',siteSlug(site));window.history.replaceState(null,'',url);}selectedFloorId=null;spaceEditorGroupId=null;await load();}
+  async function switchSite(id){if(!id||id===state.currentSite?.id)return;localStorage.setItem('clinic_signage_superadmin_site',id);selectedFloorId=null;spaceEditorGroupId=null;await load();}
   async function saveCurrentSiteSlug(){
     if(!state.currentSite?.id)return;
     const input=qs('#currentSiteSlug');
@@ -884,7 +885,6 @@
     if(state.sites.some(x=>x.id!==state.currentSite.id&&siteSlug(x)===slug))return toast('이미 사용 중인 슬러그입니다.','error');
     const {error}=await db.from('sites').update({code:slug}).eq('id',state.currentSite.id);
     if(error)return toast(error.code==='23505'?'이미 사용 중인 슬러그입니다.':error.message,'error');
-    const url=new URL(location.href);url.searchParams.set('site',slug);window.history.replaceState(null,'',url);
     toast('병원 슬러그를 변경했습니다.');
     await load();
   }
@@ -896,7 +896,7 @@
     if(error)return toast(error.message||'병원을 추가하지 못했습니다.','error');
     if(!data?.ok)return toast(data?.message||'병원을 추가하지 못했습니다.','error');
     const site=data.site||{};
-    if(site.id){localStorage.setItem('clinic_signage_superadmin_site',site.id);const url=new URL(location.href);url.searchParams.set('site',siteSlug(site));window.history.replaceState(null,'',url);}
+    if(site.id)localStorage.setItem('clinic_signage_superadmin_site',site.id);
     toast(data.existing?'이미 등록된 병원을 선택했습니다.':'병원을 추가했습니다.');
     await load();
   }

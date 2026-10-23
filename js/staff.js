@@ -98,20 +98,18 @@
     return !!(a&&root&&root.contains(a)&&['INPUT','SELECT','TEXTAREA'].includes(a.tagName));
   }
   function uiKey(el){
-    const card=el.closest('[data-room-card]')?.dataset.roomCard||el.closest('[data-staff-group]')?.dataset.staffGroup||el.closest('[data-patient]')?.dataset.patient||'';
+    const card=el.closest('[data-room-card]')?.dataset.roomCard||el.closest('[data-staff-group]')?.dataset.staffGroup||'';
     return `${card}|${el.className}`;
   }
   function renderPreservingUi(keepInputs=true){
     const root=qs('#staffRoot');
     const openDetails=new Set(qsa('details[open]',root).map(uiKey));
     const openQuick=keepInputs?qsa('[data-quick-panel]:not(.hidden)',root).map(x=>x.dataset.quickPanel):[];
-    const formOpen=keepInputs&&!!qs('#patientForm:not(.hidden)',root);
-    const dirty=!keepInputs?[]:qsa('select[data-dirty="1"],#patientForm input,#patientForm select',root).map(el=>{const attr=[...el.attributes].find(a=>a.name.startsWith('data-')&&a.name!=='data-dirty');return {sel:el.id?`#${el.id}`:attr?`[${attr.name}="${attr.value}"]`:null,value:el.value};}).filter(x=>x.sel);
+    const dirty=!keepInputs?[]:qsa('select[data-dirty="1"]',root).map(el=>{const attr=[...el.attributes].find(a=>a.name.startsWith('data-')&&a.name!=='data-dirty');return {sel:el.id?`#${el.id}`:attr?`[${attr.name}="${attr.value}"]`:null,value:el.value};}).filter(x=>x.sel);
     const scrollY=window.scrollY;
     render();
     qsa('details',root).forEach(d=>{if(openDetails.has(uiKey(d)))d.open=true;});
     openQuick.forEach(id=>qs(`[data-quick-panel="${id}"]`,root)?.classList.remove('hidden'));
-    if(formOpen)qs('#patientForm',root)?.classList.remove('hidden');
     dirty.forEach(({sel,value})=>{const el=qs(sel,root);if(!el)return;if(el.tagName==='SELECT'&&![...el.options].some(o=>o.value===value))return;el.value=value;if(el.tagName==='SELECT')el.dataset.dirty='1';});
     window.scrollTo(0,scrollY);
   }
@@ -259,10 +257,6 @@
 
 
   function render(){
-    const waiting=state.patients.filter(p=>p.status==='waiting');
-    const assigned=state.patients.filter(p=>p.status==='assigned');
-    const inProgress=state.patients.filter(p=>p.status==='in_progress');
-    const completed=state.patients.filter(p=>p.status==='completed');
     const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
     const issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length,manual=statuses.filter(x=>x.key==='manual'||x.key==='manual-warn').length,online=state.rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length;
     const quick=state.rooms.filter(isQuickSession).length,custom=state.rooms.filter(r=>r.session_treatment).length;
@@ -283,26 +277,7 @@
         <div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div>
       </details>
 
-      <details class="patient-management">
-        <summary><span><b>환자 관리</b><small>필요한 경우에만 대기·배정·진료 기록을 사용합니다.</small></span><em>${waiting.length+assigned.length+inProgress.length}</em></summary>
-        <div class="patient-management-body">
-          <div class="patient-management-toolbar"><div><span class="eyebrow">OPTIONAL</span><h2>대기 · 배정 관리</h2></div><button id="openPatientForm" class="btn primary">환자 추가</button></div>
-          <section id="patientForm" class="reception-create hidden">
-            <div class="reception-create-head"><div><span class="eyebrow">NEW PATIENT</span><h2>환자 추가</h2></div><button id="closePatientForm" class="text-btn dark">닫기</button></div>
-            <div class="reception-form-grid">
-              <label class="field"><span>표시 이름 · 선택</span><input id="patientLabel" maxlength="24" placeholder="예: 23번 / 김○○"></label>
-              <label class="field"><span>진료유형</span><select id="patientTreatment">${TREATMENTS.map(([v,l])=>`<option value="${v}" ${v==='minish'?'selected':''}>${l}</option>`).join('')}</select></label>
-              <label class="field"><span>연령 · 선택</span><select id="patientAge">${AGE_OPTIONS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
-              <label class="field"><span>성별 · 선택</span><select id="patientGender">${GENDER_OPTIONS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
-            </div><button id="createPatient" class="btn primary">대기 등록</button>
-          </section>
-          <div class="reception-layout">
-            <section class="reception-column"><div class="reception-section-head"><div><span class="eyebrow">WAITING</span><h2>대기 환자</h2></div><b>${waiting.length}</b></div><div class="patient-stack">${waiting.map(patientCard).join('')||'<div class="empty-card">대기 중인 환자가 없습니다.</div>'}</div></section>
-            <section class="reception-column"><div class="reception-section-head"><div><span class="eyebrow">IN ROOMS</span><h2>배정 · 진료</h2></div><b>${assigned.length+inProgress.length}</b></div><div class="patient-stack">${[...inProgress,...assigned].map(patientCard).join('')||'<div class="empty-card">배정된 환자가 없습니다.</div>'}</div></section>
-          </div>
-          <div class="patient-completed-note">오늘 완료 ${completed.length}명</div>
-        </div>
-      </details>`;
+`;
     bind();
     loadFloorplanSvgs(qs('#staffRoot')).catch(()=>{});
   }
@@ -332,18 +307,6 @@
     </div>`;
   }
 
-  function patientCard(p){
-    const room=roomById(p.room_id), waiting=p.status==='waiting';
-    const status=p.status==='waiting'?'대기':p.status==='assigned'?'배정됨':'진료 중';
-    const audience=[ageLabel(p.age_group),genderLabel(p.gender)].filter(x=>x!=='전체').join(' · ')||'전체 환자';
-    const available=state.rooms.filter(r=>displayControlMode(r)!=='manual'&&['treatment','consultation'].includes(r.room_mode)&&!activePatients().some(x=>x.room_id===r.id&&x.id!==p.id)&&!isQuickSession(r));
-    return `<article class="patient-card status-${p.status}" data-patient="${p.id}">
-      <div class="patient-card-top"><div><span class="patient-status">${status}</span><h3>${esc(p.label||`대기 ${p.queue_no}`)}</h3></div><strong>${esc(waitText(p))}</strong></div>
-      <div class="patient-profile"><b>${esc(treatmentLabel(p.treatment))}</b><span>${esc(audience)}</span></div>
-      ${room?`<div class="patient-room"><span>진료실</span><b>${esc(room.name)}</b><small>${esc(room.player_status?.title||'영상 준비 중')}</small></div>`:''}
-      <div class="patient-actions">${waiting?`<select data-room-select="${p.id}"><option value="">진료실 선택</option>${available.map(r=>`<option value="${r.id}">${esc(r.group_name?`${r.group_name} · `:'')}${esc(r.name)}${staffIsOnline(r)?'':' · 오프라인'}</option>`).join('')}</select><button class="btn primary" data-assign="${p.id}">배정</button>`:`${p.status==='assigned'?`<button class="btn primary" data-start="${p.id}">진료 시작</button>`:''}<button class="btn" data-unassign="${p.id}">배정 변경</button><button class="btn" data-complete="${p.id}">종료</button>`}<button class="text-action danger-text" data-cancel="${p.id}">취소</button></div>
-    </article>`;
-  }
 
   async function markManualChecked(roomId){const r=roomById(roomId);if(!r)return;const checked=r.manual_check_status!=='checked';const {error}=await db.rpc('staff_mark_manual_display_checked',{p_room:roomId,p_checked:checked});if(error)return toast(error.message,'error');toast(checked?'수동 디스플레이 확인 완료':'미확인 상태로 변경했습니다.');await load();}
 
@@ -361,14 +324,6 @@
     qsa('[data-close-quick]').forEach(b=>b.addEventListener('click',()=>qs(`[data-quick-panel="${b.dataset.closeQuick}"]`)?.classList.add('hidden')));
     qsa('[data-quick-treatment]').forEach(b=>b.addEventListener('click',()=>quickSet(b.dataset.room,b.dataset.quickTreatment)));
     qsa('[data-quick-clear]').forEach(b=>b.addEventListener('click',()=>quickClear(b.dataset.quickClear)));
-    qs('#openPatientForm')?.addEventListener('click',()=>qs('#patientForm').classList.remove('hidden'));
-    qs('#closePatientForm')?.addEventListener('click',()=>qs('#patientForm').classList.add('hidden'));
-    qs('#createPatient')?.addEventListener('click',createPatient);
-    qsa('[data-assign]').forEach(b=>b.addEventListener('click',()=>assignPatient(b.dataset.assign)));
-    qsa('[data-start]').forEach(b=>b.addEventListener('click',()=>action('staff_start_patient',b.dataset.start,'진료를 시작했습니다.')));
-    qsa('[data-complete]').forEach(b=>b.addEventListener('click',()=>action('staff_complete_patient',b.dataset.complete,'환자 영상을 종료했습니다.')));
-    qsa('[data-unassign]').forEach(b=>b.addEventListener('click',()=>action('staff_unassign_patient',b.dataset.unassign,'배정을 해제했습니다.')));
-    qsa('[data-cancel]').forEach(b=>b.addEventListener('click',()=>{if(confirm('이 환자 대기를 취소할까요?'))action('staff_cancel_patient',b.dataset.cancel,'취소했습니다.');}));
   }
 
   const OVERRIDE_MODES=['broadcast','broadcast_schedule','group','group_schedule','emergency'];
@@ -434,13 +389,8 @@
   async function quickClear(room){
     await staffControl(room,()=>db.rpc('staff_quick_clear_room',{p_room:room}),'기본 영상으로 돌아갑니다.',{signal:false});
   }
-  async function createPatient(){
-    await staffControl(null,()=>db.rpc('staff_create_patient',{p_label:qs('#patientLabel').value.trim()||null,p_age_group:qs('#patientAge').value||null,p_gender:qs('#patientGender').value||null,p_treatment:qs('#patientTreatment').value}),'대기 환자를 등록했습니다.',{signal:false});
-  }
-  async function assignPatient(id){
-    const room=qs(`[data-room-select="${id}"]`)?.value; if(!room)return toast('진료실을 선택하세요.','error');
-    await staffControl(room,()=>db.rpc('staff_assign_patient',{p_patient:id,p_room:room}),'진료실에 배정했습니다.',{signal:false});
-  }
+
+
   async function action(fn,id,msg){
     const room=roomForPatient(id);
     await staffControl(room,()=>db.rpc(fn,{p_patient:id}),msg,{signal:false});
