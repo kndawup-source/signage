@@ -6,7 +6,7 @@
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.25.0');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.25.1');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -41,6 +41,7 @@
   let renderSeq = 0;
   let stateRpc = 'player_get_state_lite';
   let reportRpc = 'player_report';
+  let lastPlaybackPresenceAttemptAt=0;
   let syncStartTimer = null;
   let transitionTimer = null;
   let activeSlot = 0;
@@ -98,6 +99,17 @@
     }catch(_){}finally{updateCheckBusy=false;}
   }
 
+  function maybeReportPlaybackPresence(){
+    const now=Date.now();
+    /* Actual decoded frame progress is the strongest proof that this player is alive.
+       Report only when the last successful presence is getting stale, and retry at most
+       every 10 seconds if the network/RPC is temporarily failing. */
+    if(now-lastReportAt<PLAYBACK_PRESENCE_STALE_MS)return;
+    if(now-lastPlaybackPresenceAttemptAt<PLAYBACK_PRESENCE_RETRY_MS)return;
+    lastPlaybackPresenceAttemptAt=now;
+    scheduleReport(0);
+  }
+
   function ensureSurface(){
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
     root.innerHTML=`<video id="screenVideoA" class="player-video is-active" playsinline preload="auto"></video><video id="screenVideoB" class="player-video" playsinline preload="auto"></video>${bars()}`;
@@ -106,7 +118,7 @@
     slots.forEach((el,slotIndex)=>{
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
@@ -229,6 +241,7 @@
         const remain=duration-time;
         if(remain<=1.25&&remain>0.02){prerollNext();}
       }
+      maybeReportPlaybackPresence();
       if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
       else requestAnimationFrame(tick);
     };
@@ -477,6 +490,8 @@
 
   const PLAYER_FALLBACK_MS=Math.max(120000,Number(Signage.cfg.pollMs)||0);
   const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
+  const PLAYBACK_PRESENCE_STALE_MS=25000;
+  const PLAYBACK_PRESENCE_RETRY_MS=10000;
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
 
   ensureSurface();loadSaved();acquireWake();fetchState();

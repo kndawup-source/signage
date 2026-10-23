@@ -11,7 +11,7 @@
   const ROOM_MODES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기실'],['lobby','로비'],['vip','VIP'],['other','기타']];
   const MAX_EMERGENCY_BYTES=250*1024*1024;
   // Single source of truth: /player-release.json (the same file players poll for updates).
-  const PLAYER_VERSION=(await Signage.fetchPlayerRelease())||String(window.CLINIC_SIGNAGE_VERSION||'2.25.0');
+  const PLAYER_VERSION=(await Signage.fetchPlayerRelease())||String(window.CLINIC_SIGNAGE_VERSION||'2.25.1');
   // datetime-local is local wall-clock time; avoid UTC conversion shifting KST by 9 hours.
   const toLocalInput=(value)=>{if(!value)return '';const d=new Date(value);if(Number.isNaN(d.getTime()))return '';const p=(n)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;};
 
