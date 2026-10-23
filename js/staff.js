@@ -10,7 +10,7 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   const FLOORPLAN_FLOORS=new Set([1,2,3,4,6,7,8,9,10,11,12,13,14]);
-  let state={site:null,siteSettings:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null;
+  let state={site:null,siteSettings:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,selectedFloorId=null;
   const floorplanTextCache=new Map();
   const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
@@ -117,17 +117,32 @@
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
   }
   const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'지원',name:'기공실'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
+  function staffBuildingFloor(n,g){
+    const rooms=g?g.rooms||state.rooms.filter(r=>r.group_id===g.id):[],st=g?groupStatusSummary(rooms):{key:'idle',issues:0,offline:0,live:0,total:0};
+    const y=42+(14-n)*34,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'};
+    const rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
+    const status=!g?'비운영':st.issues?`확인 필요 ${st.issues}`:st.offline?`오프라인 ${st.offline}`:st.live?`${st.live}/${st.total} 송출 중`:'대기';
+    const cls=`svg-building-floor floor-state-${st.key}${g?'':' is-unmanaged'}${selectedFloorId===g?.id?' is-selected':''}`;
+    const attr=g?`data-staff-select-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
+    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><title>${n}F · ${esc(shortName)} · ${esc(status)}</title><polygon class="svg-building-topline" points="36,${y} 338,${y} 362,${y-10} 60,${y-10}"></polygon><rect class="svg-building-slab" x="36" y="${y}" width="302" height="28" rx="2"></rect><polygon class="svg-building-side" points="338,${y} 362,${y-10} 362,${y+18} 338,${y+28}"></polygon><text class="svg-building-floor-no" x="50" y="${y+19}">${n}F</text><text class="svg-building-purpose" x="98" y="${y+19}">${esc(shortName)}</text><circle class="svg-building-status-dot" cx="318" cy="${y+14}" r="4.2"></circle></g>`;
+  }
+  function staffFloorMarker(r){
+    if(!roomMapPlaced(r))return '';
+    const st=roomDisplayStatus(r),x=Number(r.map_x_pct),y=Number(r.map_y_pct);
+    return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" title="${esc(r.name)} · ${esc(st.label)}" aria-label="${esc(r.name)} · ${esc(st.label)}"><span class="display-screen-icon"></span><span class="floor-display-dot"></span></button>`;
+  }
+  function staffFloorPanelMarkup(g){
+    if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 건물에서 층을 선택하면 해당 층의 실제 도면과 디스플레이 위치가 표시됩니다.</p></div></section>`;
+    const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
+    const n=floorNumber(g),def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},purpose=g.signage_purpose||`${def.name} 영상 송출`,audience=g.target_audience||'이 층을 이용하는 고객·직원',reason=g.signage_reason||'해당 공간에 필요한 영상을 안내합니다.';
+    return `<section class="building-plan-pane"><div class="building-plan-head"><div><span class="eyebrow">${esc(careTypeLabel(g.care_type)||def.kind)}</span><h3>${n?`${n}F`:esc(groupDisplayName(g.name))} · ${esc(g.name||def.name)}</h3><p>${esc(purpose)}</p></div><div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div></div><div class="building-plan-explain"><span><small>대상</small><b>${esc(audience)}</b></span><span><small>이유</small><b>${esc(reason)}</b></span></div>${asset?`<div class="building-floorplan-wrap"><div class="floor-plan-stage building-floor-plan-stage"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(staffFloorMarker).join('')}</div></div>`:`<div class="floor-plan-empty">이 층은 등록된 도면이 없습니다.</div>`}<div class="building-plan-foot"><span>확인 필요 ${sum.issues}</span><span>오프라인 ${sum.offline}</span><span>수동 ${sum.manual+sum.manualNeedsCheck}</span>${unplaced.length?`<span>위치 미설정 ${unplaced.length}</span>`:''}</div></section>`;
+  }
   function staffBuildingOverview(groups){
-    const byFloor=new Map(groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).map(g=>[floorNumber(g),g]));
-    const issueFloors=[...byFloor.values()].filter(g=>groupStatusSummary(g.rooms).issues>0).length;
-    const rows=Array.from({length:14},(_,i)=>14-i).map(n=>{
-      const g=byFloor.get(n),def=FLOOR_DEFAULTS[n],st=g?groupStatusSummary(g.rooms):{key:'idle'};
-      const y=55+(14-n)*38,rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
-      const attr=g?`data-scroll-group="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
-      const status=!g?'비운영':st.issues?`확인 필요 ${st.issues}`:st.offline?`오프라인 ${st.offline}`:st.live?`${st.live}/${st.total} 송출 중`:'대기';
-      return `<g class="svg-building-floor floor-state-${st.key}${g?'':' is-unmanaged'}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><title>${n}F · ${esc(shortName)} · ${esc(status)}</title><polygon class="svg-building-topline" points="92,${y} 492,${y} 528,${y-15} 128,${y-15}"></polygon><rect class="svg-building-slab" x="92" y="${y}" width="400" height="32" rx="2"></rect><polygon class="svg-building-side" points="492,${y} 528,${y-15} 528,${y+17} 492,${y+32}"></polygon><text class="svg-building-floor-no" x="108" y="${y+21}">${n}F</text><text class="svg-building-purpose" x="166" y="${y+21}">${esc(shortName)}</text><circle class="svg-building-status-dot" cx="468" cy="${y+16}" r="4.5"></circle></g>`;
-    }).join('');
-    return `<section class="staff-building-board svg-building-board"><div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>층별 송출 위치</h2><p>문제가 표시된 층을 선택하면 해당 층의 공간으로 이동합니다.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div><div class="staff-building-visual"><svg class="svg-building" viewBox="0 0 620 660" role="img" aria-label="층별 영상 송출 상태"><text class="svg-building-brand" x="92" y="31">${esc(state.site?.building_label||'BUILDING')}</text>${rows}<rect class="svg-building-base" x="78" y="592" width="470" height="7" rx="3"></rect></svg><div class="building-inline-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></div></section>`;
+    const floorGroups=groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14),byFloor=new Map(floorGroups.map(g=>[floorNumber(g),g]));
+    if(!selectedFloorId||!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=(floorGroups.find(g=>groupStatusSummary(g.rooms).issues>0&&floorAsset(g))||floorGroups.find(g=>floorAsset(g))||floorGroups[0]||{}).id||null;
+    const selected=floorGroups.find(g=>g.id===selectedFloorId)||null,issueFloors=floorGroups.filter(g=>groupStatusSummary(g.rooms).issues>0).length;
+    const rows=Array.from({length:14},(_,i)=>14-i).map(n=>staffBuildingFloor(n,byFloor.get(n)||null)).join('');
+    return `<section class="building-command-board hospital-building-command"><div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>왼쪽에서 층을 선택하고 오른쪽 실제 평면도에서 디스플레이 위치와 상태를 확인하세요.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div><div class="building-command-grid"><aside class="building-nav-pane"><svg class="svg-building compact" viewBox="0 0 400 535" role="img" aria-label="1층부터 14층까지 병원 송출 현황">${rows}</svg><div class="building-inline-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>${staffFloorPanelMarkup(selected)}</div></section>`;
   }
 
 
@@ -149,7 +164,7 @@
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   async function loadFloorplanSvgs(root=qs('#staffRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]];
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.33.0'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.33.2'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
   }
   async function saveFloorplanAssets(next){const {error}=await db.rpc('staff_set_floorplan_assets',{p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
   async function pruneFloorplanVersions(siteId,floor,keep=5){
@@ -237,7 +252,7 @@
       ${hospitalAdminSettingsMarkup()}
       ${staffBuildingOverview(groups)}
       <section class="reception-rooms reception-rooms-first staff-space-status">
-        <div class="reception-section-head"><div><span class="eyebrow">SPACE STATUS</span><h2>층 · 구역별 현황</h2></div><b>${live}곳 송출 중</b></div>
+        <div class="reception-section-head"><div><span class="eyebrow">SPACE LIST</span><h2>공간별 상세 관리</h2></div><b>${live}곳 송출 중</b></div>
         <div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div>
       </section>
 
@@ -262,6 +277,7 @@
         </div>
       </details>`;
     bind();
+    loadFloorplanSvgs(qs('#staffRoot')).catch(()=>{});
   }
 
   function groupCard(group){
@@ -306,7 +322,7 @@
 
   function bind(){
     bindHospitalAdminSettings();
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qsa('[data-scroll-group]').forEach(b=>{const open=()=>{const el=qs(`[data-staff-group="${b.dataset.scrollGroup}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'start'});}};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const el=qs(`[data-room-card="${b.dataset.staffFloorRoom}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}}));
     qsa('#staffRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));
