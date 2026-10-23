@@ -204,7 +204,7 @@
       const floor=Number(img.dataset.floorplanImg);if(!floor||img.src)return;
       try{
         let url=floorplanObjectUrls.get(floor);
-        if(!url){const response=await fetch(`/api/floorplan?floor=${floor}`,{headers:apiHeaders()});if(!response.ok)throw new Error(`HTTP ${response.status}`);url=URL.createObjectURL(await response.blob());floorplanObjectUrls.set(floor,url);}
+        if(!url){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.6`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);url=URL.createObjectURL(await response.blob());floorplanObjectUrls.set(floor,url);}
         if(document.contains(img))img.src=url;
       }catch(_){img.alt=`${floor}층 평면도를 불러오지 못했습니다.`;img.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}
     }));
@@ -594,10 +594,19 @@
     return `<section class="settings-section space-manager"><div class="settings-section-head"><div><span class="eyebrow">SPACE</span><h2>공간 관리</h2><p>층/구역과 실제 송출 공간을 필요할 때만 열어 관리합니다.</p></div><div class="settings-count">공간 ${state.rooms.length}곳 · 층/구역 ${state.groups.length}개</div></div><div class="space-control-grid"><details class="settings-card space-control-panel"><summary><span><b>층/구역 관리</b><small>${state.groups.length}개 등록</small></span><em>관리</em></summary><div class="space-control-body"><p class="muted">층 또는 여러 공간을 묶는 구역을 추가하거나 수정합니다.</p><div class="inline space-add-inline"><input id="newGroup" placeholder="예: 10F"><select id="newGroupKind">${GROUP_KINDS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button id="addGroup" class="btn primary">추가</button></div><div class="group-admin-list top-gap">${state.groups.map(groupAdminRow).join('')||'<span class="muted empty-setting-message">아직 등록된 층/구역이 없습니다.</span>'}</div></div></details><details class="settings-card space-control-panel"><summary><span><b>공간 추가</b><small>새 송출 위치 등록</small></span><em>추가</em></summary><div class="space-control-body"><p class="muted">실제로 영상이 재생되는 진료실, 상담실, 대기실, 로비 등을 등록합니다.</p><div class="settings-add-room"><input id="newRoom" placeholder="예: 10F-01"><select id="newRoomGroup"><option value="">층/구역 없음</option>${state.groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><select id="newRoomMode">${ROOM_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button id="addRoom" class="btn primary">공간 추가</button></div></div></details></div><details class="settings-card registered-spaces registered-spaces-compact"><summary class="registered-spaces-summary"><span><b>등록된 공간</b><small>${state.rooms.length}곳 · 공간별 기본 플레이리스트와 세부 설정</small></span><em>관리</em></summary><div class="registered-spaces-body">${groupSections||'<span class="muted empty-setting-message">등록된 공간이 없습니다.</span>'}</div></details></section>`;
   }
 
+  function displayMapSaveError(error){
+    const msg=String(error?.message||'');
+    const details=String(error?.details||'');
+    const code=String(error?.code||'');
+    if(code==='PGRST204'||/map_[xy]_pct|schema cache|column/i.test(`${msg} ${details}`)){
+      return '디스플레이 위치 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.31.5 display-map migration을 먼저 실행하세요.';
+    }
+    return msg||'디스플레이 위치를 저장하지 못했습니다.';
+  }
   async function saveDisplayPosition(roomId,x,y,{quiet=false}={}){
     const px=Number(Math.max(0,Math.min(100,x)).toFixed(2)),py=Number(Math.max(0,Math.min(100,y)).toFixed(2));
     const {error}=await db.from('rooms').update({map_x_pct:px,map_y_pct:py}).eq('id',roomId);
-    if(error){toast(error.message,'error');return false;}
+    if(error){toast(displayMapSaveError(error),'error');return false;}
     const room=state.rooms.find(r=>r.id===roomId);if(room){room.map_x_pct=px;room.map_y_pct=py;}
     if(!quiet)toast('디스플레이 위치를 저장했습니다.');
     return true;
@@ -611,7 +620,7 @@
     }));
     qsa('[data-clear-display-position]').forEach(btn=>btn.addEventListener('click',async()=>{
       const gid=btn.dataset.clearDisplayPosition,roomId=qs(`[data-map-room-select="${gid}"]`)?.value;if(!roomId)return;
-      const {error}=await db.from('rooms').update({map_x_pct:null,map_y_pct:null}).eq('id',roomId);if(error)return toast(error.message,'error');
+      const {error}=await db.from('rooms').update({map_x_pct:null,map_y_pct:null}).eq('id',roomId);if(error)return toast(displayMapSaveError(error),'error');
       const room=state.rooms.find(r=>r.id===roomId);if(room){room.map_x_pct=null;room.map_y_pct=null;}toast('디스플레이 위치를 지웠습니다.');renderSettings();
     }));
     qsa('[data-display-marker]').forEach(marker=>{

@@ -12,7 +12,7 @@ module.exports = async (req, res) => {
     if (!image) return json(res, 404, { error: 'FLOORPLAN_NOT_FOUND' });
     res.statusCode = 200;
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Cache-Control', 'private, max-age=300, must-revalidate');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(image);
   } catch (e) {
