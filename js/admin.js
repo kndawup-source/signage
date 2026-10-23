@@ -412,18 +412,25 @@
   }
   function hospitalPortfolioMarkup(){
     if(!state.sites.length)return '';
-    const totals=state.sites.reduce((a,site)=>{const x=sitePortfolioStats(site);a.displays+=x.total;a.live+=x.live;a.issues+=x.issues;return a;},{displays:0,live:0,issues:0});
-    const q=hospitalSearch.trim().toLocaleLowerCase('ko-KR');
-    const sites=state.sites.map(site=>({site,stats:sitePortfolioStats(site)})).filter(({site,stats})=>(!q||`${site.name||''} ${siteSlug(site)}`.toLocaleLowerCase('ko-KR').includes(q))&&(hospitalFilter!=='issues'||stats.issues>0)).sort((a,b)=>(b.stats.issues-a.stats.issues)||(Number(b.site.id===state.currentSite?.id)-Number(a.site.id===state.currentSite?.id))||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
-    const rows=sites.map(({site,stats})=>{
-      const active=site.id===state.currentSite?.id,players=sitePlayerRooms(site),adminPath=siteAdminPath(site),stateLabel=site.active===false?'비활성':active?'선택됨':'';
-      return `<article class="hospital-row ${active?'is-active':''} ${stats.issues?'has-issue':''} ${site.active===false?'is-disabled':''}"><button type="button" class="hospital-row-main" data-select-site="${site.id}"><span class="hospital-row-identity"><b>${esc(site.name)}</b><code>/${esc(siteSlug(site))}</code></span><span class="hospital-row-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-row-stat"><b>${stats.live}</b><small>송출</small></span><span class="hospital-row-stat ${stats.issues?'has-issue':''}"><b>${stats.issues}</b><small>문제</small></span><span class="hospital-row-state">${stateLabel}</span></button><details class="hospital-row-links"><summary>접속 주소</summary><div class="hospital-row-links-body"><div><span><b>병원 관리자</b><code>${esc(absoluteAddress(adminPath))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(adminPath)}">열기</button><button type="button" data-copy-address="${esc(adminPath)}" data-copy-label="${esc(site.name)} 관리자 주소">복사</button></span></div><div><span><b>환자 화면</b><small>${players.length}개 웹 송출 화면</small></span>${players.length?`<span class="hospital-player-count">${players.length}</span>`:'<small>없음</small>'}</div>${players.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="hospital-player-link"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(path)}">열기</button><button type="button" data-copy-address="${esc(path)}" data-copy-label="${esc(site.name)} ${esc(r.name)} 환자 화면 주소">복사</button></span></div>`;}).join('')}</div></details></article>`;
-    }).join('');
-    const issueSites=state.sites.filter(x=>sitePortfolioStats(x).issues>0).length;
-    return `<section class="hospital-portfolio">
-      <div class="hospital-portfolio-head"><div><span class="eyebrow">SUPER ADMIN</span><h2>전체 병원</h2><p>먼저 문제 병원을 확인하고, 병원을 선택한 뒤 아래에서 층·도면을 확인하세요.</p></div><div class="hospital-portfolio-total"><span><b>${state.sites.length}</b><small>병원</small></span><span><b>${totals.displays}</b><small>디스플레이</small></span><span class="${totals.issues?'has-issue':''}"><b>${totals.issues}</b><small>문제</small></span></div></div>
-      <div class="hospital-toolbar"><label class="hospital-search"><span class="sr-only">병원 검색</span><input id="hospitalSearch" type="search" value="${esc(hospitalSearch)}" placeholder="병원명 또는 슬러그 검색"></label><div class="hospital-filter" role="group" aria-label="병원 상태 필터"><button type="button" class="${hospitalFilter==='all'?'on':''}" data-hospital-filter="all">전체 ${state.sites.length}</button><button type="button" class="${hospitalFilter==='issues'?'on':''}" data-hospital-filter="issues">문제 ${issueSites}</button></div></div>
-      <div class="hospital-list">${rows||'<div class="hospital-empty">조건에 맞는 병원이 없습니다.</div>'}</div>
+    const current=state.currentSite||state.sites[0];
+    const currentStats=sitePortfolioStats(current);
+    const currentPlayers=sitePlayerRooms(current);
+    const currentAdminPath=siteAdminPath(current);
+    const others=state.sites
+      .filter(site=>site.id!==current?.id)
+      .map(site=>({site,stats:sitePortfolioStats(site)}))
+      .sort((a,b)=>(b.stats.issues-a.stats.issues)||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
+
+    const addressBlock=`<details class="active-hospital-links"><summary>접속 주소</summary><div class="active-hospital-links-body"><div><span><b>병원 관리자</b><code>${esc(absoluteAddress(currentAdminPath))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(currentAdminPath)}">열기</button><button type="button" data-copy-address="${esc(currentAdminPath)}" data-copy-label="${esc(current.name)} 관리자 주소">복사</button></span></div><div><span><b>환자 화면</b><small>${currentPlayers.length}개 웹 송출 화면</small></span>${currentPlayers.length?`<span class="hospital-player-count">${currentPlayers.length}</span>`:'<small>없음</small>'}</div>${currentPlayers.map(r=>{const path=`/player.html?key=${encodeURIComponent(r.player_key)}`;return `<div class="hospital-player-link"><span><b>${esc(r.name)}</b><code>${esc(absoluteAddress(path))}</code></span><span class="super-site-address-actions"><button type="button" data-open-address="${esc(path)}">열기</button><button type="button" data-copy-address="${esc(path)}" data-copy-label="${esc(current.name)} ${esc(r.name)} 환자 화면 주소">복사</button></span></div>`;}).join('')}</div></details>`;
+
+    const otherRows=others.map(({site,stats})=>`<button type="button" class="hospital-switch-row ${stats.issues?'has-issue':''}" data-select-site="${site.id}"><span class="hospital-switch-identity"><b>${esc(site.name)}</b><code>/${esc(siteSlug(site))}</code></span><span class="hospital-switch-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-switch-stat"><b>${stats.live}</b><small>송출</small></span><span class="hospital-switch-stat ${stats.issues?'has-issue':''}"><b>${stats.issues}</b><small>문제</small></span></button>`).join('');
+
+    return `<section class="hospital-control-shell">
+      <article class="active-hospital-card ${currentStats.issues?'has-issue':''}">
+        <div class="active-hospital-copy"><span class="eyebrow">CURRENT HOSPITAL</span><div class="active-hospital-title"><h2>${esc(current.name)}</h2><code>/${esc(siteSlug(current))}</code></div><p>현재 슈퍼어드민이 관제 중인 병원입니다.</p>${addressBlock}</div>
+        <div class="active-hospital-stats"><span><b>${currentStats.total}</b><small>디스플레이</small></span><span><b>${currentStats.live}</b><small>송출</small></span><span class="${currentStats.issues?'has-issue':''}"><b>${currentStats.issues}</b><small>문제</small></span></div>
+      </article>
+      ${others.length?`<details class="hospital-switcher"><summary><span><b>다른 병원</b><small>${others.length}개 병원으로 전환 가능</small></span><em>병원 변경</em></summary><div class="hospital-switch-list">${otherRows}</div></details>`:''}
     </section>`;
   }
 
@@ -444,14 +451,8 @@
     const idleCount=roomStatuses.filter(x=>x.key==='idle').length;
     qs('#adminRoot').innerHTML=`
       ${hospitalPortfolioMarkup()}
-      <div class="ops-page-head"><div><span class="eyebrow">${esc(state.currentSite?.name||'HOSPITAL')} · /${esc(siteSlug(state.currentSite))}</span><h1>영상 송출 관제</h1><p>각 층과 공간에서 <b>어떤 영상이 왜 송출되고 있는지</b>, 그리고 지금 문제가 있는 곳이 어디인지 확인합니다.</p></div><div class="ops-head-meta"><b id="onlineStat">${liveCount}/${state.rooms.length}</b><span>현재 송출</span><em>${esc(operatingNowLabel())}</em></div></div>
-      <section class="ops-now-summary">
-        <div class="ops-now-main"><span>현재 송출</span><b data-stat-live>${liveCount}</b><small>전체 ${state.rooms.length}개 공간</small></div>
-        <div><span>대기</span><b>${idleCount}</b><small>운영시간 외·재생 대기</small></div>
-        <div class="${issueCount?'is-problem':''}"><span>문제</span><b data-stat-issues>${issueCount}</b><small>연결·업데이트·재생 오류</small></div>
-      </section>
-      <section class="ops-problem-line ${issueCount?'has-problem':'is-clear'}"><b>${issueCount?'문제 공간':'운영 상태 정상'}</b><div>${problemBreakdownMarkup()}</div>${issueCount?`<button id="issuesOnly" class="text-btn dark">${issuesOnly?'전체 층 보기':'문제 층만 보기'}</button>`:''}</section>
-      <div class="ops-primary-actions"><button id="refreshLiveStatus" class="btn">상태 새로고침</button>${state.settings.early_closed_date===localDateKey()?'<button id="reopenToday" class="btn primary">오늘 송출 재개</button>':'<button id="closeToday" class="btn">오늘 운영 종료</button>'}</div>
+      <div class="ops-section-head"><div><span class="eyebrow">FLOOR CONTROL</span><h1>층별 관제</h1><p>층을 선택해 도면, 디스플레이 위치, 송출 영상을 확인합니다.</p></div><div class="ops-section-actions"><em>${esc(operatingNowLabel())}</em><button id="refreshLiveStatus" class="btn small">새로고침</button>${state.settings.early_closed_date===localDateKey()?'<button id="reopenToday" class="btn small primary">오늘 송출 재개</button>':'<button id="closeToday" class="btn small">오늘 운영 종료</button>'}</div></div>
+      ${issueCount?`<section class="ops-problem-line has-problem"><b>문제 공간 ${issueCount}</b><div>${problemBreakdownMarkup()}</div><button id="issuesOnly" class="text-btn dark">${issuesOnly?'전체 층 보기':'문제 층만 보기'}</button></section>`:''}
       ${dashboardViewNav()}
       <div id="dashboardSpatialView">${dashboardView==='building'?buildingDashboardMarkup():dashboardView==='floor'?floorDashboardMarkup(groupById(selectedFloorId)):`<div class="monitor-groups">${grouped.map(({group,rooms})=>groupSection(group,rooms,videos)).join('')}</div>`}</div>
       <details class="ops-control-panel">
@@ -498,8 +499,6 @@
   function historyPanel(){return `<section class="panel"><div class="panel-head"><div><h2>기록</h2></div></div><div class="history-list">${state.history.slice(0,15).map(h=>`<div class="history-row"><span><b>${esc(h.label||h.scope_type)}</b><small>${esc(h.action)} · ${new Date(h.created_at).toLocaleString('ko-KR')}</small></span>${h.before_state&&['hospital','group','rooms'].includes(h.scope_type)?`<button class="btn small" data-undo-history="${h.id}">되돌리기</button>`:''}</div>`).join('')||'<p class="muted">이력이 없습니다.</p>'}</div></section>`;}
 
   function bindDashboard(){
-    qs('#hospitalSearch')?.addEventListener('input',e=>{hospitalSearch=e.target.value;renderDashboard();requestAnimationFrame(()=>{const input=qs('#hospitalSearch');if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}});});
-    qsa('[data-hospital-filter]').forEach(b=>b.addEventListener('click',()=>{hospitalFilter=b.dataset.hospitalFilter||'all';renderDashboard();}));
     qsa('[data-go-floorplan-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';render();requestAnimationFrame(()=>qs('.floorplan-manager')?.scrollIntoView({behavior:'smooth',block:'start'}));}));
     qsa('[data-select-site]').forEach(b=>b.addEventListener('click',()=>switchSite(b.dataset.selectSite)));qsa('[data-open-address]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openAddress(b.dataset.openAddress)}));qsa('[data-copy-address]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();copyAddress(b.dataset.copyAddress,b.dataset.copyLabel||'주소')}));
     qsa('[data-admin-manual-check]').forEach(b=>b.addEventListener('click',()=>markAdminManualChecked(b.dataset.adminManualCheck)));

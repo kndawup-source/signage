@@ -1036,3 +1036,314 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .building-floor-plan-stage .floor-space-overlay,
   .building-floor-plan-stage .floor-display-pin{animation:none!important;opacity:1!important}
 }
+
+
+/* v2.33.15 — active-hospital-first Super Admin hierarchy + single-border cards */
+.hospital-control-shell{
+  margin:0 0 24px;
+  display:grid;
+  gap:10px;
+}
+.active-hospital-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:24px;
+  align-items:start;
+  padding:20px;
+  border:1px solid #e4e6ea;
+  border-radius:14px;
+  background:var(--primary);
+  color:#fff;
+  overflow:hidden;
+}
+.active-hospital-copy{min-width:0}
+.active-hospital-copy .eyebrow{color:rgba(255,255,255,.68)!important}
+.active-hospital-title{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  min-width:0;
+  margin:4px 0 5px;
+}
+.active-hospital-title h2{
+  margin:0;
+  min-width:0;
+  font-size:24px;
+  line-height:1.08;
+  letter-spacing:-.045em;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.active-hospital-title code{
+  flex:0 0 auto;
+  font:700 9px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:rgba(255,255,255,.64);
+}
+.active-hospital-copy>p{
+  margin:0;
+  font-size:10px;
+  line-height:1.45;
+  color:rgba(255,255,255,.72);
+}
+.active-hospital-stats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(64px,1fr));
+  gap:1px;
+  min-width:238px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:10px;
+  background:rgba(255,255,255,.18);
+}
+.active-hospital-stats>span{
+  min-height:72px;
+  padding:12px 10px;
+  display:grid;
+  align-content:center;
+  justify-items:end;
+  gap:3px;
+  background:rgba(35,33,118,.96);
+}
+.active-hospital-stats b{
+  font-size:22px;
+  line-height:1;
+}
+.active-hospital-stats small{
+  font-size:8px;
+  font-weight:800;
+  color:rgba(255,255,255,.67);
+}
+.active-hospital-stats .has-issue b{color:#ffd3d0}
+
+.active-hospital-links{
+  margin-top:12px;
+  max-width:720px;
+}
+.active-hospital-links>summary{
+  width:max-content;
+  list-style:none;
+  cursor:pointer;
+  padding:0;
+  font-size:9px;
+  font-weight:850;
+  color:rgba(255,255,255,.78);
+}
+.active-hospital-links>summary::-webkit-details-marker{display:none}
+.active-hospital-links[open]>summary{color:#fff}
+.active-hospital-links-body{
+  margin-top:10px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;
+  background:rgba(255,255,255,.06);
+}
+.active-hospital-links-body>div{
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:8px 10px;
+}
+.active-hospital-links-body>div+div{
+  border-top:1px solid rgba(255,255,255,.12);
+}
+.active-hospital-links-body>div>span:first-child{
+  min-width:0;
+  display:grid;
+  gap:2px;
+}
+.active-hospital-links-body b{font-size:9px}
+.active-hospital-links-body code{
+  max-width:500px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font:650 8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:rgba(255,255,255,.62);
+}
+.active-hospital-links-body small{
+  font-size:8px;
+  color:rgba(255,255,255,.62);
+}
+.active-hospital-links .super-site-address-actions button{
+  border-color:rgba(255,255,255,.22);
+  color:#fff;
+  background:rgba(255,255,255,.06);
+}
+
+.hospital-switcher{
+  border:1px solid #e4e6ea;
+  border-radius:12px;
+  background:#fff;
+  overflow:hidden;
+}
+.hospital-switcher>summary{
+  min-height:48px;
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:10px 14px;
+}
+.hospital-switcher>summary::-webkit-details-marker{display:none}
+.hospital-switcher>summary>span{display:grid;gap:2px}
+.hospital-switcher>summary b{font-size:11px}
+.hospital-switcher>summary small{font-size:9px;color:var(--muted)}
+.hospital-switcher>summary em{
+  font-style:normal;
+  font-size:9px;
+  font-weight:850;
+  color:var(--primary);
+}
+.hospital-switch-list{
+  border-top:1px solid #eceef1;
+}
+.hospital-switch-row{
+  appearance:none;
+  width:100%;
+  min-height:54px;
+  display:grid;
+  grid-template-columns:minmax(180px,1fr) 72px 72px 64px;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  border:0;
+  background:#fff;
+  text-align:left;
+  color:var(--ink);
+  cursor:pointer;
+}
+.hospital-switch-row+.hospital-switch-row{
+  border-top:1px solid #eceef1;
+}
+.hospital-switch-row:hover{background:#fafafe}
+.hospital-switch-identity{
+  min-width:0;
+  display:grid;
+  gap:2px;
+}
+.hospital-switch-identity b{
+  font-size:11px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.hospital-switch-identity code{
+  font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--muted);
+}
+.hospital-switch-stat{
+  display:grid;
+  gap:1px;
+  text-align:right;
+}
+.hospital-switch-stat b{font-size:13px;line-height:1}
+.hospital-switch-stat small{font-size:8px;color:var(--muted)}
+.hospital-switch-stat.has-issue b{color:#b42318}
+
+/* Selected hospital monitoring starts only after hospital identity is clear. */
+.ops-section-head{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+  margin:0 0 12px;
+}
+.ops-section-head h1{
+  margin:3px 0 4px;
+  font-size:20px;
+  line-height:1.12;
+  letter-spacing:-.035em;
+}
+.ops-section-head p{
+  margin:0;
+  font-size:10px;
+  line-height:1.45;
+  color:var(--muted);
+}
+.ops-section-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+}
+.ops-section-actions em{
+  margin-right:4px;
+  font-style:normal;
+  font-size:9px;
+  font-weight:800;
+  color:var(--primary);
+}
+
+/* One-border principle: outer container owns the card edge; internal rows only separate with top lines. */
+.building-command-board,
+.staff-space-detail-drawer,
+.monitor-group,
+.staff-monitor-group{
+  box-shadow:none!important;
+}
+.building-command-head,
+.floor-zone-inspector,
+.staff-space-detail-body,
+.monitor-group-body{
+  border-left:0!important;
+  border-right:0!important;
+}
+.floor-zone-inspector{
+  border-bottom:0!important;
+}
+.monitor-room,
+.staff-monitor-room{
+  box-shadow:none!important;
+}
+.monitor-room[open],
+.staff-monitor-room[open]{
+  box-shadow:none!important;
+}
+
+/* Remove obsolete Super Admin search/filter surfaces if stale markup is ever cached. */
+.hospital-toolbar,
+.hospital-portfolio,
+.ops-page-head,
+.ops-now-summary{
+  display:none!important;
+}
+
+@media(max-width:760px){
+  .active-hospital-card{
+    grid-template-columns:1fr;
+    gap:16px;
+    padding:16px;
+  }
+  .active-hospital-stats{
+    min-width:0;
+    width:100%;
+  }
+  .active-hospital-stats>span{
+    min-height:64px;
+    justify-items:start;
+  }
+  .active-hospital-title{
+    display:grid;
+    gap:4px;
+  }
+  .active-hospital-title h2{white-space:normal}
+  .hospital-switch-row{
+    grid-template-columns:minmax(0,1fr) 54px 54px;
+  }
+  .hospital-switch-row>.hospital-switch-stat:nth-of-type(3){
+    display:none;
+  }
+  .ops-section-head{
+    display:grid;
+    align-items:start;
+  }
+  .ops-section-actions{
+    justify-content:flex-start;
+    flex-wrap:wrap;
+  }
+}
