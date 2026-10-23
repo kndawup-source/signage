@@ -257,22 +257,14 @@
     const statusLine=buildingPeriod==='live'?`${sum.live} 송출 · ${sum.issues} 문제 · ${sum.offline} 오프라인`:sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}% · 오류 ${sum.errors||0} · 재연결 ${sum.reconnects||0}`;
     return `<button class="building-floor-row floor-state-${sum.key}" data-open-floor="${g.id}"><span class="building-floor-no">${n?`${n}F`:esc(groupDisplayName(g))}</span><span class="building-floor-copy"><b>${esc(purpose)}</b><small>${esc(audience)} · ${esc(reason)}</small><em>${esc(statusLine)}</em></span><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span></button>`;
   }
-  function buildingSvgFloor(n,g){
+  function buildingStackFloor(n,g){
     const rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',issues:0,offline:0,live:0,total:0,label:'비운영'};
-    const y=54+(14-n)*46,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
+    const def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
     const rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
     const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 필요 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
-    const cls=`svg-building-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}${selectedFloorId===g?.id?' is-selected':''}`;
-    const attr=g?`data-building-select-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
-    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}">
-      <title>${n}F · ${esc(shortName)} · ${esc(status)}</title>
-      <polygon class="svg-building-topline" points="40,${y} 336,${y} 350,${y-8} 54,${y-8}"></polygon>
-      <rect class="svg-building-slab" x="40" y="${y}" width="296" height="30" rx="3"></rect>
-      <polygon class="svg-building-side" points="336,${y} 350,${y-8} 350,${y+22} 336,${y+30}"></polygon>
-      <text class="svg-building-floor-no" x="54" y="${y+20}">${n}F</text>
-      <text class="svg-building-purpose" x="102" y="${y+20}">${esc(shortName)}</text>
-      <circle class="svg-building-status-dot" cx="316" cy="${y+15}" r="4.2"></circle>
-    </g>`;
+    const cls=`building-stack-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}${selectedFloorId===g?.id?' is-selected':''}`;
+    if(!g)return `<div class="${cls}" aria-hidden="true"><b>${n}F</b><span>${esc(shortName)}</span><em>비운영</em><i aria-hidden="true"></i></div>`;
+    return `<button type="button" class="${cls}" data-building-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}F</b><span>${esc(shortName)}</span><em>${esc(status)}</em><i aria-hidden="true"></i></button>`;
   }
     function buildingFloorPanelMarkup(g){
     if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 건물에서 확인할 층을 선택하면 실제 평면도와 디스플레이 위치가 여기에 표시됩니다.</p></div></section>`;
@@ -287,7 +279,7 @@
         <div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div>
       </div>
       <div class="building-plan-explain"><span><small>대상</small><b>${esc(audience)}</b></span><span><small>이유</small><b>${esc(reason)}</b></span></div>
-      ${asset?`<div class="building-floorplan-wrap"><div class="floor-plan-stage building-floor-plan-stage"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>선택한 공간의 디스플레이와 상태를 확인할 수 있습니다.</p></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
+      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div><span>공간 선택</span><b>도면에서 공간을 선택하세요.</b></div><p>선택한 공간의 디스플레이와 상태를 확인할 수 있습니다.</p></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
       <div class="building-plan-foot"><span>확인 필요 ${sum.issues}</span><span>오프라인 ${sum.offline}</span>${unplaced.length?`<span>위치 미설정 ${unplaced.length}</span>`:''}</div>
     </section>`;
   }
@@ -302,12 +294,12 @@
       selectedFloorId=(firstIssue||firstWithPlan||managed[0]||{}).id||null;
     }
     const selected=groupById(selectedFloorId);
-    const floorSvg=Array.from({length:14},(_,i)=>14-i).map(n=>buildingSvgFloor(n,groupsByFloor.get(n)||null)).join('');
+    const floorStack=Array.from({length:14},(_,i)=>14-i).map(n=>buildingStackFloor(n,groupsByFloor.get(n)||null)).join('');
     return `<section class="building-command-board">
       <div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>왼쪽에서 층을 선택하고 오른쪽 실제 평면도에서 디스플레이 위치를 확인하세요.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
       <div class="building-command-grid">
         <aside class="building-nav-pane">
-          <svg class="svg-building compact" viewBox="0 0 400 710" role="img" aria-label="1층부터 14층까지 건물 송출 현황">${floorSvg}</svg>
+          <div class="building-floor-stack" role="list" aria-label="1층부터 14층까지 건물 송출 현황">${floorStack}</div>
           <div class="building-inline-legend" aria-label="상태 안내"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div>
         </aside>
         ${buildingFloorPanelMarkup(selected)}
