@@ -197,7 +197,8 @@
   const floorNumber=(g)=>Number(g?.floor_number||(/^\d+$/.test(String(g?.name||'').trim())?String(g.name).trim():String(g?.name||'').match(/(\d+)/)?.[1]||0));
   const floorTitle=(g)=>{const n=floorNumber(g);return n?`${n}F`:groupDisplayName(g);};
   function roomMapPlaced(r){const x=Number(r.map_x_pct),y=Number(r.map_y_pct);return x>=0&&x<=100&&y>=0&&y<=100;}
-  const floorAsset=(g)=>{const n=floorNumber(g);return n>=1&&n<=14?n:null;};
+  const FLOORPLAN_FLOORS=new Set([1,2,3,4,7,8,9,10,11,12,13,14]);
+  const floorAsset=(g)=>{const n=floorNumber(g);return FLOORPLAN_FLOORS.has(n)?n:null;};
   const floorplanTextCache=new Map();
   const zoneTypeLabel=(v)=>({treatment:'진료',consult:'상담',waiting:'대기',reception:'안내',support:'지원',office:'사무',common:'공용'})[v]||'공간';
   function zoneRoomsForBounds(bounds){
@@ -212,7 +213,7 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.8`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.9`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -229,19 +230,20 @@
   }
   function buildingSvgFloor(n,g){
     const rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',issues:0,offline:0,live:0,total:0,label:'비운영'};
-    const y=55+(14-n)*38,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},kind=g?careTypeLabel(g.care_type):def.kind,purpose=(g?.signage_purpose||def.name).slice(0,22),active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
-    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`${Number(sum.rate||0).toFixed(0)}%`);
+    const y=55+(14-n)*38,def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
+    const rawName=String(g?.name||'').trim(),shortName=(rawName&& !/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
+    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 필요 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출 중`:'대기'):(sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
+    const purpose=g?.signage_purpose||def.name;
     const cls=`svg-building-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}`;
     const attr=g?`data-open-floor="${g.id}" role="button" tabindex="0"`:'aria-hidden="true"';
-    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(kind)} ${esc(status)}">
+    return `<g class="${cls}" ${attr} aria-label="${n}층 ${esc(shortName)} ${esc(status)}">
+      <title>${n}F · ${esc(shortName)} · ${esc(status)}${purpose?` · ${esc(purpose)}`:''}</title>
       <polygon class="svg-building-topline" points="92,${y} 492,${y} 528,${y-15} 128,${y-15}"></polygon>
       <rect class="svg-building-slab" x="92" y="${y}" width="400" height="32" rx="2"></rect>
       <polygon class="svg-building-side" points="492,${y} 528,${y-15} 528,${y+17} 492,${y+32}"></polygon>
-      <line class="svg-building-window" x1="155" y1="${y+16}" x2="426" y2="${y+16}"></line>
       <text class="svg-building-floor-no" x="108" y="${y+21}">${n}F</text>
-      <text class="svg-building-purpose" x="166" y="${y+21}">${esc(kind)} · ${esc(purpose)}</text>
+      <text class="svg-building-purpose" x="166" y="${y+21}">${esc(shortName)}</text>
       <circle class="svg-building-status-dot" cx="468" cy="${y+16}" r="4.5"></circle>
-      <text class="svg-building-status" x="548" y="${y+21}">${esc(status)}</text>
     </g>`;
   }
   function buildingDashboardMarkup(){
@@ -250,10 +252,10 @@
     const issueFloors=managed.filter(g=>{const s=groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id));return s.issues>0||s.offline>0;}).length;
     const floorSvg=Array.from({length:14},(_,i)=>14-i).map(n=>buildingSvgFloor(n,groupsByFloor.get(n)||null)).join('');
     return `<section class="svg-building-board">
-      <div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>${esc(building)}</h2><p>${esc(site)} · 층을 선택하면 해당 층의 <b>실제 공간과 디스플레이 위치</b>를 확인할 수 있습니다.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
-      <div class="svg-building-layout">
-        <div class="svg-building-shell"><svg class="svg-building" viewBox="0 0 690 660" role="img" aria-label="1층부터 14층까지 건물 송출 현황"><text class="svg-building-brand" x="92" y="31">${esc(site)}</text>${floorSvg}<rect class="svg-building-base" x="78" y="592" width="470" height="7" rx="3"></rect></svg></div>
-        <aside class="building-simple-guide"><span class="eyebrow">HOW TO READ</span><h3>처음 보는 사람도 이 순서만 알면 됩니다.</h3><ol><li><b>문제 층 확인</b><span>오류나 연결 끊김이 있는 층만 강조됩니다.</span></li><li><b>층 선택</b><span>커서를 올리면 층이 살짝 떠오르고, 클릭하면 평면도가 열립니다.</span></li><li><b>공간 선택</b><span>평면도에서 대기실·상담실·진료실을 누르면 해당 공간이 체크됩니다.</span></li></ol><div class="building-status-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>
+      <div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>${esc(building)}</h2><p>층을 선택하면 실제 평면도와 디스플레이 위치를 확인할 수 있습니다. <b>점이 표시된 층만 상태를 확인하세요.</b></p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
+      <div class="svg-building-layout is-simple">
+        <div class="svg-building-shell"><svg class="svg-building" viewBox="0 0 620 660" role="img" aria-label="1층부터 14층까지 건물 송출 현황"><text class="svg-building-brand" x="92" y="31">${esc(site)}</text>${floorSvg}<rect class="svg-building-base" x="78" y="592" width="470" height="7" rx="3"></rect></svg></div>
+        <div class="building-inline-legend" aria-label="상태 안내"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div>
       </div>
     </section>`;
   }

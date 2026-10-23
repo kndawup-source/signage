@@ -326,7 +326,7 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 @media(max-width:1000px){.svg-building-layout{grid-template-columns:1fr}.svg-building-shell{min-height:520px}.building-simple-guide{padding:4px 6px 10px}.building-simple-guide ol{grid-template-columns:repeat(3,minmax(0,1fr))}.building-simple-guide li{grid-template-columns:28px 1fr}.building-status-legend{margin-top:14px}}
 @media(max-width:760px){.svg-building-board{border-radius:16px}.svg-building-head{padding:18px 16px 8px}.svg-building-head h2{font-size:23px}.svg-building-head-status b{font-size:26px}.svg-building-layout{padding:4px 12px 16px;gap:16px}.svg-building-shell{min-height:390px}.svg-building-purpose,.svg-building-status{display:none}.svg-building-slab{width:360px}.building-simple-guide h3{font-size:17px}.building-simple-guide ol{grid-template-columns:1fr}.building-status-legend{gap:5px}}
 
-/* v2.31.8 interactive spatial command center */
+/* v2.31.9 interactive spatial command center */
 .svg-building-brand{font:900 13px Arial,sans-serif;letter-spacing:.16em;fill:#1d1f25}
 .svg-building-topline{fill:#eef0f4;stroke:#cdd1d8;stroke-width:1;transition:transform .16s ease,fill .16s ease}
 .svg-building-side{fill:#dfe3ea;stroke:#bcc2cb;stroke-width:1;transition:transform .16s ease,fill .16s ease}
@@ -350,3 +350,25 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 .display-setup-stage{cursor:crosshair}
 @media(min-width:1001px){.floor-plan-stage{min-height:460px}.settings-map-stage{min-height:430px}.svg-building-shell{min-height:640px}}
 @media(max-width:760px){.floor-zone-inspector{grid-template-columns:1fr}.floor-plan-stage,.settings-map-stage{aspect-ratio:1.7/1;min-height:270px}.svg-building-shell{min-height:430px}}
+/* v2.31.9 — simple building board: no overlapping descriptive panel or external status text. */
+.svg-building-layout.is-simple{display:block;padding:8px 26px 22px}
+.svg-building-layout.is-simple .svg-building-shell{width:min(100%,760px);min-height:620px;margin:0 auto;background:linear-gradient(180deg,#fbfbfc 0%,#f7f8fa 100%)}
+.svg-building-layout.is-simple .svg-building{width:min(100%,620px)}
+.svg-building-floor .svg-building-purpose{font-size:11px;font-weight:800;fill:#565b64;letter-spacing:-.02em}
+.svg-building-floor:hover .svg-building-purpose,.svg-building-floor:focus .svg-building-purpose{fill:var(--primary)}
+.svg-building-floor .svg-building-floor-no{font-size:15px}
+.building-inline-legend{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin:14px auto 0;color:#727780}
+.building-inline-legend span{display:inline-flex;align-items:center;gap:6px;font-size:9px;font-weight:800;padding:6px 9px;border-radius:999px;background:#f5f6f8}
+.building-inline-legend span::before{content:"";width:6px;height:6px;border-radius:50%;background:#a7abb2}
+.building-inline-legend .legend-live::before{background:var(--primary)}
+.building-inline-legend .legend-issue::before{background:#b67620}
+.building-inline-legend .legend-offline::before{background:#c24646}
+.staff-building-visual{display:grid;place-items:center;padding:4px 12px 20px}
+.staff-building-visual .building-inline-legend{width:100%}
+@media(max-width:760px){
+  .svg-building-layout.is-simple{padding:4px 10px 14px}
+  .svg-building-layout.is-simple .svg-building-shell{min-height:410px}
+  .svg-building-floor .svg-building-purpose{display:block;font-size:9px}
+  .building-inline-legend{gap:5px;margin-top:10px}
+  .building-inline-legend span{font-size:8px;padding:5px 7px}
+}
