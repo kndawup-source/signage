@@ -198,7 +198,10 @@
   const floorTitle=(g)=>{const n=floorNumber(g);return n?`${n}F`:groupDisplayName(g);};
   function roomMapPlaced(r){if(r?.map_x_pct==null||r?.map_y_pct==null||r.map_x_pct===''||r.map_y_pct==='')return false;const x=Number(r.map_x_pct),y=Number(r.map_y_pct);return Number.isFinite(x)&&Number.isFinite(y)&&x>=0&&x<=100&&y>=0&&y<=100;}
   const FLOORPLAN_FLOORS=new Set([1,2,3,4,6,7,8,9,10,11,12,13,14]);
-  const floorAsset=(g)=>{const n=floorNumber(g);return FLOORPLAN_FLOORS.has(n)?n:null;};
+  const floorplanAssets=()=>state.settings?.floorplan_assets&&typeof state.settings.floorplan_assets==='object'?state.settings.floorplan_assets:{};
+  const floorplanMeta=(floor)=>floorplanAssets()?.[String(Math.trunc(Number(floor)))]||null;
+  const floorplanKey=(floor)=>String(floorplanMeta(floor)?.key||'').trim();
+  const floorAsset=(g)=>{const n=floorNumber(g);return n&&(FLOORPLAN_FLOORS.has(n)||!!floorplanKey(n))?n:null;};
   const floorplanTextCache=new Map();
   const zoneTypeLabel=(v)=>({treatment:'진료',consult:'상담',waiting:'대기',reception:'안내',support:'지원',office:'사무',common:'공용'})[v]||'공간';
   function zoneRoomsForBounds(bounds){
@@ -213,12 +216,12 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.32.2`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.32.3'});if(key)params.set('key',key);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
     const x=Number(r.map_x_pct),y=Number(r.map_y_pct),st=roomDisplayStatus(r),mode=String(r.room_mode||'other');
-    if(editor)return `<button type="button" class="display-position-marker status-${st.key}" style="left:${x}%;top:${y}%" data-display-marker="${r.id}" title="${esc(r.name)} · ${esc(roomModeLabel(r.room_mode))}" aria-label="${esc(r.name)} 디스플레이 위치"><span class="display-screen-icon"></span><b>${esc(r.name)}</b></button>`;
+    if(editor)return `<button type="button" class="display-position-marker status-${st.key}" style="left:${x}%;top:${y}%" data-display-marker="${r.id}" title="${esc(r.name)} · ${esc(roomModeLabel(r.room_mode))}" aria-label="${esc(r.name)} 디스플레이 위치"><span class="display-position-dot"></span></button>`;
     return `<button class="floor-display-pin status-${st.key}" style="left:${x}%;top:${y}%" data-floor-room="${r.id}" title="${esc(r.name)} · ${esc(st.label)}" aria-label="${esc(r.name)} · ${esc(st.label)}"><span class="display-screen-icon"></span><span class="floor-display-dot"></span></button>`;
   }
   const floorPurposeLine=(g)=>[careTypeLabel(g?.care_type),g?.signage_purpose].filter(Boolean).join(' · ');
@@ -627,6 +630,49 @@
     return `<section class="settings-section access-section"><div class="settings-section-head"><div><span class="eyebrow">ACCESS</span><h2>관리 화면</h2><p>관리자와 리셉션 스태프 화면만 관리합니다. 각 공간 플레이어의 열기/링크 복사는 송출 화면에서 합니다.</p></div></div><div class="access-grid"><article class="access-card access-card-primary"><span class="access-label">리셉션 스태프</span><h3>환자 배정 · 대기 · 진료 관리</h3><div class="access-actions"><button class="btn primary" data-open-address="${staffPath}">열기</button><button class="btn" data-copy-address="${staffPath}" data-copy-label="리셉션 스태프 주소">복사</button></div></article><article class="access-card"><span class="access-label">관리자</span><h3>전체 송출 · 영상 · 설정</h3><div class="access-actions"><button class="btn" data-open-address="${adminPath}">열기</button><button class="btn" data-copy-address="${adminPath}" data-copy-label="관리자 주소">복사</button></div></article></div></section>`;
   }
 
+  function floorplanManagerMarkup(){
+    const rows=Array.from({length:14},(_,i)=>i+1).map(floor=>{
+      const meta=floorplanMeta(floor),hasFallback=FLOORPLAN_FLOORS.has(floor),status=meta?'업로드 도면':hasFallback?'기본 도면':'도면 없음';
+      const detail=meta?`${esc(meta.filename||'업로드 이미지')} · ${formatBytes(meta.size||0)}`:(hasFallback?'기본 제공 도면을 사용 중입니다.':'도면을 업로드하세요.');
+      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">${hasFallback?'기본 도면으로':'도면 제거'}</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
+    }).join('');
+    return `<section class="settings-section floorplan-manager"><div class="settings-section-head"><div><span class="eyebrow">FLOOR PLAN</span><h2>층별 도면</h2><p>각 층의 실제 도면을 직접 업로드합니다. PNG·JPG·WebP, 최대 12MB. 업로드한 도면은 내부 관제에서만 표시됩니다.</p></div></div><div class="floorplan-admin-list">${rows}</div></section>`;
+  }
+  async function saveFloorplanAssets(next){
+    const {error}=await db.from('app_settings').update({floorplan_assets:next,updated_at:new Date().toISOString()}).eq('id',1);
+    if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.32.3 migration을 먼저 실행하세요.');throw error;}
+    state.settings.floorplan_assets=next;floorplanTextCache.clear();
+  }
+  async function uploadFloorplan(floor,file){
+    if(!file)return;
+    const mime=String(file.type||'').toLowerCase();
+    if(!['image/png','image/jpeg','image/webp'].includes(mime))return toast('도면은 PNG, JPG, WebP만 업로드할 수 있습니다.','error');
+    if(file.size<=0||file.size>12*1024*1024)return toast('도면 파일은 12MB 이하만 업로드할 수 있습니다.','error');
+    const progress=qs(`[data-floorplan-progress="${floor}"]`),bar=progress?.querySelector('i');progress?.classList.add('is-active');if(bar)bar.style.width='2%';
+    try{
+      const signed=await apiJson('/api/floorplan-presign',{method:'POST',body:JSON.stringify({floor,filename:file.name,contentType:mime,size:file.size})});
+      await uploadByXhr(signed.uploadUrl,file,mime,pct=>{if(bar)bar.style.width=`${pct}%`;});
+      const old=floorplanMeta(floor),next={...floorplanAssets(),[String(floor)]:{key:signed.key,filename:file.name,mime,size:file.size,updated_at:new Date().toISOString()}};
+      await saveFloorplanAssets(next);
+      if(old?.key&&old.key!==signed.key)apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({key:old.key})}).catch(()=>{});
+      toast(`${floor}층 도면을 저장했습니다.`);renderSettings();
+    }catch(e){toast(e.message||'도면 업로드에 실패했습니다.','error');}
+    finally{progress?.classList.remove('is-active');if(bar)bar.style.width='0%';}
+  }
+  async function resetFloorplan(floor){
+    const old=floorplanMeta(floor);if(!old)return;
+    if(!confirm(`${floor}층 업로드 도면을 제거할까요?`))return;
+    try{
+      const next={...floorplanAssets()};delete next[String(floor)];await saveFloorplanAssets(next);
+      if(old.key)await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({key:old.key})}).catch(()=>{});
+      toast(FLOORPLAN_FLOORS.has(floor)?`${floor}층 기본 도면으로 되돌렸습니다.`:`${floor}층 도면을 제거했습니다.`);renderSettings();
+    }catch(e){toast(e.message||'도면을 제거하지 못했습니다.','error');}
+  }
+  function bindFloorplanManager(){
+    qsa('[data-floorplan-upload]').forEach(input=>input.addEventListener('change',()=>{const file=input.files?.[0];if(file)uploadFloorplan(Number(input.dataset.floorplanUpload),file);input.value='';}));
+    qsa('[data-floorplan-reset]').forEach(btn=>btn.addEventListener('click',()=>resetFloorplan(Number(btn.dataset.floorplanReset))));
+  }
+
   function displayPositionSetupMarkup(){
     const floors=state.groups.filter(g=>floorAsset(g)).sort((a,b)=>floorNumber(a)-floorNumber(b));
     const total=state.rooms.filter(r=>r.group_id&&floorAsset(groupById(r.group_id))).length;
@@ -664,6 +710,8 @@
     return true;
   }
   function bindDisplayPositionSetup(){
+    const syncSelectedMarker=(gid)=>{const stage=qs(`[data-map-stage="${gid}"]`),roomId=qs(`[data-map-room-select="${gid}"]`)?.value;if(!stage)return;qsa('[data-display-marker]',stage).forEach(m=>m.classList.toggle('is-selected',m.dataset.displayMarker===roomId));};
+    qsa('[data-map-room-select]').forEach(select=>{select.addEventListener('change',()=>syncSelectedMarker(select.dataset.mapRoomSelect));syncSelectedMarker(select.dataset.mapRoomSelect);});
     qsa('[data-map-stage]').forEach(stage=>stage.addEventListener('click',async(e)=>{
       if(e.target.closest('[data-display-marker]'))return;
       const gid=stage.dataset.mapStage,roomId=qs(`[data-map-room-select="${gid}"]`)?.value;if(!roomId)return;
@@ -708,8 +756,9 @@
   function renderSettings(){
     const emergencyVideos=state.videos.filter(v=>v.active&&v.available!==false&&v.url);
     const ready=storageHealth?.ok===true;
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">SETTINGS</span><h1>설정</h1><p class="page-intro">층/구역과 공간, 운영시간, 비상 영상, PIN처럼 자주 바꾸지 않는 시스템 설정만 모았습니다.</p></div></div>${accessLinksMarkup()}${displayPositionSetupMarkup()}${roomSettingsMarkup()}<section class="settings-section"><div class="settings-section-head"><div><span class="eyebrow">SYSTEM</span><h2>시스템</h2></div></div><div class="settings-system-grid"><div class="settings-card"><h3>관제 화면 이름</h3><p class="muted">회사·병원마다 재사용할 수 있도록 건물 화면 명칭을 설정합니다.</p><label class="field"><span>사이트 이름</span><input id="siteName" maxlength="40" value="${esc(state.settings.site_name||'CLINIC SIGNAGE')}"></label><label class="field"><span>건물 이름</span><input id="buildingLabel" maxlength="40" value="${esc(state.settings.building_label||'MAIN BUILDING')}"></label><button id="saveSiteIdentity" class="btn primary">이름 저장</button></div><div class="settings-card operating-hours-card"><h3>운영시간</h3><p class="muted">실제 영상 송출 시간입니다. 운영시간 밖에는 검정 화면으로 대기하고 다음 시작시간에 자동 재생합니다.</p><div class="operating-day-list">${operatingDayRow('weekday','평일',state.settings.operating_weekday_enabled!==false,state.settings.operating_weekday_start||state.settings.operating_start||'09:00',state.settings.operating_weekday_end||state.settings.operating_end||'20:00')}${operatingDayRow('saturday','토요일',state.settings.operating_saturday_enabled!==false,state.settings.operating_saturday_start||'09:00',state.settings.operating_saturday_end||'17:00')}${operatingDayRow('sunday','일요일',state.settings.operating_sunday_enabled===true,state.settings.operating_sunday_start||'09:00',state.settings.operating_sunday_end||'17:00')}</div><button id="saveOperatingHours" class="btn primary">운영시간 저장</button></div><div class="settings-card"><h3>영상 저장소</h3><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>${ready?'연결됨':'설정 필요'}</b><p>Cloudflare R2 영상 저장 상태</p></div></div><button id="testStorage" class="btn">연결 확인</button></div><div class="settings-card"><h3>비상 영상</h3><label class="field"><span>재생할 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><button id="saveEmergency" class="btn primary">저장</button></div><div class="settings-card"><h3>PIN</h3><label class="field"><span>관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><label class="field top-gap"><span>스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></div></section>`;
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">SETTINGS</span><h1>설정</h1><p class="page-intro">층/구역과 공간, 운영시간, 비상 영상, PIN처럼 자주 바꾸지 않는 시스템 설정만 모았습니다.</p></div></div>${accessLinksMarkup()}${floorplanManagerMarkup()}${displayPositionSetupMarkup()}${roomSettingsMarkup()}<section class="settings-section"><div class="settings-section-head"><div><span class="eyebrow">SYSTEM</span><h2>시스템</h2></div></div><div class="settings-system-grid"><div class="settings-card"><h3>관제 화면 이름</h3><p class="muted">회사·병원마다 재사용할 수 있도록 건물 화면 명칭을 설정합니다.</p><label class="field"><span>사이트 이름</span><input id="siteName" maxlength="40" value="${esc(state.settings.site_name||'CLINIC SIGNAGE')}"></label><label class="field"><span>건물 이름</span><input id="buildingLabel" maxlength="40" value="${esc(state.settings.building_label||'MAIN BUILDING')}"></label><button id="saveSiteIdentity" class="btn primary">이름 저장</button></div><div class="settings-card operating-hours-card"><h3>운영시간</h3><p class="muted">실제 영상 송출 시간입니다. 운영시간 밖에는 검정 화면으로 대기하고 다음 시작시간에 자동 재생합니다.</p><div class="operating-day-list">${operatingDayRow('weekday','평일',state.settings.operating_weekday_enabled!==false,state.settings.operating_weekday_start||state.settings.operating_start||'09:00',state.settings.operating_weekday_end||state.settings.operating_end||'20:00')}${operatingDayRow('saturday','토요일',state.settings.operating_saturday_enabled!==false,state.settings.operating_saturday_start||'09:00',state.settings.operating_saturday_end||'17:00')}${operatingDayRow('sunday','일요일',state.settings.operating_sunday_enabled===true,state.settings.operating_sunday_start||'09:00',state.settings.operating_sunday_end||'17:00')}</div><button id="saveOperatingHours" class="btn primary">운영시간 저장</button></div><div class="settings-card"><h3>영상 저장소</h3><div class="storage-status"><span class="dot ${ready?'on':''}"></span><div><b>${ready?'연결됨':'설정 필요'}</b><p>Cloudflare R2 영상 저장 상태</p></div></div><button id="testStorage" class="btn">연결 확인</button></div><div class="settings-card"><h3>비상 영상</h3><label class="field"><span>재생할 영상</span><select id="emergencyVideo"><option value="">사용 안 함</option>${emergencyVideos.map(v=>`<option value="${v.id}" ${state.settings.emergency_video_id===v.id?'selected':''}>${esc(v.title)} · ${formatBytes(v.size_bytes)}</option>`).join('')}</select></label><button id="saveEmergency" class="btn primary">저장</button></div><div class="settings-card"><h3>PIN</h3><label class="field"><span>관리자 PIN · 6자리</span><input id="newAdminPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeAdminPin" class="btn">관리자 PIN 변경</button><label class="field top-gap"><span>스텝 PIN · 4~6자리</span><input id="newStaffPin" type="password" inputmode="numeric" maxlength="6"></label><button id="changeStaffPin" class="btn">스텝 PIN 변경</button></div></div></section>`;
     bindRoomSettings();
+    bindFloorplanManager();
     hydrateFloorplanImages();
     qsa('[data-hours-enabled]').forEach(i=>i.addEventListener('change',()=>{const key=i.dataset.hoursEnabled,wrap=qs(`[data-hours-fields="${key}"]`);wrap?.classList.toggle('is-disabled',!i.checked);qsa(`[data-hours-start="${key}"],[data-hours-end="${key}"]`).forEach(x=>x.disabled=!i.checked);const label=i.closest('.operating-day-row')?.querySelector('b');if(label)label.textContent=i.checked?'운영':'휴무';}));
     qsa('[data-open-address]').forEach(b=>b.addEventListener('click',()=>openAddress(b.dataset.openAddress)));

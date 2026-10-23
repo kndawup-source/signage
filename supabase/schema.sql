@@ -292,6 +292,7 @@ alter table public.app_settings add column if not exists emergency_video_id uuid
 alter table public.app_settings add column if not exists disk_warning_gb int not null default 20;
 alter table public.app_settings add column if not exists site_name text not null default 'CLINIC SIGNAGE';
 alter table public.app_settings add column if not exists building_label text not null default 'MAIN BUILDING';
+alter table public.app_settings add column if not exists floorplan_assets jsonb not null default '{}'::jsonb;
 insert into public.app_settings(id) values(1) on conflict(id) do nothing;
 update public.app_settings set media_server_url='' where id=1;
 

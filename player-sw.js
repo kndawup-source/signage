@@ -8,7 +8,7 @@ const SUPABASE_CDN='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/d
 const SHELL=[
   '/player.html',
   `/css/app.css?v=${VERSION}`,
-  `/js/supabase-loader.js?v=${VERSION}`,
+  `/js/boot.js?v=${VERSION}`, 
   `/js/config.js?v=${VERSION}`,
   `/js/version.js?v=${VERSION}`,
   `/js/common.js?v=${VERSION}`,

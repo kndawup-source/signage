@@ -78,6 +78,22 @@ async function signedFetch(method, objectKey = '', query = {}) {
   });
 }
 
+
+function floorplanExtension(filename, contentType) {
+  const name = String(filename || '').toLowerCase();
+  const type = String(contentType || '').toLowerCase();
+  if (type === 'image/png' || name.endsWith('.png')) return '.png';
+  if (type === 'image/jpeg' || name.endsWith('.jpg') || name.endsWith('.jpeg')) return '.jpg';
+  if (type === 'image/webp' || name.endsWith('.webp')) return '.webp';
+  return '';
+}
+function makeFloorplanObjectKey(floor, filename, contentType) {
+  const n = Math.trunc(Number(floor));
+  const ext = floorplanExtension(filename, contentType);
+  if (!Number.isInteger(n) || n < 1 || n > 99 || !ext) throw new Error('INVALID_FLOORPLAN_FILE');
+  return `floorplans/${String(n).padStart(2,'0')}/${crypto.randomUUID()}${ext}`;
+}
+
 function sanitizeFilename(name) {
   const ext = String(name).toLowerCase().endsWith('.webm') ? '.webm' : '.mp4';
   const base = String(name).replace(/\.[^.]+$/, '').normalize('NFKC').replace(/[^a-zA-Z0-9가-힣._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'video';
@@ -88,4 +104,4 @@ function makeObjectKey(filename) {
   return `videos/${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${crypto.randomUUID()}-${sanitizeFilename(filename)}`;
 }
 
-module.exports = { config, presignPut, signedFetch, makeObjectKey };
+module.exports = { config, presignPut, signedFetch, makeObjectKey, makeFloorplanObjectKey, floorplanExtension };
