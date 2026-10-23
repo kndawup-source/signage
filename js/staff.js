@@ -109,8 +109,11 @@
   }
   function staffBuildingOverview(groups){
     const floors=groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).sort((a,b)=>floorNumber(b)-floorNumber(a));
-    return `<section class="staff-building-board"><div class="staff-building-head"><span class="eyebrow">FLOOR STATUS</span><h2>층별 영상 송출</h2><p>층별 대상과 송출 목적, 현재 상태를 확인합니다.</p></div><div class="staff-building-stack">${floors.map(g=>{const st=groupStatusSummary(g.rooms),purpose=g.signage_purpose||'송출 목적 미설정';return `<button class="staff-floor-purpose floor-state-${st.key}" data-scroll-group="${g.id}"><span>${floorNumber(g)}F</span><div><b>${esc(careTypeLabel(g.care_type))} · ${esc(purpose)}</b><small>${esc(g.target_audience||'대상 미설정')} · ${esc(g.signage_reason||'송출 이유 미설정')} · ${st.live}/${st.total} 송출 중${st.issues?` · 문제 ${st.issues}`:''}</small></div><em class="room-status-badge status-${st.key}">${esc(st.label)}</em></button>`;}).join('')}</div></section>`;
+    const issueFloors=floors.filter(g=>groupStatusSummary(g.rooms).issues>0).length;
+    const rows=floors.map(g=>{const n=floorNumber(g),st=groupStatusSummary(g.rooms),y=42+(14-n)*42,purpose=(g.signage_purpose||careTypeLabel(g.care_type)||'미설정').slice(0,22);return `<g class="svg-building-floor floor-state-${st.key}" data-scroll-group="${g.id}" role="button" tabindex="0"><rect class="svg-building-slab" x="72" y="${y}" width="430" height="36" rx="7"></rect><line class="svg-building-window" x1="134" y1="${y+18}" x2="384" y2="${y+18}"></line><text class="svg-building-floor-no" x="92" y="${y+23}">${n}F</text><text class="svg-building-purpose" x="151" y="${y+23}">${esc(careTypeLabel(g.care_type))} · ${esc(purpose)}</text><circle class="svg-building-status-dot" cx="475" cy="${y+18}" r="5"></circle></g>`;}).join('');
+    return `<section class="staff-building-board svg-building-board"><div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>층별 송출 위치</h2><p>문제가 표시된 층을 누르면 해당 층의 공간 목록으로 이동합니다.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div><div class="staff-building-visual"><svg class="svg-building" viewBox="0 0 590 680" role="img" aria-label="층별 영상 송출 상태"><rect class="svg-building-outline" x="56" y="24" width="465" height="622" rx="15"></rect><rect class="svg-building-core" x="510" y="24" width="55" height="622" rx="9"></rect>${rows}<rect class="svg-building-entry" x="205" y="620" width="120" height="26" rx="5"></rect></svg></div></section>`;
   }
+
 
 
   function render(){
@@ -203,7 +206,7 @@
   }
 
   function bind(){
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qsa('[data-scroll-group]').forEach(b=>b.addEventListener('click',()=>{const el=qs(`[data-staff-group="${b.dataset.scrollGroup}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'start'});}}));
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qsa('[data-scroll-group]').forEach(b=>{const open=()=>{const el=qs(`[data-staff-group="${b.dataset.scrollGroup}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'start'});}};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
     qsa('#staffRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));

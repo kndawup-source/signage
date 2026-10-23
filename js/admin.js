@@ -204,7 +204,7 @@
       const floor=Number(img.dataset.floorplanImg);if(!floor||img.src)return;
       try{
         let url=floorplanObjectUrls.get(floor);
-        if(!url){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.6`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);url=URL.createObjectURL(await response.blob());floorplanObjectUrls.set(floor,url);}
+        if(!url){const response=await fetch(`/api/floorplan?floor=${floor}&v=2.31.7`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);url=URL.createObjectURL(await response.blob());floorplanObjectUrls.set(floor,url);}
         if(document.contains(img))img.src=url;
       }catch(_){img.alt=`${floor}층 평면도를 불러오지 못했습니다.`;img.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}
     }));
@@ -222,17 +222,39 @@
     const statusLine=buildingPeriod==='live'?`${sum.live} 송출 · ${sum.issues} 문제 · ${sum.offline} 오프라인`:sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}% · 오류 ${sum.errors||0} · 재연결 ${sum.reconnects||0}`;
     return `<button class="building-floor-row floor-state-${sum.key}" data-open-floor="${g.id}"><span class="building-floor-no">${n?`${n}F`:esc(groupDisplayName(g))}</span><span class="building-floor-copy"><b>${esc(purpose)}</b><small>${esc(audience)} · ${esc(reason)}</small><em>${esc(statusLine)}</em></span><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span></button>`;
   }
+  function buildingSvgFloor(g){
+    const n=floorNumber(g),rooms=state.rooms.filter(r=>r.group_id===g.id),sum=floorPeriodSummary(g,rooms);
+    const y=42+(14-n)*42, purpose=(g.signage_purpose||careTypeLabel(g.care_type)||'미설정').slice(0,22);
+    const active=issuesOnly?sum.issues>0||sum.offline>0:true;
+    const status=buildingPeriod==='live'?(sum.issues?`확인 ${sum.issues}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`${Number(sum.rate||0).toFixed(0)}%`);
+    return `<g class="svg-building-floor floor-state-${sum.key}${active?'':' is-muted'}" data-open-floor="${g.id}" role="button" tabindex="0" aria-label="${n}층 ${esc(careTypeLabel(g.care_type))} ${esc(sum.label)}">
+      <rect class="svg-building-slab" x="72" y="${y}" width="430" height="36" rx="7"></rect>
+      <line class="svg-building-window" x1="134" y1="${y+18}" x2="384" y2="${y+18}"></line>
+      <text class="svg-building-floor-no" x="92" y="${y+23}">${n}F</text>
+      <text class="svg-building-purpose" x="151" y="${y+23}">${esc(careTypeLabel(g.care_type))} · ${esc(purpose)}</text>
+      <circle class="svg-building-status-dot" cx="475" cy="${y+18}" r="5"></circle>
+      <text class="svg-building-status" x="520" y="${y+23}">${esc(status)}</text>
+    </g>`;
+  }
   function buildingDashboardMarkup(){
     const floors=state.groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).sort((a,b)=>floorNumber(b)-floorNumber(a));
-    const site=state.settings.site_name||'CLINIC SIGNAGE';
-    const visibleFloors=issuesOnly?floors.filter(g=>groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id)).issues>0):floors;
-    const rows=visibleFloors.map(g=>{
-      const rooms=state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),n=floorNumber(g);
-      const purpose=g.signage_purpose||'송출 목적 미설정',audience=g.target_audience||'대상 미설정';
-      const stateText=sum.issues?`문제 ${sum.issues}곳 · 송출 ${sum.live}/${sum.total}`:sum.live?`${sum.live}/${sum.total} 송출 중`:sum.offline?`오프라인 ${sum.offline}곳`:'현재 대기';
-      return `<button class="ops-floor-row floor-state-${sum.key}" data-open-floor="${g.id}"><span class="ops-floor-no">${n}F</span><span class="ops-floor-info"><span class="ops-floor-kind">${esc(careTypeLabel(g.care_type))}</span><b>${esc(purpose)}</b><small>${esc(audience)}</small></span><span class="ops-floor-state"><b>${esc(stateText)}</b><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span></span></button>`;
-    }).join('');
-    return `<section class="ops-floor-board"><div class="ops-floor-board-head"><div><span class="eyebrow">FLOOR STATUS</span><h2>층별 영상 송출</h2><p>${esc(site)} · 각 층에서 <b>누구에게 어떤 목적으로 영상이 송출되는지</b>와 현재 상태를 확인합니다.</p></div><span>${visibleFloors.length}개 층</span></div><div class="ops-floor-list">${rows||`<div class="empty-setting-message">${issuesOnly?'현재 문제 있는 층이 없습니다.':'층 정보를 설정하면 여기에 표시됩니다.'}</div>`}</div></section>`;
+    const site=state.settings.site_name||'CLINIC SIGNAGE',building=state.settings.building_label||'MAIN BUILDING';
+    const issueFloors=floors.filter(g=>{const s=groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id));return s.issues>0||s.offline>0;}).length;
+    const floorSvg=floors.map(buildingSvgFloor).join('');
+    return `<section class="svg-building-board">
+      <div class="svg-building-head"><div><span class="eyebrow">BUILDING</span><h2>${esc(building)}</h2><p>${esc(site)} · <b>문제가 표시된 층을 먼저 확인</b>하고, 층을 누르면 실제 디스플레이 위치를 볼 수 있습니다.</p></div><div class="svg-building-head-status"><b>${issueFloors}</b><span>확인 필요 층</span></div></div>
+      <div class="svg-building-layout">
+        <div class="svg-building-shell">
+          <svg class="svg-building" viewBox="0 0 680 680" role="img" aria-label="1층부터 14층까지 건물 송출 현황">
+            <rect class="svg-building-outline" x="56" y="24" width="465" height="622" rx="15"></rect>
+            <rect class="svg-building-core" x="510" y="24" width="55" height="622" rx="9"></rect>
+            ${floorSvg}
+            <rect class="svg-building-entry" x="205" y="620" width="120" height="26" rx="5"></rect>
+          </svg>
+        </div>
+        <aside class="building-simple-guide"><span class="eyebrow">HOW TO READ</span><h3>처음 보더라도 3가지만 확인하세요.</h3><ol><li><b>층 상태</b><span>오류·오프라인이 있는 층이 먼저 눈에 띕니다.</span></li><li><b>층 선택</b><span>궁금한 층을 누르면 실제 평면도가 열립니다.</span></li><li><b>디스플레이 위치</b><span>평면도에서 문제가 난 화면 위치를 바로 찾습니다.</span></li></ol><div class="building-status-legend"><span class="legend-live">송출 중</span><span class="legend-idle">대기</span><span class="legend-issue">확인 필요</span><span class="legend-offline">오프라인</span></div></aside>
+      </div>
+    </section>`;
   }
   function floorMarker(r){return floorMapMarker(r,false);}
   function floorDashboardMarkup(g){
@@ -245,10 +267,10 @@
     const playlist=floorPlaylistName(g)||'공간별/기본 플레이리스트';
     const asset=floorAsset(g);
     const roomRows=[...rooms].sort((a,b)=>roomProblemRank(a)-roomProblemRank(b)||(a.sort_order||0)-(b.sort_order||0)).map(r=>{const st=roomDisplayStatus(r),ps=r.player_status||{};return `<button class="floor-room-row" data-floor-room="${r.id}"><span class="room-status-badge status-${st.key}">${esc(st.label)}</span><b>${esc(r.name)}</b><small>${esc(roomModeLabel(r.room_mode))} · ${esc(priorityLabel(ps.priority||ps.mode))}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}</small></button>`;}).join('');
-    return `<section class="floor-dashboard"><div class="floor-context"><div><button class="text-btn floor-back" data-building-view>층별 현황</button><span class="eyebrow">${esc(careTypeLabel(g.care_type))}</span><h2>${esc(floorTitle(g))} · ${esc(g.name)}</h2><p>${esc(purpose)}</p></div><div class="floor-context-facts"><span><small>주요 대상</small><b>${esc(audience)}</b></span><span><small>고객 대기공간</small><b>${esc(waiting)}</b></span><span><small>송출 이유</small><b>${esc(reason)}</b></span><span><small>기본 플레이리스트</small><b>${esc(playlist)}</b></span></div></div><div class="floor-live-summary"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total} 송출 중</b><span>문제 ${sum.issues} · 오프라인 ${sum.offline}</span></div><div class="floor-map-card floor-map-card-focus"><div class="floor-map-head"><div><b>${esc(floorTitle(g))} 평면도</b><small>디스플레이 위치와 상태만 표시합니다. 아이콘을 누르면 해당 공간으로 이동합니다.</small></div><span>${rooms.length}대</span></div>${asset?`<div class="floor-plan-stage"><img data-floorplan-img="${asset}" alt="${esc(floorTitle(g))} 평면도">${rooms.map(floorMarker).join('')}</div>`:'<div class="floor-plan-empty">등록된 평면도가 없습니다.</div>'}${unplaced.length?`<div class="floor-map-unplaced">위치 미설정 디스플레이 ${unplaced.length}대 · 설정 &gt; 디스플레이 위치 설정에서 배치하세요.</div>`:''}</div><details class="floor-room-drawer"><summary><span><b>공간 목록</b><small>문제 공간을 먼저 표시합니다.</small></span><em>${rooms.length}곳</em></summary><div class="floor-room-drawer-body">${roomRows||'<span class="muted">등록된 공간이 없습니다.</span>'}</div></details></section>`;
+    return `<section class="floor-dashboard"><div class="floor-context"><div><button class="text-btn floor-back" data-building-view>건물</button><span class="eyebrow">${esc(careTypeLabel(g.care_type))}</span><h2>${esc(floorTitle(g))} · ${esc(g.name)}</h2><p>${esc(purpose)}</p></div><div class="floor-context-facts"><span><small>주요 대상</small><b>${esc(audience)}</b></span><span><small>고객 대기공간</small><b>${esc(waiting)}</b></span><span><small>송출 이유</small><b>${esc(reason)}</b></span><span><small>기본 플레이리스트</small><b>${esc(playlist)}</b></span></div></div><div class="floor-live-summary"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total} 송출 중</b><span>문제 ${sum.issues} · 오프라인 ${sum.offline}</span></div><div class="floor-map-card floor-map-card-focus"><div class="floor-map-head"><div><b>${esc(floorTitle(g))} 평면도</b><small>디스플레이 위치와 상태만 표시합니다. 아이콘을 누르면 해당 공간으로 이동합니다.</small></div><span>${rooms.length}대</span></div>${asset?`<div class="floor-plan-stage"><img data-floorplan-img="${asset}" alt="${esc(floorTitle(g))} 평면도">${rooms.map(floorMarker).join('')}</div>`:'<div class="floor-plan-empty">등록된 평면도가 없습니다.</div>'}${unplaced.length?`<div class="floor-map-unplaced">위치 미설정 디스플레이 ${unplaced.length}대 · 설정 &gt; 디스플레이 위치 설정에서 배치하세요.</div>`:''}</div><details class="floor-room-drawer"><summary><span><b>공간 목록</b><small>문제 공간을 먼저 표시합니다.</small></span><em>${rooms.length}곳</em></summary><div class="floor-room-drawer-body">${roomRows||'<span class="muted">등록된 공간이 없습니다.</span>'}</div></details></section>`;
   }
 
-  function dashboardViewNav(){return `<div class="dashboard-view-nav" role="tablist" aria-label="송출 현황 보기"><button class="${dashboardView==='building'?'active':''}" data-dashboard-view="building">층별 현황</button><button class="${dashboardView==='floor'?'active':''}" data-dashboard-view="floor" ${selectedFloorId?'':'disabled'}>층 평면도</button><button class="${dashboardView==='rooms'?'active':''}" data-dashboard-view="rooms">전체 공간</button></div>`;}
+  function dashboardViewNav(){return `<div class="dashboard-view-nav" role="tablist" aria-label="송출 현황 보기"><button class="${dashboardView==='building'?'active':''}" data-dashboard-view="building">건물</button><button class="${dashboardView==='floor'?'active':''}" data-dashboard-view="floor" ${selectedFloorId?'':'disabled'}>층 평면도</button><button class="${dashboardView==='rooms'?'active':''}" data-dashboard-view="rooms">공간 목록</button></div>`;}
   function render(){if(tab==='dashboard')renderDashboard();else if(tab==='videos')renderVideos();else renderSettings();}
 
   function operationalAlerts(){
@@ -359,7 +381,7 @@
 
   function bindDashboard(){
     qsa('[data-dashboard-view]').forEach(b=>b.addEventListener('click',()=>{dashboardView=b.dataset.dashboardView;if(dashboardView==='floor'&&!selectedFloorId){const first=state.groups.find(g=>floorNumber(g));selectedFloorId=first?.id||null;}renderDashboard();}));qsa('[data-building-period]').forEach(b=>b.addEventListener('click',()=>{buildingPeriod=b.dataset.buildingPeriod||'live';renderDashboard();}));
-    qsa('[data-open-floor]').forEach(b=>b.addEventListener('click',()=>{if(!b.dataset.openFloor)return;selectedFloorId=b.dataset.openFloor;dashboardView='floor';renderDashboard();}));
+    qsa('[data-open-floor]').forEach(b=>{const open=()=>{if(!b.dataset.openFloor)return;selectedFloorId=b.dataset.openFloor;dashboardView='floor';renderDashboard();};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
     qs('[data-building-view]')?.addEventListener('click',()=>{dashboardView='building';renderDashboard();});
     qsa('[data-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.floorRoom;dashboardView='rooms';renderDashboard();requestAnimationFrame(()=>{const card=qs(`[data-room-card="${id}"]`);if(card){card.open=true;card.scrollIntoView({behavior:'smooth',block:'center'});}});}));
     qs('#issuesOnly')?.addEventListener('click',()=>{issuesOnly=!issuesOnly;renderDashboard();});qs('#refreshLiveStatus')?.addEventListener('click',refreshAllLiveStatus);

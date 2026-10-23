@@ -11,8 +11,8 @@ module.exports = async (req, res) => {
     const image = getFloorplan(floor);
     if (!image) return json(res, 404, { error: 'FLOORPLAN_NOT_FOUND' });
     res.statusCode = 200;
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'private, max-age=300, must-revalidate');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(image);
   } catch (e) {
