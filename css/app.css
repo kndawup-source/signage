@@ -382,263 +382,469 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 .hospital-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-top:1px solid #eceef1;border-bottom:1px solid #eceef1;background:#fafbfc}.hospital-search{display:block;min-width:260px;max-width:420px;flex:1}.hospital-search input{width:100%;height:36px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:0 12px;font-size:11px;color:var(--ink);outline:none}.hospital-search input:focus{border-color:#a7a2d9;box-shadow:0 0 0 3px rgba(59,51,140,.08)}.hospital-filter{display:flex;gap:5px}.hospital-filter button{height:32px;padding:0 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:#666b75;font-size:9px;font-weight:850;cursor:pointer}.hospital-filter button.on{background:var(--primary);border-color:var(--primary);color:#fff}.hospital-row.has-issue:not(.is-active){background:#fffafa}.hospital-row.has-issue .hospital-row-state{background:#fff0f0;color:#a63737}.hospital-empty{padding:28px 18px;text-align:center;color:var(--muted);font-size:10px}.building-command-grid{grid-template-columns:minmax(210px,280px) minmax(0,1fr)!important;gap:18px!important;align-items:stretch}.building-nav-pane{display:flex!important;flex-direction:column;justify-content:flex-start!important;min-width:0}.building-floor-stack{display:grid;grid-template-columns:1fr;gap:4px;width:100%;padding:0;margin:0}.building-stack-floor{position:relative;appearance:none;display:grid;grid-template-columns:40px minmax(0,1fr) auto 8px;align-items:center;gap:8px;width:100%;height:34px;min-height:34px;margin:0;padding:0 10px;border:1px solid #e4e6ea;border-radius:7px;background:#fff;color:var(--ink);text-align:left;overflow:hidden;box-sizing:border-box}.building-stack-floor:is(button){cursor:pointer}.building-stack-floor:is(button):hover{border-color:#c8c9d4;background:#f8f8fb}.building-stack-floor.is-selected{border-color:var(--primary);background:#f3f2fb;box-shadow:inset 3px 0 0 var(--primary)}.building-stack-floor.is-muted{opacity:.48}.building-stack-floor.is-unmanaged{background:#f7f8f9;color:#a1a5ad;border-style:dashed}.building-stack-floor>b{font-size:11px;line-height:1;font-weight:900}.building-stack-floor>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:750}.building-stack-floor>em{font-style:normal;font-size:8px;font-weight:800;color:#777c85;white-space:nowrap}.building-stack-floor>i{width:7px;height:7px;border-radius:50%;background:#b7bbc2}.building-stack-floor.floor-state-live>i{background:#2c8a59}.building-stack-floor.floor-state-issue>i,.building-stack-floor.floor-state-error>i{background:#c84848}.building-stack-floor.floor-state-offline>i{background:#8c9098}.building-stack-floor.floor-state-idle>i{background:#b7bbc2}.building-stack-floor.floor-state-update>i{background:#b47626}.building-inline-legend{display:flex!important;flex-wrap:wrap;gap:6px 10px;margin-top:10px!important}.building-inline-legend span{font-size:8px!important}.building-plan-pane{height:auto;min-height:100%;min-width:0;overflow:hidden}.floor-plan-empty-action{display:flex!important;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:240px;text-align:center}.floor-plan-empty-action>b{font-size:14px;color:var(--ink)}.floor-plan-empty-action>span{font-size:9px;color:var(--muted)}.floor-plan-empty-action>.btn{margin-top:4px}.floor-display-pin.control-remote .floor-display-dot{background:var(--primary)}.floor-display-pin.control-manual .floor-display-dot{background:#fff;border:2px solid var(--primary)}.floor-display-pin.control-hybrid .floor-display-dot{background:linear-gradient(90deg,var(--primary) 50%,#fff 50%);border:1px solid var(--primary)}.floor-display-pin.status-error,.floor-display-pin.status-offline,.floor-display-pin.status-update,.floor-display-pin.status-manual-warn{outline:2px solid #c84848;outline-offset:2px}@media(max-width:900px){.building-command-grid{grid-template-columns:220px minmax(0,1fr)!important}.hospital-toolbar{align-items:stretch}.hospital-search{min-width:0}}@media(max-width:700px){.hospital-toolbar{display:grid;padding:10px 14px}.hospital-filter{justify-content:flex-start}.building-command-grid{grid-template-columns:1fr!important}.building-floor-stack{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.building-stack-floor{grid-template-columns:34px minmax(0,1fr) 7px}.building-stack-floor>em{display:none}.building-nav-pane{width:100%}.floor-plan-empty-action{min-height:180px}}
 
 
-/* v2.33.14 — canonical operations layout / typography / spatial hierarchy */
+/* v2.33.17 — unified design system / full UI hierarchy normalization */
 :root{
-  --ops-gap-1:6px;
-  --ops-gap-2:10px;
-  --ops-gap-3:14px;
-  --ops-gap-4:18px;
-  --ops-gap-5:24px;
-  --ops-radius:14px;
-  --ops-radius-sm:9px;
-  --ops-text:12px;
-  --ops-text-sm:10px;
-  --ops-label:9px;
-  --ops-title:20px;
+  --ui-space-1:6px;
+  --ui-space-2:10px;
+  --ui-space-3:14px;
+  --ui-space-4:18px;
+  --ui-space-5:24px;
+  --ui-space-6:32px;
+  --ui-radius-sm:8px;
+  --ui-radius:12px;
+  --ui-radius-lg:14px;
+  --ui-title-xl:28px;
+  --ui-title-lg:22px;
+  --ui-title-md:18px;
+  --ui-title-sm:15px;
+  --ui-body:12px;
+  --ui-body-sm:10px;
+  --ui-label:9px;
+  --ui-line:#e7e9ed;
+  --ui-soft:#f7f8fa;
 }
 
-/* Shared rhythm */
-.hospital-portfolio,
-.building-command-board,
-.ops-now-summary,
-.ops-problem-line,
-.ops-control-panel,
-.staff-space-detail-drawer{
-  border-radius:var(--ops-radius);
+/* App shell / navigation */
+.admin-page,
+.staff-page{background:var(--bg)}
+.admin-page .shell,
+.staff-page .shell{
+  max-width:1240px;
+  padding:32px 28px 80px;
 }
-.hospital-portfolio,
-.building-command-board{margin:0 0 var(--ops-gap-5)}
-.ops-page-head,
-.building-command-head,
-.hospital-portfolio-head{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:var(--ops-gap-4);
+.admin-page .topbar-inner,
+.staff-page .topbar-inner{
+  min-height:60px;
+  padding:0 28px;
+  gap:24px;
 }
-.ops-page-head{margin:0 0 var(--ops-gap-4)}
-.ops-page-head h1,
-.building-command-head h2,
-.hospital-portfolio-head h2{
-  margin:3px 0 4px;
-  font-size:var(--ops-title);
-  line-height:1.15;
-  letter-spacing:-.035em;
+.admin-page .brand,
+.staff-page .brand{
+  font-size:11px;
+  letter-spacing:.14em;
 }
-.ops-page-head p,
-.building-command-head p,
-.hospital-portfolio-head p{
-  margin:0;
-  font-size:var(--ops-text-sm);
-  line-height:1.5;
-  color:var(--muted);
+.admin-page .nav-btn,
+.admin-page .text-btn,
+.staff-page .text-btn{
+  min-height:34px;
+  padding:7px 10px;
+  border-radius:var(--ui-radius-sm);
+  font-size:11px;
+  font-weight:800;
 }
-.eyebrow{
-  font-size:var(--ops-label)!important;
+.staff-page .top-label{
+  font-size:10px;
+  letter-spacing:.05em;
+}
+.admin-page .eyebrow,
+.staff-page .eyebrow{
+  margin-bottom:5px;
+  font-size:var(--ui-label)!important;
   line-height:1.2;
   letter-spacing:.08em;
   font-weight:850;
 }
 
-/* Super Admin: numbers first, hospital list second */
-.hospital-portfolio{
-  overflow:hidden;
-  border:1px solid #e7e8ec;
+/* Shared typography */
+.admin-page h1,
+.staff-page h1{
+  font-size:var(--ui-title-xl)!important;
+  line-height:1.08!important;
+  letter-spacing:-.04em!important;
+}
+.admin-page h2,
+.staff-page h2{
+  font-size:var(--ui-title-lg)!important;
+  line-height:1.12!important;
+  letter-spacing:-.035em!important;
+}
+.admin-page h3,
+.staff-page h3{
+  font-size:var(--ui-title-sm)!important;
+  line-height:1.25!important;
+  letter-spacing:-.02em!important;
+}
+.admin-page p,
+.staff-page p{
+  font-size:var(--ui-body-sm);
+  line-height:1.5;
+}
+.admin-page .muted,
+.staff-page .muted{font-size:var(--ui-body-sm)}
+.admin-page small,
+.staff-page small{line-height:1.35}
+
+/* Controls */
+.admin-page .btn,
+.staff-page .btn{
+  min-height:38px;
+  padding:8px 12px;
+  border-radius:var(--ui-radius-sm);
+  font-size:11px;
+  font-weight:800;
+}
+.admin-page .btn.small,
+.staff-page .btn.small{
+  min-height:34px;
+  padding:7px 10px;
+  font-size:10px;
+}
+.admin-page .field,
+.staff-page .field{
+  gap:6px;
+  font-size:11px;
+  font-weight:750;
+}
+.admin-page .field>span,
+.staff-page .field>span{
+  font-size:10px;
+  color:#555b64;
+}
+.admin-page input,
+.admin-page select,
+.admin-page textarea,
+.staff-page input,
+.staff-page select,
+.staff-page textarea{
+  min-height:40px;
+  padding:8px 10px;
+  border-radius:var(--ui-radius-sm);
+  border-color:var(--ui-line);
+  font-size:12px;
+}
+.admin-page .compact-select,
+.staff-page .compact-select{
+  min-height:34px;
+  font-size:10px;
+}
+.admin-page .pick,
+.admin-page .chip,
+.staff-page .pick,
+.staff-page .chip{
+  padding:7px 10px;
+  border-radius:var(--ui-radius-sm);
+  font-size:10px;
+}
+
+/* Card / line policy */
+.admin-page .panel,
+.staff-page .panel,
+.settings-card,
+.media-row,
+.monitor-group,
+.staff-monitor-group,
+.monitor-room,
+.staff-monitor-room,
+.building-command-board,
+.staff-space-detail-drawer,
+.access-card,
+.floorplan-admin-list,
+.product-site-manager .settings-card{
+  box-shadow:none!important;
+}
+.admin-page .panel,
+.settings-card,
+.media-row,
+.monitor-group,
+.staff-monitor-group,
+.building-command-board,
+.staff-space-detail-drawer,
+.access-card{
+  border:1px solid var(--ui-line);
+  border-radius:var(--ui-radius);
   background:#fff;
 }
-.hospital-portfolio-head{
-  padding:18px 20px 16px;
+.admin-page .panel{
+  padding:18px;
+  margin:0 0 14px;
+}
+.admin-page .panel:first-of-type{border-top:1px solid var(--ui-line)}
+.admin-page .panel-head,
+.staff-page .panel-head{
+  gap:14px;
+  margin-bottom:16px;
+}
+.admin-page .panel h2,
+.staff-page .panel h2{font-size:var(--ui-title-md)!important}
+.admin-page .section-head,
+.staff-page .section-head{
+  padding-bottom:12px;
+  margin-bottom:14px;
+  border-bottom:1px solid var(--ui-line);
+}
+
+/* Super Admin — current hospital first */
+.hospital-control-shell{
+  display:grid;
+  gap:10px;
+  margin:0 0 var(--ui-space-5);
+}
+.active-hospital-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:var(--ui-space-5);
+  align-items:start;
+  padding:18px;
+  border:1px solid #25236d;
+  border-radius:var(--ui-radius-lg);
   background:var(--primary);
   color:#fff;
+  overflow:hidden;
 }
-.hospital-portfolio-head p,
-.hospital-portfolio-head .eyebrow{color:rgba(255,255,255,.72)!important}
-.hospital-portfolio-total{
+.active-hospital-copy{min-width:0}
+.active-hospital-copy .eyebrow{color:rgba(255,255,255,.68)!important}
+.active-hospital-title{
   display:flex;
-  align-items:flex-start;
-  gap:20px;
+  align-items:baseline;
+  gap:10px;
+  min-width:0;
+  margin:3px 0 5px;
 }
-.hospital-portfolio-total>span{
-  display:grid;
-  gap:2px;
-  min-width:58px;
-  text-align:right;
-}
-.hospital-portfolio-total b{
-  font-size:22px;
-  line-height:1;
-  letter-spacing:-.04em;
-}
-.hospital-portfolio-total small{
-  font-size:var(--ops-label);
-  color:rgba(255,255,255,.7);
-  font-weight:800;
-}
-.hospital-toolbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  padding:12px 16px;
-  border-bottom:1px solid #eceef1;
-}
-.hospital-search{flex:1;max-width:360px}
-.hospital-search input{
-  width:100%;
-  height:36px;
-  padding:0 11px;
-  border:1px solid #dfe2e7;
-  border-radius:9px;
-  font-size:11px;
-}
-.hospital-filter{display:flex;gap:6px}
-.hospital-filter button{
-  min-height:32px;
-  padding:0 10px;
-  border:1px solid #dfe2e7;
-  border-radius:8px;
-  background:#fff;
-  font-size:10px;
-  font-weight:800;
-}
-.hospital-filter button.on{
-  border-color:var(--primary);
-  background:#f4f4fb;
-  color:var(--primary);
-}
-.hospital-list{display:grid}
-.hospital-row{border-top:1px solid #eceef1}
-.hospital-row:first-child{border-top:0}
-.hospital-row.is-active{background:#f7f7fb}
-.hospital-row-main{
-  width:100%;
-  display:grid;
-  grid-template-columns:minmax(220px,1fr) 76px 76px 76px 64px;
-  align-items:center;
-  gap:12px;
-  padding:13px 16px;
-  border:0;
-  background:transparent;
-  color:var(--ink);
-  text-align:left;
-  cursor:pointer;
-}
-.hospital-row-main:hover{background:#fafafe}
-.hospital-row-identity{display:grid;gap:2px;min-width:0}
-.hospital-row-identity b{
-  font-size:13px;
-  line-height:1.25;
+.active-hospital-title h2{
+  margin:0;
+  min-width:0;
+  font-size:24px!important;
+  color:#fff;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
-.hospital-row-identity code{
-  font:700 9px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;
-  color:var(--muted);
+.active-hospital-title code{
+  flex:0 0 auto;
+  font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:rgba(255,255,255,.62);
 }
-.hospital-row-stat{
-  display:grid;
-  gap:1px;
-  text-align:right;
+.active-hospital-copy>p{
+  margin:0;
+  color:rgba(255,255,255,.7);
 }
-.hospital-row-stat b{font-size:15px;line-height:1}
-.hospital-row-stat small,
-.hospital-row-state{font-size:9px;color:var(--muted)}
-.hospital-row.is-active .hospital-row-state{color:var(--primary);font-weight:850}
-
-/* Selected hospital summary */
-.ops-head-meta{
+.active-hospital-stats{
+  min-width:228px;
   display:grid;
-  justify-items:end;
-  gap:2px;
-}
-.ops-head-meta b{font-size:24px;line-height:1}
-.ops-head-meta span,
-.ops-head-meta em{font-size:9px;color:var(--muted);font-style:normal}
-.ops-now-summary{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-columns:repeat(3,minmax(64px,1fr));
   gap:1px;
   overflow:hidden;
-  border:1px solid #e7e8ec;
-  background:#e7e8ec;
-  margin-bottom:12px;
+  border:1px solid rgba(255,255,255,.17);
+  border-radius:10px;
+  background:rgba(255,255,255,.17);
 }
-.ops-now-summary>div{
-  padding:14px 16px;
-  background:#fff;
+.active-hospital-stats>span{
+  min-height:66px;
+  padding:10px;
   display:grid;
-  gap:2px;
+  align-content:center;
+  justify-items:end;
+  gap:3px;
+  background:rgba(35,33,118,.98);
 }
-.ops-now-summary span{font-size:9px;color:var(--muted);font-weight:800}
-.ops-now-summary b{font-size:24px;line-height:1}
-.ops-now-summary small{font-size:9px;color:var(--muted)}
-.ops-now-summary .is-problem b{color:#b42318}
-.ops-problem-line{
-  min-height:42px;
+.active-hospital-stats b{font-size:20px;line-height:1}
+.active-hospital-stats small{
+  font-size:9px;
+  font-weight:800;
+  color:rgba(255,255,255,.66);
+}
+.active-hospital-stats .has-issue b{color:#ffd1ce}
+.active-hospital-links{margin-top:12px;max-width:720px}
+.active-hospital-links>summary{
+  width:max-content;
+  list-style:none;
+  cursor:pointer;
+  font-size:9px;
+  font-weight:850;
+  color:rgba(255,255,255,.76);
+}
+.active-hospital-links>summary::-webkit-details-marker{display:none}
+.active-hospital-links[open]>summary{color:#fff}
+.active-hospital-links-body{
+  margin-top:9px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;
+  background:rgba(255,255,255,.055);
+  overflow:hidden;
+}
+.active-hospital-links-body>div{
+  min-height:40px;
+  padding:8px 10px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.active-hospital-links-body>div+div{border-top:1px solid rgba(255,255,255,.11)}
+.active-hospital-links-body>div>span:first-child{display:grid;gap:2px;min-width:0}
+.active-hospital-links-body b{font-size:9px}
+.active-hospital-links-body code{
+  max-width:500px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font:650 9px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:rgba(255,255,255,.62);
+}
+.active-hospital-links-body small{font-size:9px;color:rgba(255,255,255,.62)}
+.active-hospital-links .super-site-address-actions button{
+  min-height:30px;
+  border-color:rgba(255,255,255,.2);
+  background:rgba(255,255,255,.05);
+  color:#fff;
+  font-size:9px;
+}
+.hospital-switcher{
+  border:1px solid var(--ui-line);
+  border-radius:var(--ui-radius);
+  background:#fff;
+  overflow:hidden;
+}
+.hospital-switcher>summary{
+  min-height:46px;
   padding:10px 14px;
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+}
+.hospital-switcher>summary::-webkit-details-marker{display:none}
+.hospital-switcher>summary>span{display:grid;gap:2px}
+.hospital-switcher>summary b{font-size:11px}
+.hospital-switcher>summary small{font-size:9px;color:var(--muted)}
+.hospital-switcher>summary em{
+  font-style:normal;
+  font-size:9px;
+  font-weight:850;
+  color:var(--primary);
+}
+.hospital-switch-list{border-top:1px solid var(--ui-line)}
+.hospital-switch-row{
+  width:100%;
+  min-height:52px;
+  display:grid;
+  grid-template-columns:minmax(180px,1fr) 70px 70px 62px;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  border:0;
+  background:#fff;
+  text-align:left;
+  color:var(--ink);
+  cursor:pointer;
+}
+.hospital-switch-row+.hospital-switch-row{border-top:1px solid var(--ui-line)}
+.hospital-switch-row:hover{background:#fafafe}
+.hospital-switch-identity{display:grid;gap:2px;min-width:0}
+.hospital-switch-identity b{
+  font-size:11px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.hospital-switch-identity code{
+  font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--muted);
+}
+.hospital-switch-stat{display:grid;gap:1px;text-align:right}
+.hospital-switch-stat b{font-size:13px;line-height:1}
+.hospital-switch-stat small{font-size:9px;color:var(--muted)}
+.hospital-switch-stat.has-issue b{color:#b42318}
+
+/* Floor control header */
+.ops-section-head{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+  margin:0 0 12px;
+}
+.ops-section-head h1{
+  margin:3px 0 4px;
+  font-size:22px!important;
+}
+.ops-section-head p{margin:0;color:var(--muted)}
+.ops-section-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.ops-section-actions em{
+  margin-right:3px;
+  font-style:normal;
+  font-size:9px;
+  font-weight:800;
+  color:var(--primary);
+}
+.ops-problem-line{
+  min-height:40px;
+  padding:9px 12px;
   display:flex;
   align-items:center;
   gap:12px;
-  border:1px solid #e7e8ec;
-  margin-bottom:10px;
-  background:#fff;
+  margin:0 0 10px;
+  border:1px solid #ecd7d7;
+  border-radius:10px;
+  background:#fffafa;
 }
-.ops-problem-line>b{font-size:11px;white-space:nowrap}
-.ops-problem-line>div{display:flex;gap:10px;flex-wrap:wrap;font-size:9px;color:var(--muted)}
-.ops-primary-actions{display:flex;gap:8px;margin-bottom:14px}
+.ops-problem-line>b{font-size:10px;white-space:nowrap}
+.ops-problem-line>div{
+  flex:1;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  font-size:9px;
+  color:var(--muted);
+}
 
-/* Building / floor selection */
+/* Building / floor selector */
 .building-command-board{
-  border:1px solid #e7e8ec;
-  background:#fff;
+  margin:0 0 var(--ui-space-5);
   overflow:hidden;
 }
 .building-command-head{
-  padding:18px 20px 14px;
-  border-bottom:1px solid #eef0f3;
+  padding:16px 18px 13px;
+  border-bottom:1px solid var(--ui-line);
 }
+.building-command-head h2{
+  margin:3px 0 4px;
+  font-size:20px!important;
+}
+.building-command-head p{margin:0;color:var(--muted)}
 .building-command-grid{
   display:grid;
-  grid-template-columns:250px minmax(0,1fr);
-  gap:0;
-  min-height:540px;
+  grid-template-columns:238px minmax(0,1fr);
+  min-height:520px;
 }
 .building-nav-pane{
-  padding:14px;
-  border-right:1px solid #eef0f3;
+  padding:12px;
+  border-right:1px solid var(--ui-line);
   background:#fafbfc;
 }
-.building-floor-stack{
-  display:grid;
-  gap:6px;
-}
+.building-floor-stack{display:grid;gap:5px}
 .building-stack-floor{
-  appearance:none;
   width:100%;
-  height:42px;
-  min-height:42px;
+  height:40px;
+  min-height:40px;
   display:grid;
-  grid-template-columns:42px minmax(0,1fr) 9px;
+  grid-template-columns:38px minmax(0,1fr) 8px;
   align-items:center;
   gap:8px;
-  padding:0 11px;
+  padding:0 10px;
   border:1px solid #e4e6ea;
-  border-radius:9px;
+  border-radius:8px;
   background:#fff;
   color:var(--ink);
   text-align:left;
 }
 button.building-stack-floor{cursor:pointer}
 button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
-.building-stack-floor>b{font-size:13px;line-height:1;font-weight:850}
+.building-stack-floor>b{font-size:12px;line-height:1;font-weight:850}
 .building-stack-floor>span{
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  font-size:11px;
-  line-height:1.2;
+  font-size:10px;
   font-weight:750;
 }
 .building-stack-floor>em{display:none!important}
@@ -646,7 +852,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   width:8px;
   height:8px;
   border-radius:50%;
-  background:#c8ccd2;
+  background:#c7cbd1;
   justify-self:end;
 }
 .building-stack-floor.is-selected{
@@ -657,36 +863,30 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .building-stack-floor.floor-state-live>i{background:var(--primary)}
 .building-stack-floor.floor-state-idle>i{background:#aeb3bb}
 .building-stack-floor.floor-state-error>i,
+.building-stack-floor.floor-state-issue>i,
 .building-stack-floor.floor-state-offline>i,
 .building-stack-floor.floor-state-update>i,
 .building-stack-floor.floor-state-manual-warn>i{background:#d92d20}
 .building-stack-floor.is-unmanaged{opacity:.45}
 
-/* Floor plan hierarchy */
+/* Floor plan / guidance */
 .building-plan-pane{
   min-width:0;
-  padding:18px;
+  padding:16px;
   background:#fff;
 }
 .building-plan-head{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
-  gap:16px;
-  margin-bottom:14px;
+  gap:14px;
+  margin-bottom:12px;
 }
 .building-plan-head h3{
   margin:3px 0 4px;
-  font-size:18px;
-  line-height:1.2;
-  letter-spacing:-.035em;
+  font-size:18px!important;
 }
-.building-plan-head p{
-  margin:0;
-  font-size:10px;
-  line-height:1.45;
-  color:var(--muted);
-}
+.building-plan-head p{margin:0;color:var(--muted)}
 .building-plan-status{
   display:grid;
   justify-items:end;
@@ -695,25 +895,23 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .building-plan-status b{font-size:18px;line-height:1}
 .building-plan-status small{font-size:9px;color:var(--muted)}
 .building-plan-status .room-status-badge{display:none!important}
-
 .floor-ops-brief{
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:8px;
-  margin:0 0 14px;
+  gap:7px;
+  margin:0 0 12px;
 }
 .floor-ops-brief>span{
   min-width:0;
-  padding:10px 11px;
+  padding:9px 10px;
   border:1px solid #eceef1;
-  border-radius:9px;
+  border-radius:8px;
   background:#fbfbfc;
   display:grid;
   gap:3px;
 }
 .floor-ops-brief small{
-  font-size:8px;
-  line-height:1.2;
+  font-size:9px;
   color:var(--muted);
   font-weight:800;
 }
@@ -722,18 +920,17 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   line-height:1.35;
   overflow-wrap:anywhere;
 }
-
 .building-floorplan-wrap{
-  border:1px solid #e5e7eb;
-  border-radius:12px;
   overflow:hidden;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
   background:#fff;
 }
 .floor-plan-stage.building-floor-plan-stage{
   position:relative;
-  min-height:400px;
-  background:#f7f8fa;
+  min-height:390px;
   overflow:hidden;
+  background:#f7f8fa;
 }
 .floorplan-svg-host,
 .floorplan-svg-host svg,
@@ -745,24 +942,16 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floorplan-svg-host svg,
 .floorplan-svg-host img{object-fit:contain}
 .floor-activation-shell{animation:floorPanelIn .22s cubic-bezier(.2,.75,.3,1) both}
-.building-floor-plan-stage.is-floor-activating .floorplan-svg-host{
-  animation:floorPlanIn .26s cubic-bezier(.2,.75,.3,1) both;
-}
-@keyframes floorPanelIn{
-  from{opacity:.7;transform:translateY(2px)}
-  to{opacity:1;transform:translateY(0)}
-}
-@keyframes floorPlanIn{
-  from{opacity:.72;transform:scale(.996)}
-  to{opacity:1;transform:scale(1)}
-}
+.building-floor-plan-stage.is-floor-activating .floorplan-svg-host{animation:floorPlanIn .26s cubic-bezier(.2,.75,.3,1) both}
+@keyframes floorPanelIn{from{opacity:.72;transform:translateY(2px)}to{opacity:1;transform:translateY(0)}}
+@keyframes floorPlanIn{from{opacity:.74;transform:scale(.996)}to{opacity:1;transform:scale(1)}}
 
-/* Space outline + display point */
+/* Space / display geometry */
 .building-floor-plan-stage .floor-space-overlay{
   position:absolute;
   z-index:3;
   border:1.5px solid rgba(35,33,118,.48);
-  border-radius:6px;
+  border-radius:5px;
   background:rgba(35,33,118,.02);
   opacity:0;
   animation:spaceOutlineIn .22s ease-out .07s forwards;
@@ -782,15 +971,12 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   white-space:nowrap;
   padding:2px 4px;
   border-radius:4px;
-  background:rgba(255,255,255,.9);
+  background:rgba(255,255,255,.92);
   font-size:8px;
   line-height:1.2;
   font-weight:800;
 }
-@keyframes spaceOutlineIn{
-  from{opacity:0;transform:scale(.992)}
-  to{opacity:1;transform:scale(1)}
-}
+@keyframes spaceOutlineIn{from{opacity:0;transform:scale(.992)}to{opacity:1;transform:scale(1)}}
 .building-floor-plan-stage .floor-display-pin{
   position:absolute;
   z-index:6;
@@ -804,9 +990,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   cursor:pointer;
   animation:displayPinIn .22s cubic-bezier(.2,.9,.3,1.2) .13s forwards;
 }
-@keyframes displayPinIn{
-  to{opacity:1;transform:translate(-50%,-50%) scale(1)}
-}
+@keyframes displayPinIn{to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
 .building-floor-plan-stage .floor-display-pin .display-screen-icon{display:none!important}
 .building-floor-plan-stage .floor-display-dot{
   position:absolute;
@@ -827,99 +1011,75 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-display-pin.status-update .floor-display-dot,
 .floor-display-pin.status-manual-warn .floor-display-dot{background:#d92d20}
 .floor-display-pin.control-manual .floor-display-dot{background:#fff;border-color:#777;box-shadow:0 0 0 1px #777}
-.floor-display-pin.control-hybrid .floor-display-dot{
-  background:linear-gradient(90deg,var(--primary) 50%,#fff 50%);
-  border-color:#fff;
-}
+.floor-display-pin.control-hybrid .floor-display-dot{background:linear-gradient(90deg,var(--primary) 50%,#fff 50%);border-color:#fff}
 .floor-display-pin.is-selected .floor-display-dot,
-.floor-display-pin:focus-visible .floor-display-dot{
-  box-shadow:0 0 0 3px rgba(35,33,118,.18),0 0 0 1px var(--primary);
-}
+.floor-display-pin:focus-visible .floor-display-dot{box-shadow:0 0 0 3px rgba(35,33,118,.18),0 0 0 1px var(--primary)}
 
-/* Selected display preview */
+/* Selected display / video strip */
 .floor-zone-inspector{
-  min-height:84px;
+  min-height:80px;
   display:grid;
-  grid-template-columns:150px minmax(0,1fr) auto;
-  gap:14px;
+  grid-template-columns:140px minmax(0,1fr) auto;
+  gap:12px;
   align-items:center;
-  padding:12px 14px;
-  border-top:1px solid #eceef1;
+  padding:11px 12px;
+  border-top:1px solid var(--ui-line);
   background:#fff;
 }
 .floor-zone-inspector-empty{
   grid-column:1/-1;
   display:grid;
-  grid-template-columns:180px minmax(0,1fr);
-  gap:14px;
+  grid-template-columns:170px minmax(0,1fr);
+  gap:12px;
   align-items:center;
 }
 .floor-zone-inspector-empty b,
-.floor-room-preview-copy b{
-  font-size:12px;
-  line-height:1.3;
-}
+.floor-room-preview-copy b{font-size:12px;line-height:1.3}
 .floor-zone-inspector-empty span,
-.floor-room-preview-copy>span{
-  display:block;
-  margin-bottom:2px;
-  font-size:8px;
-  line-height:1.2;
-  color:var(--muted);
-  font-weight:850;
-}
-.floor-zone-inspector-empty p{
-  margin:0;
-  font-size:10px;
-  line-height:1.4;
-  color:var(--muted);
-}
-.floor-room-preview-copy{min-width:0}
-.floor-room-preview-videos{min-width:0;overflow:hidden}
+.floor-room-preview-copy>span,
 .floor-video-strip-label{
   display:block;
-  margin-bottom:5px;
-  font-size:8px;
-  line-height:1.2;
+  margin-bottom:3px;
+  font-size:9px;
   color:var(--muted);
   font-weight:850;
 }
+.floor-zone-inspector-empty p{margin:0;color:var(--muted)}
+.floor-room-preview-copy,
+.floor-room-preview-videos{min-width:0}
+.floor-room-preview-videos{overflow:hidden}
 .floor-video-strip{
   display:flex;
-  gap:7px;
+  gap:6px;
   align-items:flex-start;
   overflow-x:auto;
   padding:0 1px 4px;
   scrollbar-width:thin;
 }
-.floor-video-thumb{flex:0 0 76px;min-width:0}
+.floor-video-thumb{flex:0 0 72px;min-width:0}
 .floor-video-thumb>div{
-  width:76px;
+  width:72px;
   aspect-ratio:16/9;
-  border-radius:6px;
   overflow:hidden;
+  border-radius:6px;
   background:#eef0f3;
   display:grid;
   place-items:center;
-  font-size:8px;
+  font-size:9px;
   color:var(--muted);
 }
 .floor-video-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .floor-video-thumb small{
   display:block;
   margin-top:3px;
-  font-size:8px;
-  line-height:1.2;
+  font-size:9px;
   color:#666b73;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
 .floor-video-more,
-.floor-video-strip-empty{
-  font-size:9px;
-  color:var(--muted);
-}
+.floor-video-strip-empty{font-size:9px;color:var(--muted)}
 .floor-room-preview-open{white-space:nowrap}
 .building-plan-foot{
   display:flex;
@@ -929,426 +1089,283 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 }
 .building-plan-foot span{font-size:9px;color:var(--muted)}
 
-/* Detailed room management: compact and collapsed */
-.monitor-groups,
-.staff-monitor-groups{display:grid;gap:10px}
-.monitor-group,
-.staff-monitor-group{
-  border:1px solid #e7e8ec;
-  border-radius:12px;
-  overflow:hidden;
-  background:#fff;
+/* Hospital Admin header / summary */
+.reception-head,
+.reception-head-board{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+  margin:0 0 16px;
 }
-.monitor-room summary,
-.staff-monitor-room summary{
+.reception-head h1,
+.reception-head-board h1{
+  margin:3px 0 4px;
+  font-size:26px!important;
+}
+.reception-head p,
+.reception-head-board p{margin:0;color:var(--muted)}
+.staff-ops-summary{
   display:grid;
-  grid-template-columns:minmax(0,1fr) 84px;
-  column-gap:12px;
-  align-items:center;
-  min-height:64px;
-  padding:10px 12px;
-}
-.monitor-current-thumb{
-  width:84px;
-  aspect-ratio:16/9;
-  margin:0;
-  border-radius:7px;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:1px;
   overflow:hidden;
-  justify-self:end;
+  margin:0 0 18px;
+  border:1px solid var(--ui-line);
+  border-radius:var(--ui-radius);
+  background:var(--ui-line);
 }
-.monitor-current-thumb img{width:100%;height:100%;object-fit:cover}
-.monitor-now,.monitor-next,.monitor-card-foot{grid-column:1/-1}
-.staff-space-detail-drawer{
-  margin-top:16px;
-  border:1px solid #e7e8ec;
+.staff-ops-summary>div{
+  min-height:78px;
+  padding:13px 14px;
+  display:grid;
+  align-content:center;
+  gap:3px;
+  border:0;
+  border-radius:0;
   background:#fff;
+}
+.staff-ops-summary>div.is-live{
+  background:var(--primary);
+  color:#fff;
+}
+.staff-ops-summary span{font-size:9px;font-weight:800;color:var(--muted)}
+.staff-ops-summary .is-live span,
+.staff-ops-summary .is-live small{color:rgba(255,255,255,.7)}
+.staff-ops-summary b{font-size:22px;line-height:1}
+.staff-ops-summary small{font-size:9px;color:var(--muted)}
+.staff-ops-summary .is-problem b{color:var(--danger)}
+
+/* Collapsed detail management */
+.staff-space-detail-drawer{
+  margin-top:14px;
   overflow:hidden;
 }
 .staff-space-detail-drawer>summary{
+  min-height:50px;
+  padding:12px 14px;
   list-style:none;
   cursor:pointer;
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:14px;
-  padding:14px 16px;
 }
 .staff-space-detail-drawer>summary::-webkit-details-marker{display:none}
 .staff-space-detail-drawer>summary>span{display:grid;gap:2px}
 .staff-space-detail-drawer>summary b{font-size:12px}
 .staff-space-detail-drawer>summary small{font-size:9px;color:var(--muted)}
-.staff-space-detail-drawer>summary em{
-  font-size:9px;
-  font-style:normal;
-  font-weight:850;
-  color:var(--primary);
-}
+.staff-space-detail-drawer>summary em{font-size:9px;font-style:normal;font-weight:850;color:var(--primary)}
 .staff-space-detail-body{padding:0 12px 12px}
-
-/* Responsive */
-@media(max-width:1000px){
-  .building-command-grid{grid-template-columns:210px minmax(0,1fr)}
-  .floor-ops-brief{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .hospital-row-main{grid-template-columns:minmax(180px,1fr) 64px 64px 64px 56px}
-}
-@media(max-width:760px){
-  .hospital-portfolio-head,
-  .ops-page-head,
-  .building-command-head,
-  .building-plan-head{display:grid}
-  .hospital-portfolio-total{justify-content:flex-start}
-  .hospital-portfolio-total>span{text-align:left}
-  .hospital-toolbar{display:grid}
-  .hospital-search{max-width:none}
-  .hospital-row-main{
-    grid-template-columns:minmax(0,1fr) repeat(2,54px);
-    gap:8px;
-  }
-  .hospital-row-main>.hospital-row-stat:nth-of-type(n+4),
-  .hospital-row-state{display:none}
-  .ops-now-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .building-command-grid{grid-template-columns:1fr}
-  .building-nav-pane{
-    border-right:0;
-    border-bottom:1px solid #eef0f3;
-    padding:12px;
-  }
-  .building-floor-stack{
-    grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:5px;
-  }
-  .building-stack-floor{height:40px;min-height:40px;grid-template-columns:36px minmax(0,1fr) 8px}
-  .building-plan-pane{padding:14px}
-  .floor-ops-brief{grid-template-columns:1fr 1fr}
-  .floor-plan-stage.building-floor-plan-stage{min-height:300px}
-  .floor-zone-inspector{grid-template-columns:1fr;gap:10px}
-  .floor-zone-inspector-empty{grid-template-columns:1fr}
-  .floor-room-preview-open{justify-self:start}
-  .floor-video-thumb{flex-basis:70px}
-  .floor-video-thumb>div{width:70px}
-  .monitor-room summary,
-  .staff-monitor-room summary{grid-template-columns:minmax(0,1fr) 74px}
-  .monitor-current-thumb{width:74px}
-}
-@media(prefers-reduced-motion:reduce){
-  .floor-activation-shell,
-  .building-floor-plan-stage.is-floor-activating .floorplan-svg-host,
-  .building-floor-plan-stage .floor-space-overlay,
-  .building-floor-plan-stage .floor-display-pin{animation:none!important;opacity:1!important}
-}
-
-
-/* v2.33.15 — active-hospital-first Super Admin hierarchy + single-border cards */
-.hospital-control-shell{
-  margin:0 0 24px;
-  display:grid;
-  gap:10px;
-}
-.active-hospital-card{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto;
-  gap:24px;
-  align-items:start;
-  padding:20px;
-  border:1px solid #e4e6ea;
-  border-radius:14px;
-  background:var(--primary);
-  color:#fff;
+.monitor-groups,
+.staff-monitor-groups{display:grid;gap:10px}
+.monitor-group,
+.staff-monitor-group{
   overflow:hidden;
+  padding:0!important;
 }
-.active-hospital-copy{min-width:0}
-.active-hospital-copy .eyebrow{color:rgba(255,255,255,.68)!important}
-.active-hospital-title{
-  display:flex;
-  align-items:baseline;
-  gap:10px;
-  min-width:0;
-  margin:4px 0 5px;
+.monitor-group-summary{
+  min-height:58px!important;
+  padding:12px 14px!important;
+  border:0!important;
 }
-.active-hospital-title h2{
-  margin:0;
-  min-width:0;
-  font-size:24px;
-  line-height:1.08;
-  letter-spacing:-.045em;
+.monitor-group-body{
+  padding:0 12px 12px!important;
+  border-top:1px solid var(--ui-line)!important;
+}
+.monitor-group-title-row h2{font-size:16px!important}
+.group-metric-row{gap:8px!important}
+.group-metric-row span,
+.monitor-group-summary p{font-size:9px!important}
+.monitor-room,
+.staff-monitor-room{
   overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-.active-hospital-title code{
-  flex:0 0 auto;
-  font:700 9px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;
-  color:rgba(255,255,255,.64);
-}
-.active-hospital-copy>p{
-  margin:0;
-  font-size:10px;
-  line-height:1.45;
-  color:rgba(255,255,255,.72);
-}
-.active-hospital-stats{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(64px,1fr));
-  gap:1px;
-  min-width:238px;
-  overflow:hidden;
-  border:1px solid rgba(255,255,255,.18);
+  border:1px solid var(--ui-line);
   border-radius:10px;
-  background:rgba(255,255,255,.18);
+  background:#fff;
+  box-shadow:none!important;
 }
-.active-hospital-stats>span{
-  min-height:72px;
-  padding:12px 10px;
+.monitor-room summary,
+.staff-monitor-room summary{
   display:grid;
-  align-content:center;
-  justify-items:end;
-  gap:3px;
-  background:rgba(35,33,118,.96);
+  grid-template-columns:minmax(0,1fr) 80px;
+  column-gap:10px;
+  align-items:center;
+  min-height:62px;
+  padding:10px 11px!important;
 }
-.active-hospital-stats b{
-  font-size:22px;
-  line-height:1;
+.monitor-current-thumb{
+  width:80px;
+  aspect-ratio:16/9;
+  margin:0!important;
+  overflow:hidden;
+  border-radius:6px;
+  justify-self:end;
 }
-.active-hospital-stats small{
-  font-size:8px;
+.monitor-current-thumb img{width:100%;height:100%;object-fit:cover}
+.monitor-room-top{margin-bottom:8px!important}
+.monitor-room-name b{font-size:14px!important}
+.monitor-mode{font-size:9px!important}
+.monitor-now,
+.monitor-next,
+.monitor-card-foot{grid-column:1/-1}
+.monitor-now>span,
+.monitor-next>span,
+.monitor-playlist>span{font-size:9px!important}
+.monitor-now>b{font-size:16px!important;min-height:0!important}
+.monitor-now>small,
+.monitor-next>b,
+.monitor-card-foot{font-size:10px!important}
+.monitor-next{
+  margin-top:10px!important;
+  padding-top:9px!important;
+}
+
+/* Videos / playlists */
+.media-library{display:grid;gap:10px}
+.media-row{
+  display:grid;
+  grid-template-columns:92px minmax(0,1fr) auto;
+  gap:14px;
+  align-items:center;
+  padding:14px;
+}
+.media-library-thumb{
+  width:92px!important;
+  aspect-ratio:16/9;
+  overflow:hidden;
+  border-radius:8px;
+  background:#eef0f3;
+}
+.media-library-thumb img{width:100%;height:100%;object-fit:cover}
+.media-title-button,
+.title-input{
+  font-size:14px!important;
+  line-height:1.35;
   font-weight:800;
-  color:rgba(255,255,255,.67);
 }
-.active-hospital-stats .has-issue b{color:#ffd3d0}
-
-.active-hospital-links{
-  margin-top:12px;
-  max-width:720px;
-}
-.active-hospital-links>summary{
-  width:max-content;
-  list-style:none;
-  cursor:pointer;
-  padding:0;
-  font-size:9px;
-  font-weight:850;
-  color:rgba(255,255,255,.78);
-}
-.active-hospital-links>summary::-webkit-details-marker{display:none}
-.active-hospital-links[open]>summary{color:#fff}
-.active-hospital-links-body{
-  margin-top:10px;
-  overflow:hidden;
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:9px;
-  background:rgba(255,255,255,.06);
-}
-.active-hospital-links-body>div{
-  min-height:42px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  padding:8px 10px;
-}
-.active-hospital-links-body>div+div{
-  border-top:1px solid rgba(255,255,255,.12);
-}
-.active-hospital-links-body>div>span:first-child{
-  min-width:0;
-  display:grid;
-  gap:2px;
-}
-.active-hospital-links-body b{font-size:9px}
-.active-hospital-links-body code{
-  max-width:500px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  font:650 8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
-  color:rgba(255,255,255,.62);
-}
-.active-hospital-links-body small{
-  font-size:8px;
-  color:rgba(255,255,255,.62);
-}
-.active-hospital-links .super-site-address-actions button{
-  border-color:rgba(255,255,255,.22);
-  color:#fff;
-  background:rgba(255,255,255,.06);
-}
-
-.hospital-switcher{
-  border:1px solid #e4e6ea;
-  border-radius:12px;
-  background:#fff;
-  overflow:hidden;
-}
-.hospital-switcher>summary{
-  min-height:48px;
-  list-style:none;
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:16px;
-  padding:10px 14px;
-}
-.hospital-switcher>summary::-webkit-details-marker{display:none}
-.hospital-switcher>summary>span{display:grid;gap:2px}
-.hospital-switcher>summary b{font-size:11px}
-.hospital-switcher>summary small{font-size:9px;color:var(--muted)}
-.hospital-switcher>summary em{
-  font-style:normal;
-  font-size:9px;
-  font-weight:850;
-  color:var(--primary);
-}
-.hospital-switch-list{
-  border-top:1px solid #eceef1;
-}
-.hospital-switch-row{
-  appearance:none;
-  width:100%;
-  min-height:54px;
-  display:grid;
-  grid-template-columns:minmax(180px,1fr) 72px 72px 64px;
-  align-items:center;
+.media-row .meta{font-size:9px;line-height:1.45;color:var(--muted)}
+.media-actions{
   gap:10px;
-  padding:10px 14px;
-  border:0;
-  background:#fff;
-  text-align:left;
-  color:var(--ink);
-  cursor:pointer;
+  flex-wrap:wrap;
+  justify-content:flex-end;
 }
-.hospital-switch-row+.hospital-switch-row{
-  border-top:1px solid #eceef1;
+.media-actions .text-action,
+.admin-page .text-action{font-size:10px}
+.playlist-card,
+.playlist-admin,
+.schedule-card{
+  border-radius:var(--ui-radius)!important;
+  box-shadow:none!important;
 }
-.hospital-switch-row:hover{background:#fafafe}
-.hospital-switch-identity{
-  min-width:0;
-  display:grid;
-  gap:2px;
-}
-.hospital-switch-identity b{
-  font-size:11px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.hospital-switch-identity code{
-  font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
-  color:var(--muted);
-}
-.hospital-switch-stat{
-  display:grid;
-  gap:1px;
-  text-align:right;
-}
-.hospital-switch-stat b{font-size:13px;line-height:1}
-.hospital-switch-stat small{font-size:8px;color:var(--muted)}
-.hospital-switch-stat.has-issue b{color:#b42318}
+.playlist-title,
+.playlist-card h3{font-size:15px!important}
 
-/* Selected hospital monitoring starts only after hospital identity is clear. */
-.ops-section-head{
+/* Settings */
+.settings-section{
+  margin-bottom:var(--ui-space-6);
+}
+.settings-section-head{
   display:flex;
   align-items:flex-end;
   justify-content:space-between;
-  gap:18px;
-  margin:0 0 12px;
+  gap:16px;
+  margin-bottom:12px;
 }
-.ops-section-head h1{
-  margin:3px 0 4px;
-  font-size:20px;
-  line-height:1.12;
-  letter-spacing:-.035em;
-}
-.ops-section-head p{
+.settings-section-head h2{
   margin:0;
-  font-size:10px;
-  line-height:1.45;
+  font-size:20px!important;
+}
+.settings-section-head h3{font-size:15px!important}
+.settings-section-head p{
+  margin:5px 0 0;
   color:var(--muted);
+  font-size:10px;
+  line-height:1.5;
 }
-.ops-section-actions{
-  display:flex;
-  align-items:center;
-  justify-content:flex-end;
-  gap:7px;
+.settings-count{font-size:10px;color:var(--muted)}
+.settings-split,
+.site-manager-grid,
+.access-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:10px!important;
 }
-.ops-section-actions em{
-  margin-right:4px;
-  font-style:normal;
-  font-size:9px;
-  font-weight:800;
-  color:var(--primary);
+.settings-system-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:10px!important;
 }
+.settings-card{
+  padding:16px;
+}
+.settings-card h3{
+  margin:0 0 12px;
+  font-size:14px!important;
+}
+.settings-card p{font-size:10px}
+.settings-card .field{margin-bottom:9px}
+.access-card{
+  padding:16px;
+}
+.access-label{font-size:9px!important}
+.access-card h3{
+  margin:5px 0 12px!important;
+  font-size:12px!important;
+  line-height:1.35!important;
+  overflow-wrap:anywhere;
+}
+.access-actions{gap:7px}
+.access-player-list{
+  margin-top:12px;
+  border:1px solid var(--ui-line);
+  border-radius:var(--ui-radius);
+  overflow:hidden;
+}
+.access-player-row{
+  min-height:48px;
+  padding:9px 12px;
+}
+.access-player-row+.access-player-row{border-top:1px solid var(--ui-line)}
+.access-player-row b{font-size:10px}
+.access-player-row code{font-size:9px}
+.floorplan-admin-list{
+  overflow:hidden;
+  border:1px solid var(--ui-line);
+  border-radius:var(--ui-radius);
+  background:#fff;
+}
+.floorplan-admin-row{
+  padding:11px 12px!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+}
+.floorplan-admin-row+.floorplan-admin-row{border-top:1px solid var(--ui-line)!important}
+.floorplan-admin-copy b{font-size:12px!important}
+.floorplan-admin-copy span{font-size:10px!important}
+.floorplan-admin-copy small{font-size:9px!important}
+.floorplan-admin-actions{gap:6px!important}
+.room-admin,
+.group-admin-row,
+.schedule-row,
+.history-row{
+  border-radius:10px!important;
+  box-shadow:none!important;
+}
+.operating-day-row{
+  min-height:50px!important;
+  padding:9px 10px!important;
+  border-radius:9px!important;
+}
+.operating-day-row b,
+.operating-day-row span{font-size:10px!important}
 
-/* One-border principle: outer container owns the card edge; internal rows only separate with top lines. */
-.building-command-board,
-.staff-space-detail-drawer,
-.monitor-group,
-.staff-monitor-group{
-  box-shadow:none!important;
-}
-.building-command-head,
-.floor-zone-inspector,
-.staff-space-detail-body,
-.monitor-group-body{
-  border-left:0!important;
-  border-right:0!important;
-}
-.floor-zone-inspector{
-  border-bottom:0!important;
-}
-.monitor-room,
-.staff-monitor-room{
-  box-shadow:none!important;
-}
-.monitor-room[open],
-.staff-monitor-room[open]{
-  box-shadow:none!important;
-}
-
-/* Remove obsolete Super Admin search/filter surfaces if stale markup is ever cached. */
+/* Remove obsolete surfaces / removed patient workflow */
 .hospital-toolbar,
 .hospital-portfolio,
 .ops-page-head,
-.ops-now-summary{
-  display:none!important;
-}
-
-@media(max-width:760px){
-  .active-hospital-card{
-    grid-template-columns:1fr;
-    gap:16px;
-    padding:16px;
-  }
-  .active-hospital-stats{
-    min-width:0;
-    width:100%;
-  }
-  .active-hospital-stats>span{
-    min-height:64px;
-    justify-items:start;
-  }
-  .active-hospital-title{
-    display:grid;
-    gap:4px;
-  }
-  .active-hospital-title h2{white-space:normal}
-  .hospital-switch-row{
-    grid-template-columns:minmax(0,1fr) 54px 54px;
-  }
-  .hospital-switch-row>.hospital-switch-stat:nth-of-type(3){
-    display:none;
-  }
-  .ops-section-head{
-    display:grid;
-    align-items:start;
-  }
-  .ops-section-actions{
-    justify-content:flex-start;
-    flex-wrap:wrap;
-  }
-}
-
-/* v2.33.16 — patient waiting/assignment management removed */
+.ops-now-summary,
 .patient-management,
 .patient-management-body,
 .patient-management-toolbar,
@@ -1356,3 +1373,186 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .reception-layout,
 .patient-stack,
 .patient-completed-note{display:none!important}
+
+/* Responsive */
+@media(max-width:1000px){
+  .admin-page .shell,
+  .staff-page .shell{padding:28px 22px 72px}
+  .building-command-grid{grid-template-columns:210px minmax(0,1fr)}
+  .floor-ops-brief{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .settings-system-grid,
+  .settings-split,
+  .site-manager-grid,
+  .access-grid{grid-template-columns:1fr 1fr!important}
+}
+@media(max-width:760px){
+  .admin-page .topbar-inner,
+  .staff-page .topbar-inner{
+    min-height:56px;
+    padding:0 16px;
+    gap:12px;
+  }
+  .admin-page .shell,
+  .staff-page .shell{padding:22px 14px 64px}
+  .active-hospital-card{
+    grid-template-columns:1fr;
+    gap:14px;
+    padding:15px;
+  }
+  .active-hospital-title{
+    display:grid;
+    gap:4px;
+  }
+  .active-hospital-title h2{white-space:normal;font-size:21px!important}
+  .active-hospital-stats{
+    width:100%;
+    min-width:0;
+  }
+  .active-hospital-stats>span{
+    min-height:60px;
+    justify-items:start;
+  }
+  .hospital-switch-row{
+    grid-template-columns:minmax(0,1fr) 52px 52px;
+  }
+  .hospital-switch-row>.hospital-switch-stat:nth-of-type(3){display:none}
+  .ops-section-head,
+  .reception-head,
+  .reception-head-board,
+  .building-plan-head,
+  .settings-section-head{
+    display:grid;
+    align-items:start;
+  }
+  .ops-section-actions{
+    justify-content:flex-start;
+  }
+  .staff-ops-summary{grid-template-columns:1fr 1fr 1fr}
+  .building-command-grid{grid-template-columns:1fr}
+  .building-nav-pane{
+    border-right:0;
+    border-bottom:1px solid var(--ui-line);
+  }
+  .building-floor-stack{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .building-plan-pane{padding:13px}
+  .floor-ops-brief{grid-template-columns:1fr 1fr}
+  .floor-plan-stage.building-floor-plan-stage{min-height:300px}
+  .floor-zone-inspector{grid-template-columns:1fr;gap:10px}
+  .floor-zone-inspector-empty{grid-template-columns:1fr}
+  .floor-room-preview-open{justify-self:start}
+  .floor-video-thumb{flex-basis:68px}
+  .floor-video-thumb>div{width:68px}
+  .monitor-room summary,
+  .staff-monitor-room summary{grid-template-columns:minmax(0,1fr) 72px}
+  .monitor-current-thumb{width:72px}
+  .media-row{
+    grid-template-columns:76px minmax(0,1fr);
+  }
+  .media-library-thumb{width:76px!important}
+  .media-actions{
+    grid-column:1/-1;
+    justify-content:flex-start;
+  }
+  .settings-system-grid,
+  .settings-split,
+  .site-manager-grid,
+  .access-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:520px){
+  .staff-ops-summary{grid-template-columns:1fr}
+  .floor-ops-brief{grid-template-columns:1fr}
+  .building-floor-stack{grid-template-columns:1fr 1fr}
+}
+@media(prefers-reduced-motion:reduce){
+  .floor-activation-shell,
+  .building-floor-plan-stage.is-floor-activating .floorplan-svg-host,
+  .building-floor-plan-stage .floor-space-overlay,
+  .building-floor-plan-stage .floor-display-pin{
+    animation:none!important;
+    opacity:1!important;
+  }
+}
+
+
+/* v2.33.17 — legacy specificity neutralization */
+.admin-page .broadcast-compact h2,
+.admin-page .section-head h2,
+.admin-page .page-head h1,
+.staff-page .page-head h1,
+.staff-page .staff-dashboard-head h1,
+.staff-page .reception-head h1{
+  font-size:var(--ui-title-xl)!important;
+  line-height:1.08!important;
+  letter-spacing:-.04em!important;
+}
+.admin-page .broadcast-compact{
+  padding:18px!important;
+  margin:0 0 18px!important;
+  border:1px solid var(--ui-line)!important;
+  border-radius:var(--ui-radius)!important;
+}
+.admin-page .section-head h2{font-size:var(--ui-title-lg)!important}
+.floor-purpose-summary{
+  font-size:10px!important;
+  line-height:1.45!important;
+  font-weight:700!important;
+}
+.building-command-grid{
+  grid-template-columns:238px minmax(0,1fr)!important;
+  gap:0!important;
+}
+.building-nav-pane{
+  display:block!important;
+  min-width:0;
+  padding:12px!important;
+  justify-content:initial!important;
+}
+.building-inline-legend{display:none!important}
+.floor-plan-empty-action{
+  min-height:260px!important;
+  padding:18px!important;
+  gap:6px!important;
+  border:1px dashed var(--ui-line)!important;
+  border-radius:10px!important;
+}
+.building-floor-plan-stage{
+  min-height:390px!important;
+  aspect-ratio:auto!important;
+}
+.floor-context-facts small,
+.floor-room-drawer>summary small,
+.floor-room-drawer>summary em,
+.floor-room-row>small,
+.display-setup-toolbar label span,
+.display-position-marker b,
+.ops-floor-kind,
+.svg-building-head-status span,
+.building-plan-status>small,
+.building-plan-explain small,
+.building-plan-foot,
+.svg-building-purpose,
+.hospital-setup-progress>div:last-child i,
+.super-site-stats small,
+.super-site-address-actions button,
+.super-site-player-links summary small,
+.super-site-player-links summary em{
+  font-size:9px!important;
+}
+@media(max-width:1000px){
+  .building-command-grid{grid-template-columns:210px minmax(0,1fr)!important}
+}
+@media(max-width:760px){
+  .building-command-grid{grid-template-columns:1fr!important}
+  .building-floor-plan-stage{
+    min-height:300px!important;
+    aspect-ratio:auto!important;
+  }
+  .admin-page .page-head h1,
+  .staff-page .page-head h1,
+  .staff-page .staff-dashboard-head h1,
+  .staff-page .reception-head h1{
+    font-size:24px!important;
+  }
+}
