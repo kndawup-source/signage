@@ -218,8 +218,21 @@
     if(!videos.length)return '<div class="floor-video-strip-empty">송출 예정 영상이 없습니다.</div>';
     return `<div class="floor-video-strip" aria-label="${esc(r.name)} 송출 영상">${videos.slice(0,12).map((v,i)=>`<div class="floor-video-thumb" title="${esc(v.title)}"><div>${thumb(v)}</div><small>${i+1}. ${esc(v.title)}</small></div>`).join('')}${videos.length>12?`<span class="floor-video-more">+${videos.length-12}</span>`:''}</div>`;
   }
+  function roomPreviewVideo(r){
+    const liveId=String(r?.player_status?.video_id||'').trim();
+    if(liveId){const live=state.videos.find(v=>v.id===liveId);if(live)return live;}
+    return roomOutputItems(r).find(x=>x.enabled)?.video||roomOutputItems(r)[0]?.video||null;
+  }
+  function roomPlaybackReason(r){
+    const g=groupById(r?.group_id),reason=String(g?.signage_reason||'').trim(),purpose=String(g?.signage_purpose||'').trim(),audience=String(g?.target_audience||'').trim();
+    if(reason)return reason;
+    if(audience&&purpose)return `${audience}에게 ${purpose}를 위해 재생합니다.`;
+    if(purpose)return `${purpose}를 위해 재생합니다.`;
+    return '이 공간에 맞게 설정된 영상을 재생합니다.';
+  }
   function floorRoomPreviewHtml(r){
-    return `<div class="floor-room-preview-copy"><span>${esc(roomModeLabel(r.room_mode))}</span><b>${esc(r.name)}</b></div><div class="floor-room-preview-videos"><small class="floor-video-strip-label">이 위치에서 송출되는 영상</small>${roomVideoStripHtml(r)}</div><button type="button" class="btn small floor-room-preview-open" data-open-room-detail="${r.id}">상세 관리</button>`;
+    const st=roomDisplayStatus(r),video=roomPreviewVideo(r),online=displayControlMode(r)==='manual'||adminIsOnline(r),label=displayControlMode(r)==='manual'?'현장 운영':online?'현재 재생 중':'설정된 영상';
+    return `<div class="floor-room-focus"><div class="floor-room-focus-head"><div><span>${esc(roomModeLabel(r.room_mode))}</span><b>${esc(r.name)}</b></div><em class="status-${st.key}">${esc(st.label)}</em></div><div class="floor-room-current"><div class="floor-room-current-thumb">${video?thumb(video):'<span>영상 없음</span>'}</div><div class="floor-room-current-copy"><small>${esc(label)}</small><b>${esc(video?.title||'등록된 영상이 없습니다.')}</b></div></div><div class="floor-room-why"><small>왜 이 영상이 나오나요?</small><p>${esc(roomPlaybackReason(r))}</p></div><button type="button" class="btn primary floor-room-preview-open" data-open-room-detail="${r.id}">영상 바꾸기</button></div>`;
   }
   function roomOutputListHtml(r,staff=false){
     const items=roomOutputItems(r);if(!items.length)return '<div class="room-output-empty">재생 가능한 영상이 없습니다.</div>';
@@ -289,32 +302,23 @@
     const rooms=g?state.rooms.filter(r=>r.group_id===g.id):[],sum=g?floorPeriodSummary(g,rooms):{key:'idle',issues:0,offline:0,live:0,total:0,label:'비운영'};
     const def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},active=g&&(issuesOnly?sum.issues>0||sum.offline>0:true);
     const rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim():def.name;
-    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues?`확인 필요 ${sum.issues}`:sum.offline?`오프라인 ${sum.offline}`:sum.live?`${sum.live}/${sum.total} 송출`:'대기'):(sum.unavailable?'통계 준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
+    const status=!g?'비운영':buildingPeriod==='live'?(sum.issues||sum.offline?'확인 필요':sum.live?'정상':'대기'):(sum.unavailable?'준비 중':`재생률 ${Number(sum.rate||0).toFixed(0)}%`);
     const cls=`building-stack-floor floor-state-${sum.key}${g?'':' is-unmanaged'}${g&&!active?' is-muted':''}${selectedFloorId===g?.id?' is-selected':''}`;
-    if(!g)return `<div class="${cls}" aria-hidden="true"><b>${n}F</b><span>${esc(shortName)}</span><i aria-hidden="true"></i></div>`;
-    return `<button type="button" class="${cls}" data-building-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}F</b><span>${esc(shortName)}</span><i aria-hidden="true"></i></button>`;
+    if(!g)return `<div class="${cls}" aria-hidden="true"><b>${n}층</b><span>${esc(shortName)}</span><em>비운영</em><i aria-hidden="true"></i></div>`;
+    return `<button type="button" class="${cls}" data-building-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}층</b><span>${esc(shortName)}</span><em>${esc(status)}</em><i aria-hidden="true"></i></button>`;
   }
     function buildingFloorPanelMarkup(g){
-    if(!g)return `<section class="building-plan-pane is-empty"><div><span class="eyebrow">FLOOR PLAN</span><h3>층을 선택하세요</h3><p>왼쪽 층을 선택하면 실제 도면, 공간 영역, 디스플레이 위치와 이 층의 영상 운영 목적이 함께 표시됩니다.</p></div></section>`;
+    if(!g)return `<section class="building-plan-pane is-empty"><div><h3>층을 선택하세요</h3><p>확인할 층을 누르면 도면과 디스플레이 위치가 바로 표시됩니다.</p></div></section>`;
     const rooms=state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
-    const def=FLOOR_DEFAULTS[floorNumber(g)]||{name:'공간'},guide=floorGuide(g);
-    const purpose=g.signage_purpose||guide.purpose;
-    const flow=g.waiting_area_note||guide.flow;
-    const content=floorPlaylistName(g)||guide.content;
-    const exposure=g.signage_reason||guide.exposure;
+    const def=FLOOR_DEFAULTS[floorNumber(g)]||{name:'공간'};
+    const floorState=sum.issues||sum.offline?'확인 필요':sum.live?'정상':'대기';
     return `<section class="building-plan-pane">
       <div class="building-plan-head">
-        <div><span class="eyebrow">${esc(careTypeLabel(g.care_type)||def.kind)}</span><h3>${esc(floorTitle(g))} · ${esc(g.name||def.name)}</h3><p>${esc(purpose)}</p></div>
-        <div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.label)}</span><b>${sum.live}/${sum.total}</b><small>송출 중</small></div>
+        <div><h3>${esc(floorTitle(g))} · ${esc(g.name||def.name)}</h3><p>도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.</p></div>
+        <div class="building-plan-status status-${sum.key}"><i></i><b>${esc(floorState)}</b><small>${sum.total}대</small></div>
       </div>
-      <div class="floor-ops-brief" aria-label="층별 영상 운영 안내">
-        <span><small>고객 동선</small><b>${esc(flow)}</b></span>
-        <span><small>송출 목적</small><b>${esc(purpose)}</b></span>
-        <span><small>권장 영상</small><b>${esc(content)}</b></span>
-        <span><small>주요 노출</small><b>${esc(exposure)}</b></span>
-      </div>
-      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><span>공간 선택</span><b>도면에서 디스플레이를 선택하세요.</b></div><p>선택하면 이 위치에서 송출될 영상이 작은 썸네일로 표시됩니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면 미등록</b><span>설정에서 이 층의 실제 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
-      ${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}
+      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><span>디스플레이 선택</span><b>도면에서 TV를 눌러보세요.</b></div><p>현재 나오는 영상과 이 영상이 나오는 이유를 바로 확인할 수 있습니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면이 없습니다.</b><span>설정에서 이 층의 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
+      ${unplaced.length?`<div class="building-plan-foot"><span>도면에 위치가 없는 디스플레이 ${unplaced.length}대</span></div>`:''}
     </section>`;
   }
   function buildingDashboardMarkup(){
@@ -330,7 +334,7 @@
     const selected=groupById(selectedFloorId);
     const floorStack=Array.from({length:14},(_,i)=>14-i).map(n=>buildingStackFloor(n,groupsByFloor.get(n)||null)).join('');
     return `<section class="building-command-board">
-      <div class="building-command-head"><div><span class="eyebrow">BUILDING</span><h2>층별 영상 송출</h2><p>층을 선택하면 도면과 디스플레이 위치가 바로 활성화됩니다.</p></div></div>
+      <div class="building-command-head"><div><h2>층별 디스플레이</h2><p>층을 선택해 진료실 영상과 디스플레이 상태를 확인하세요.</p></div></div>
       <div class="building-command-grid">
         <aside class="building-nav-pane">
           <div class="building-floor-stack" role="list" aria-label="1층부터 14층까지 건물 송출 현황">${floorStack}</div>

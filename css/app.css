@@ -1556,3 +1556,81 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     font-size:24px!important;
   }
 }
+
+
+/* v2.33.18 — simplified building control flow */
+.building-command-head{padding:18px 20px 14px}
+.building-command-head h2{margin:0 0 4px;font-size:22px!important}
+.building-command-grid{grid-template-columns:220px minmax(0,1fr)}
+.building-nav-pane{padding:10px;background:#fafafa}
+.building-floor-stack{gap:4px}
+.building-stack-floor{
+  grid-template-columns:42px minmax(0,1fr) auto 8px;
+  height:42px;min-height:42px;padding:0 10px;border-radius:7px;
+}
+.building-stack-floor>b{font-size:11px}
+.building-stack-floor>span{font-size:10px;font-weight:700}
+.building-stack-floor>em{display:block!important;font-style:normal;font-size:9px;font-weight:800;color:#6f737b;white-space:nowrap}
+.building-stack-floor.floor-state-issue>em,
+.building-stack-floor.floor-state-error>em,
+.building-stack-floor.floor-state-offline>em,
+.building-stack-floor.floor-state-update>em,
+.building-stack-floor.floor-state-manual-warn>em{color:#b42318}
+.building-plan-pane{padding:18px}
+.building-plan-head{align-items:center;margin-bottom:12px}
+.building-plan-head h3{margin:0 0 4px;font-size:20px!important}
+.building-plan-head p{font-size:10px}
+.building-plan-status{display:grid;grid-template-columns:8px auto;align-items:center;justify-items:start;column-gap:6px;row-gap:1px}
+.building-plan-status i{width:8px;height:8px;border-radius:50%;background:#8b9097;grid-row:1}
+.building-plan-status b{font-size:11px;line-height:1.2;grid-row:1}
+.building-plan-status small{grid-column:2;font-size:9px}
+.building-plan-status.status-live i{background:#2c8a59}
+.building-plan-status.status-issue i,.building-plan-status.status-offline i,.building-plan-status.status-error i{background:#d92d20}
+.floor-ops-brief{display:none!important}
+.floor-plan-stage.building-floor-plan-stage{min-height:430px;background:#f8f9fa}
+.building-floor-plan-stage .floor-display-pin{width:32px;height:32px}
+.building-floor-plan-stage .floor-display-pin .display-screen-icon{
+  display:block!important;position:absolute;left:50%;top:50%;width:20px;height:14px;
+  transform:translate(-50%,-50%);border:2px solid #333743;border-radius:3px;background:#fff;
+  box-shadow:0 2px 5px rgba(0,0,0,.12)
+}
+.building-floor-plan-stage .floor-display-pin .display-screen-icon:after{
+  content:'';position:absolute;left:50%;bottom:-5px;width:8px;height:2px;transform:translateX(-50%);background:#333743;border-radius:2px
+}
+.building-floor-plan-stage .floor-display-dot{left:auto;right:1px;top:2px;width:8px;height:8px;transform:none;border:2px solid #fff;z-index:2}
+.floor-display-pin.is-selected .display-screen-icon,.floor-display-pin:focus-visible .display-screen-icon{border-color:var(--primary);box-shadow:0 0 0 3px rgba(35,33,118,.12)}
+.floor-display-pin.is-selected .floor-display-dot,.floor-display-pin:focus-visible .floor-display-dot{box-shadow:none}
+.floor-zone-inspector{min-height:0;display:block;padding:0;border-top:1px solid var(--ui-line)}
+.floor-zone-inspector-empty{display:grid;grid-template-columns:180px minmax(0,1fr);padding:14px 16px;gap:14px}
+.floor-room-focus{display:grid;grid-template-columns:minmax(150px,190px) minmax(220px,1fr) minmax(220px,1.2fr) auto;gap:14px;align-items:center;padding:14px 16px}
+.floor-room-focus-head{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.floor-room-focus-head>div{min-width:0}
+.floor-room-focus-head span,.floor-room-current-copy small,.floor-room-why small{display:block;margin-bottom:3px;font-size:9px;color:var(--muted);font-weight:850}
+.floor-room-focus-head b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.floor-room-focus-head em{flex:0 0 auto;font-style:normal;font-size:9px;font-weight:850;padding:4px 7px;border-radius:999px;background:#f0f1f3;color:#5f646c}
+.floor-room-focus-head em.status-live{background:#edf8f2;color:#26734c}
+.floor-room-focus-head em.status-issue,.floor-room-focus-head em.status-error,.floor-room-focus-head em.status-offline,.floor-room-focus-head em.status-update,.floor-room-focus-head em.status-manual-warn{background:#fff0ef;color:#b42318}
+.floor-room-current{min-width:0;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
+.floor-room-current-thumb{width:72px;aspect-ratio:16/9;overflow:hidden;border-radius:6px;background:#eef0f3;display:grid;place-items:center;font-size:9px;color:var(--muted)}
+.floor-room-current-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.floor-room-current-copy{min-width:0}
+.floor-room-current-copy b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.floor-room-why{min-width:0;padding-left:14px;border-left:1px solid #eceef1}
+.floor-room-why p{margin:0;font-size:10px;line-height:1.45;color:#3f434a}
+.floor-room-preview-open{white-space:nowrap;min-width:92px}
+@media(max-width:900px){
+  .floor-room-focus{grid-template-columns:1fr 1fr}.floor-room-why{padding-left:0;border-left:0}.floor-room-preview-open{justify-self:start}
+}
+@media(max-width:700px){
+  .building-command-grid{grid-template-columns:1fr}.building-nav-pane{border-right:0;border-bottom:1px solid var(--ui-line)}
+  .building-floor-stack{grid-template-columns:1fr 1fr}.building-stack-floor{grid-template-columns:38px minmax(0,1fr) 8px}.building-stack-floor>em{display:none!important}
+  .building-plan-pane{padding:14px}.building-plan-head{align-items:flex-start}.building-plan-head p{max-width:240px}.floor-plan-stage.building-floor-plan-stage{min-height:300px}
+  .floor-zone-inspector-empty{grid-template-columns:1fr;padding:13px 14px}.floor-room-focus{grid-template-columns:1fr;padding:13px 14px}.floor-room-why{padding-top:10px;border-top:1px solid #eceef1}.floor-room-preview-open{width:100%}
+}
+
+/* v2.33.18 — override legacy !important layout rules */
+.building-command-grid{grid-template-columns:220px minmax(0,1fr)!important}
+.building-nav-pane{padding:10px!important}
+.floor-plan-stage.building-floor-plan-stage{min-height:430px!important}
+@media(max-width:1000px){.building-command-grid{grid-template-columns:220px minmax(0,1fr)!important}}
+@media(max-width:760px){.building-command-grid{grid-template-columns:1fr!important}.floor-plan-stage.building-floor-plan-stage{min-height:300px!important}}
