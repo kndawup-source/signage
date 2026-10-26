@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.33.25');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.33.26');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -210,7 +210,7 @@
 
   function ensureSurface(){
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
-    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="auto"></video><video id="screenVideoB" class="player-video" muted playsinline preload="auto"></video>${bars()}`;
+    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="metadata"></video><video id="screenVideoB" class="player-video" muted playsinline preload="metadata"></video>${bars()}`;
     slots=[qs('#screenVideoA'),qs('#screenVideoB')];
     activeSlot=0;
     slots.forEach((el,slotIndex)=>{
@@ -255,11 +255,14 @@
     el.loop=false;el.removeAttribute('src');el.dataset.videoId='';el.dataset.mediaUrl='';el.dataset.videoIndex='';el.dataset.prerolled='';
     try{el.load();}catch(_){}
   }
-  function loadSlot(el,v,videoIndex){
+  function loadSlot(el,v,videoIndex,preloadMode='metadata'){
     const url=mediaUrl(v); if(!el||!url)return false;
-    if(slotMatches(el,v)){el.dataset.videoIndex=String(videoIndex);applyAudio(el);return true;}
+    const preload=preloadMode==='auto'?'auto':'metadata';
+    if(slotMatches(el,v)){
+      el.dataset.videoIndex=String(videoIndex);el.preload=preload;applyAudio(el);return true;
+    }
     try{el.pause();}catch(_){}
-    el.loop=false;el.dataset.videoId=String(v.id||'');el.dataset.mediaUrl=url;el.dataset.videoIndex=String(videoIndex);el.src=url;applyAudio(el);el.load();return true;
+    el.loop=false;el.preload=preload;el.dataset.videoId=String(v.id||'');el.dataset.mediaUrl=url;el.dataset.videoIndex=String(videoIndex);el.src=url;applyAudio(el);el.load();return true;
   }
   function waitUntilPlayable(el,token,timeoutMs=12000){
     if(el.readyState>=3)return Promise.resolve(true);
@@ -331,7 +334,7 @@
     prerollBusy=true;
     const token=++switchToken;
     try{
-      loadSlot(el,v,targetIndex);
+      loadSlot(el,v,targetIndex,'auto');
       if(!(await waitUntilPlayable(el,token,5000))||token!==switchToken)return false;
       const desiredMuted=el.muted,desiredVolume=el.volume;
       el.muted=true;el.volume=0;
@@ -402,11 +405,13 @@
 
     transitionInProgress=true;
     const token=++switchToken;
-    loadSlot(nextEl,v,normalized);
-    if(!(await waitUntilPlayable(nextEl,token))||token!==switchToken){transitionInProgress=false;return false;}
+    /* Start immediately. Waiting for canplay/loadeddata before calling play() added
+       several seconds on large R2 MP4 files and made slow-start files look frozen.
+       The play() promise already waits until Chromium can actually begin playback. */
+    loadSlot(nextEl,v,normalized,'auto');
     const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
     if(!started||token!==switchToken){transitionInProgress=false;return false;}
-    if(!(await waitForRenderedFrame(nextEl,token))||token!==switchToken){transitionInProgress=false;return false;}
+    if(!(await waitForRenderedFrame(nextEl,token,4000))||token!==switchToken){transitionInProgress=false;return false;}
     nextEl.classList.add('is-active');
     activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
     currentEl?.classList.remove('is-active');
@@ -421,7 +426,8 @@
     const items=list(); if(items.length<2)return;
     const nextIndex=(index+1)%items.length,nextVideo=items[nextIndex],el=slots[inactiveSlotIndex()];
     if(!nextVideo||!mediaUrl(nextVideo))return;
-    loadSlot(el,nextVideo,nextIndex);
+    /* Keep the next item lightweight until it is close to transition. */
+    loadSlot(el,nextVideo,nextIndex,'metadata');
   }
   async function advanceSeamless(){
     const items=list(); if(!items.length)return;

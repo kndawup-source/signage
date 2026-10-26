@@ -629,11 +629,15 @@
   async function backfillThumbnails(){if(uploadBusy)return;const targets=state.videos.filter(v=>v.url&&!v.thumbnail_data_url);if(!targets.length)return toast('누락된 썸네일이 없습니다.');uploadBusy=true;let done=0,failed=0;try{for(const v of targets){try{const thumbnail=await probeRemoteThumbnail(v);const {error}=await db.from('videos').update({thumbnail_data_url:thumbnail}).eq('id',v.id);if(error)throw error;done++;}catch(_){failed++;}}toast(`썸네일 ${done}개 생성${failed?` · 실패 ${failed}개`:''}`,failed?'error':'info');await load();}finally{uploadBusy=false;}}
   async function regenerateThumbnail(id){if(uploadBusy)return;const video=state.videos.find(v=>v.id===id);if(!video?.url)return toast('영상 주소가 없어 썸네일을 만들 수 없습니다.','error');uploadBusy=true;const button=qs(`[data-thumbnail-regenerate="${id}"]`);if(button){button.disabled=true;button.textContent='생성 중…';}try{const thumbnail=await probeRemoteThumbnail(video);const {error}=await db.from('videos').update({thumbnail_data_url:thumbnail}).eq('id',id);if(error)throw error;video.thumbnail_data_url=thumbnail;toast('썸네일을 생성했습니다.');renderVideos();}catch(e){toast(e?.message||'썸네일 생성에 실패했습니다.','error');}finally{uploadBusy=false;}}
   async function inspectMp4Codecs(file){
-    const chunk=8*1024*1024,parts=[];
-    parts.push(await file.slice(0,Math.min(file.size,chunk)).arrayBuffer());
-    if(file.size>chunk)parts.push(await file.slice(Math.max(0,file.size-chunk),file.size).arrayBuffer());
-    const text=parts.map(buf=>{const a=new Uint8Array(buf);let out='';for(let i=0;i<a.length;i+=32768)out+=String.fromCharCode(...a.subarray(i,Math.min(i+32768,a.length)));return out;}).join('');
-    return {h264:/avc1|avc3/.test(text),aac:/mp4a/.test(text)};
+    const chunk=8*1024*1024;
+    const headBuf=await file.slice(0,Math.min(file.size,chunk)).arrayBuffer();
+    const tailBuf=file.size>chunk?await file.slice(Math.max(0,file.size-chunk),file.size).arrayBuffer():headBuf;
+    const toText=buf=>{const a=new Uint8Array(buf);let out='';for(let i=0;i<a.length;i+=32768)out+=String.fromCharCode(...a.subarray(i,Math.min(i+32768,a.length)));return out;};
+    const head=toText(headBuf),tail=tailBuf===headBuf?head:toText(tailBuf),text=head+tail;
+    const moovHead=head.indexOf('moov'),mdatHead=head.indexOf('mdat'),moovTail=tail.indexOf('moov');
+    const fastStart=moovHead>=0&&(mdatHead<0||moovHead<mdatHead);
+    const slowStart=!fastStart&&(moovTail>=0||(moovHead>=0&&mdatHead>=0&&moovHead>mdatHead));
+    return {h264:/avc1|avc3/.test(text),aac:/mp4a/.test(text),fastStart,slowStart};
   }
   function probeVideoFile(file){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),v=document.createElement('video');v.preload='metadata';v.muted=true;v.playsInline=true;const cleanup=()=>URL.revokeObjectURL(url);const fail=(msg)=>{cleanup();reject(new Error(msg));};v.onloadedmetadata=()=>{if(!Number.isFinite(v.duration)||v.duration<1)return fail(`${file.name}: 영상 길이를 확인할 수 없습니다.`);if(!v.videoWidth||!v.videoHeight)return fail(`${file.name}: 영상 해상도를 확인할 수 없습니다.`);const t=Math.min(Math.max(.1,v.duration*.1),2);v.currentTime=t;};v.onseeked=()=>{try{const c=document.createElement('canvas'),w=320,h=Math.max(180,Math.round(320*(v.videoHeight/v.videoWidth)));c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(v,0,0,w,h);const thumbnail=c.toDataURL('image/jpeg',.62);const data={duration_sec:Math.round(v.duration*10)/10,width:v.videoWidth,height:v.videoHeight,thumbnail_data_url:thumbnail};cleanup();resolve(data);}catch(e){fail(`${file.name}: 썸네일 생성 실패`);}};v.onerror=()=>fail(`${file.name}: 브라우저에서 재생할 수 없는 영상입니다.`);v.src=url;});}
   async function uploadVideos(files){
@@ -646,10 +650,11 @@
       for(const file of files){
         const [meta,codecs]=await Promise.all([probeVideoFile(file),inspectMp4Codecs(file)]);
         if(!codecs.h264||!codecs.aac)throw new Error(`${file.name}: MP4 / H.264 / AAC 표준 영상만 등록할 수 있습니다.`);
+        if(codecs.slowStart)throw new Error(`${file.name}: 빠른 자동재생을 위한 MP4 Fast Start가 적용되지 않았습니다. H.264 / AAC / Fast Start로 다시 저장해 주세요.`);
         if(file.size>2*1024*1024*1024)throw new Error(`${file.name}: 2GB를 초과한 영상은 등록할 수 없습니다.`);
         if(meta.duration_sec>7200)throw new Error(`${file.name}: 2시간을 초과한 영상은 등록할 수 없습니다.`);
         if(meta.width>3840||meta.height>2160)throw new Error(`${file.name}: 4K(3840×2160)를 초과한 영상은 등록할 수 없습니다.`);
-        const validationNote=(meta.width<640||meta.height<360)?'낮은 해상도 · MP4/H.264/AAC 확인':'MP4 · H.264 · AAC · 브라우저 재생 확인';
+        const validationNote=(meta.width<640||meta.height<360)?'낮은 해상도 · MP4/H.264/AAC/Fast Start 확인':'MP4 · H.264 · AAC · Fast Start · 브라우저 재생 확인';
         const row=document.createElement('div');row.className='upload-row';row.innerHTML=`<span>${esc(file.name)}</span><div><i></i></div><b>0%</b>`;queue?.appendChild(row);
         const contentType='video/mp4';
         const info=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType,size:file.size})});
