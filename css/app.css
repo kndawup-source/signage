@@ -1519,7 +1519,6 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 }
 .building-floor-plan-stage{
   min-height:390px!important;
-  aspect-ratio:auto!important;
 }
 .floor-context-facts small,
 .floor-room-drawer>summary small,
@@ -1547,8 +1546,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .building-command-grid{grid-template-columns:1fr!important}
   .building-floor-plan-stage{
     min-height:300px!important;
-    aspect-ratio:auto!important;
-  }
+    }
   .admin-page .page-head h1,
   .hospital-page .page-head h1,
   .hospital-page .staff-dashboard-head h1,
@@ -2716,11 +2714,6 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-detail-stats span{font-size:10px}
 }
 
-/* v2.34.33 — floorplan stage must remain visible even before/while the image loads. */
-.hospital-floor-detail .building-floor-plan-stage{
-  min-height:clamp(190px,32vw,420px)!important;
-  width:100%;
-}
 .hospital-floor-detail .floorplan-svg-host{
   min-width:0;
   min-height:100%;
