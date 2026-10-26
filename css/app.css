@@ -1726,7 +1726,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 @media(max-width:760px){.hospital-video-overview{grid-template-columns:1fr 1fr}.hospital-playlist-layout{grid-template-columns:1fr}.hospital-playlist-list,.hospital-playlist-editor,.hospital-settings-card{padding:14px}.hospital-editor-actions{justify-content:stretch}.hospital-editor-actions .btn{flex:1}.hospital-settings-advanced>summary{align-items:flex-start}.hospital-settings-advanced>summary em{white-space:nowrap}.site-playlist-videos select{min-height:210px}}
 
 
-/* v2.34.7 — Hospital admin visual system */
+/* v2.34.8 — Hospital admin visual system */
 .hospital-page{
   --h-space-1:6px;
   --h-space-2:10px;
@@ -1820,3 +1820,6 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-settings-advanced>summary{padding:16px;align-items:flex-start}
   .hospital-settings-advanced-body{padding:16px}
 }
+
+/* v2.34.8 — launch setup controls */
+.superadmin-maintenance{margin-top:14px;border-top:1px solid #e8e8e8;padding-top:12px}.superadmin-maintenance summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}.superadmin-maintenance summary span{display:grid;gap:3px}.superadmin-maintenance summary small{font-size:11px;color:#777}.superadmin-maintenance-body{display:grid;gap:12px;padding-top:14px}.hospital-settings-advanced-body>.hospital-admin-block:first-child{margin-top:0}.hospital-admin-block .settings-card h3{margin:0 0 12px;font-size:14px}.hospital-admin-block .settings-card .btn{margin-top:10px}

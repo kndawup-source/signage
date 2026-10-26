@@ -1,6 +1,6 @@
-/* Clinic Signage Player offline runtime — v2.34.7 */
+/* Clinic Signage Player offline runtime — v2.34.8 */
 'use strict';
-const VERSION='2.34.7';
+const VERSION='2.34.8';
 const SHELL_CACHE=`clinic-signage-player-shell-${VERSION}`;
 const MEDIA_CACHE='clinic-signage-playlist-media-v1';
 const RUNTIME_CACHE='clinic-signage-player-runtime-v1';
@@ -10,6 +10,7 @@ const SHELL=[
   `/css/app.css?v=${VERSION}`,
   `/js/boot.js?v=${VERSION}`, 
   `/js/config.js?v=${VERSION}`,
+  `/js/player-fastboot.js?v=${VERSION}`,
   `/js/version.js?v=${VERSION}`,
   `/js/common.js?v=${VERSION}`,
   `/js/player.js?v=${VERSION}`

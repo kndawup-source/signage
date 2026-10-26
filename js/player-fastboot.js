@@ -6,8 +6,18 @@
   const savedKey=`clinic-signage:last-state:${key}`;
   const escAttr=(v)=>String(v??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   let shownUrl='';
-  function show(state){
+  function canUseSavedState(state){
     if(!state||state.mode==='closed'||state.room?.paused)return false;
+    const op=state.operating||{};
+    if(op.active===false)return false;
+    const end=Date.parse(op.current_end_at||'');
+    if(Number.isFinite(end)&&Date.now()>=end)return false;
+    const server=Date.parse(state.server_time||'');
+    if(Number.isFinite(server)&&Date.now()-server>15*60*1000&&!Number.isFinite(end))return false;
+    return true;
+  }
+  function show(state){
+    if(!canUseSavedState(state))return false;
     const v=Array.isArray(state.playlist)?state.playlist[0]:null;
     const url=String(v?.url||'').trim();
     if(!/^https?:\/\//i.test(url)||url===shownUrl)return false;

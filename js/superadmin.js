@@ -101,12 +101,16 @@
           ${selected?renderSiteSummary(selected):'<aside class="superadmin-site-summary is-empty"><b>병원을 선택하세요</b><p>병원의 현재 상태를 먼저 확인한 뒤 관리자 페이지로 이동할 수 있습니다.</p></aside>'}
         </div>
       </section>
-      <dialog id="addHospitalDialog" class="simple-dialog"><form method="dialog" class="simple-dialog-card"><div class="simple-dialog-head"><div><span class="eyebrow">NEW HOSPITAL</span><h2>병원 추가</h2></div><button class="text-btn dark" value="cancel">닫기</button></div><label class="field"><span>병원명</span><input id="newHospitalName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>고유 주소</span><div class="slug-input"><i>/</i><input id="newHospitalSlug" maxlength="32" autocomplete="off" spellcheck="false" placeholder="gangnam"></div></label><div class="inline top-gap"><button type="button" class="btn primary" id="createHospital">추가</button></div></form></dialog>`;
+      <dialog id="addHospitalDialog" class="simple-dialog"><form method="dialog" class="simple-dialog-card"><div class="simple-dialog-head"><div><span class="eyebrow">NEW HOSPITAL</span><h2>병원 추가</h2></div><button class="text-btn dark" value="cancel">닫기</button></div><label class="field"><span>병원명</span><input id="newHospitalName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>고유 주소</span><div class="slug-input"><i>/</i><input id="newHospitalSlug" maxlength="32" autocomplete="off" spellcheck="false" placeholder="gangnam"></div></label><label class="field"><span>병원 관리자 PIN</span><input id="newHospitalPin" type="password" inputmode="numeric" maxlength="6" placeholder="4~6자리"></label><div class="inline top-gap"><button type="button" class="btn primary" id="createHospital">추가</button></div></form></dialog>`;
 
     qs('#openAddHospital')?.addEventListener('click',()=>qs('#addHospitalDialog')?.showModal());
     qs('#createHospital')?.addEventListener('click',createHospital);
     qs('#hospitalSearch')?.addEventListener('input',e=>{searchTerm=String(e.target.value||'').trim().toLowerCase();render();requestAnimationFrame(()=>{const el=qs('#hospitalSearch');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}});});
     document.querySelectorAll('[data-site-summary]').forEach(el=>el.addEventListener('click',()=>{selectedSiteId=el.dataset.siteSummary||null;render();}));
+    qs('[data-save-site-pin]')?.addEventListener('click',saveSelectedSitePin);
+    qs('[data-export-site]')?.addEventListener('click',exportSelectedSite);
+    qs('[data-import-site]')?.addEventListener('change',importSelectedSite);
+    qs('[data-prune-logs]')?.addEventListener('click',pruneLogs);
   }
 
   function renderSiteSummary(site){
@@ -118,18 +122,26 @@
       <div class="superadmin-risk-card ${stats.risk.cls}"><div><small>송출 부하</small><b>${stats.risk.label}</b></div><p>${esc(stats.risk.note)} · 현재 연결된 원격 디스플레이 수 기준</p></div>
       <div class="superadmin-attention ${stats.issues?'has-issue':''}"><small>지금 확인할 내용</small><b>${esc(issueHeadline(stats))}</b></div>
       <div class="superadmin-floor-summary"><div class="superadmin-subhead"><b>층별 현황</b>${problemFloors.length&&normalFloors.length?`<small>정상 ${normalFloors.length}개 층은 접어 표시</small>`:''}</div>${floorHtml||'<p class="muted">층 정보가 없습니다.</p>'}</div>
+      <details class="superadmin-maintenance"><summary><span><b>관리 도구</b><small>자주 쓰지 않는 설정과 백업</small></span></summary><div class="superadmin-maintenance-body"><label class="field"><span>병원 관리자 PIN</span><div class="inline"><input id="selectedHospitalPin" type="password" inputmode="numeric" maxlength="6" placeholder="4~6자리"><button type="button" class="btn" data-save-site-pin="${site.id}">PIN 변경</button></div></label><div class="inline"><button type="button" class="btn" data-export-site="${site.id}">설정 백업</button><label class="btn"><input type="file" accept="application/json" data-import-site="${site.id}" hidden>설정 복원</label><button type="button" class="btn" data-prune-logs>오래된 로그 정리</button></div></div></details>
       <a class="btn primary superadmin-open-hospital" href="${esc(sitePath(site))}">병원 관리자 페이지 열기</a>
     </aside>`;
   }
 
+  async function saveSelectedSitePin(){const siteId=qs('[data-save-site-pin]')?.dataset.saveSitePin,pin=(qs('#selectedHospitalPin')?.value||'').replace(/\D/g,'');if(!siteId||pin.length<4||pin.length>6)return toast('PIN은 4~6자리 숫자로 입력하세요.','error');const {error}=await db.rpc('admin_set_site_staff_pin',{p_site:siteId,p_pin:pin});if(error)return toast(error.message,'error');qs('#selectedHospitalPin').value='';toast('병원 관리자 PIN을 변경했습니다.');}
+  async function exportSelectedSite(){const siteId=qs('[data-export-site]')?.dataset.exportSite;if(!siteId)return;const {data,error}=await db.rpc('admin_export_site_config',{p_site:siteId});if(error)return toast(error.message,'error');const site=state.sites.find(x=>x.id===siteId),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`signage-${siteSlug(site)||siteId}-backup.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+  async function importSelectedSite(e){const file=e.target.files?.[0];e.target.value='';if(!file)return;if(!confirm('이 병원의 설정을 백업 파일 기준으로 복원할까요?'))return;try{const config=JSON.parse(await file.text());const {error}=await db.rpc('admin_import_site_config',{p_config:config});if(error)throw error;toast('병원 설정을 복원했습니다.');await load();}catch(err){toast(err.message||'복원 파일을 확인하세요.','error');}}
+  async function pruneLogs(){if(!confirm('30일이 지난 플레이어 이벤트를 정리할까요?'))return;const {data,error}=await db.rpc('admin_prune_player_events',{p_days:30});if(error)return toast(error.message,'error');toast(`오래된 로그 ${Number(data||0)}건을 정리했습니다.`);}
   async function createHospital(){
-    const name=(qs('#newHospitalName')?.value||'').trim(),code=(qs('#newHospitalSlug')?.value||'').trim().toLowerCase();
+    const name=(qs('#newHospitalName')?.value||'').trim(),code=(qs('#newHospitalSlug')?.value||'').trim().toLowerCase(),pin=(qs('#newHospitalPin')?.value||'').replace(/\D/g,'');
     if(!name||!code)return toast('병원명과 고유 주소를 입력하세요.','error');
+    if(pin.length<4||pin.length>6)return toast('병원 관리자 PIN은 4~6자리 숫자로 입력하세요.','error');
     const {data,error}=await db.rpc('admin_create_site',{p_name:name,p_code:code,p_building_label:'MAIN BUILDING'});
     if(error)return toast(error.message||'병원을 추가하지 못했습니다.','error');
     if(data?.ok===false)return toast(data.message||'병원을 추가하지 못했습니다.','error');
     if(data?.existing)return toast('이미 사용 중인 고유 주소입니다. 다른 주소를 입력하세요.','error');
-    selectedSiteId=data?.site?.id||null;await load();
+    const siteId=data?.site?.id;if(!siteId)return toast('병원은 생성됐지만 식별자를 받지 못했습니다.','error');
+    const pinRes=await db.rpc('admin_set_site_staff_pin',{p_site:siteId,p_pin:pin});if(pinRes.error)return toast(`병원은 생성됐지만 PIN 설정에 실패했습니다: ${pinRes.error.message}`,'error');
+    selectedSiteId=siteId;await load();
   }
   await load().catch(e=>{console.error(e);qs('#adminRoot').innerHTML='<div class="loading error">병원 현황을 불러오지 못했습니다.</div>';});
 })();
