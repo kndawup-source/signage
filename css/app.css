@@ -1724,3 +1724,99 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 /* v2.34.6 hospital admin hierarchy */
 .hospital-page-intro{display:grid;gap:5px;margin-bottom:2px}.hospital-page-intro h2,.hospital-settings-intro h2{margin:0;font-size:24px;letter-spacing:-.04em}.hospital-page-intro p,.hospital-settings-intro p{margin:0;color:var(--muted);font-size:11px;line-height:1.55}.hospital-video-overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.hospital-video-overview>div{display:grid;gap:3px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:#fff}.hospital-video-overview small{font-size:10px;color:var(--muted)}.hospital-video-overview b{font-size:24px;line-height:1}.hospital-video-overview span{font-size:9px;color:var(--muted)}.hospital-playlist-layout{display:grid;grid-template-columns:minmax(220px,.72fr) minmax(0,1.28fr);gap:14px;align-items:start}.hospital-playlist-list,.hospital-playlist-editor,.hospital-settings-card{border:1px solid var(--line);border-radius:16px;background:#fff;padding:16px}.hospital-section-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.hospital-section-title>div{display:grid;gap:3px}.hospital-section-title b{font-size:14px}.hospital-section-title small{font-size:10px;color:var(--muted);line-height:1.45}.hospital-playlist-items{display:grid;gap:6px}.hospital-playlist-item{width:100%;border:0;background:#f7f8fa;border-radius:11px;padding:12px 13px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;cursor:pointer}.hospital-playlist-item:hover,.hospital-playlist-item.is-active{background:#eef1f4}.hospital-playlist-item span{display:grid;gap:3px;min-width:0}.hospital-playlist-item b{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hospital-playlist-item small{font-size:9px;color:var(--muted)}.hospital-playlist-item i{font-style:normal;color:var(--muted);font-size:18px}.hospital-empty-card{display:grid;gap:4px;padding:16px;border:1px dashed var(--line);border-radius:12px;color:var(--muted)}.hospital-empty-card b{font-size:11px;color:var(--text)}.hospital-empty-card span{font-size:9px}.hospital-playlist-editor{display:grid;gap:12px}.hospital-playlist-select-field{max-width:320px}.site-playlist-videos{display:grid;gap:5px}.site-playlist-videos>small{font-size:9px;color:var(--muted)}.site-playlist-videos select{min-height:240px}.hospital-editor-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end}.hospital-settings-primary{display:grid;gap:12px}.hospital-settings-intro{display:grid;gap:5px;margin-bottom:2px}.hospital-settings-primary>.hospital-settings-card>.hospital-admin-block{padding:0;border:0}.hospital-settings-advanced{border:1px solid var(--line);border-radius:16px;background:#fff;overflow:hidden}.hospital-settings-advanced>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 18px;cursor:pointer}.hospital-settings-advanced>summary::-webkit-details-marker{display:none}.hospital-settings-advanced>summary>span{display:grid;gap:3px}.hospital-settings-advanced>summary b{font-size:14px}.hospital-settings-advanced>summary small{font-size:10px;color:var(--muted)}.hospital-settings-advanced>summary em{font-style:normal;font-size:10px;font-weight:800;color:var(--muted)}.hospital-settings-advanced[open]>summary{border-bottom:1px solid var(--line)}.hospital-settings-advanced-body{display:grid;gap:22px;padding:18px}.hospital-settings-advanced-body>.hospital-admin-block+.hospital-admin-block{padding-top:20px;border-top:1px solid var(--line)}
 @media(max-width:760px){.hospital-video-overview{grid-template-columns:1fr 1fr}.hospital-playlist-layout{grid-template-columns:1fr}.hospital-playlist-list,.hospital-playlist-editor,.hospital-settings-card{padding:14px}.hospital-editor-actions{justify-content:stretch}.hospital-editor-actions .btn{flex:1}.hospital-settings-advanced>summary{align-items:flex-start}.hospital-settings-advanced>summary em{white-space:nowrap}.site-playlist-videos select{min-height:210px}}
+
+
+/* v2.34.7 — Hospital admin visual system */
+.hospital-page{
+  --h-space-1:6px;
+  --h-space-2:10px;
+  --h-space-3:16px;
+  --h-space-4:24px;
+  --h-space-5:32px;
+  --h-card-radius:14px;
+}
+.hospital-page .shell{max-width:1120px;padding-top:42px}
+.hospital-page .page-head{margin-bottom:28px}
+.hospital-page .page-head h1{font-size:44px;line-height:1;letter-spacing:-.045em;font-weight:800}
+.hospital-page .panel{padding:36px 0}
+.hospital-page .panel-head{margin-bottom:20px}
+.hospital-page .panel h2{font-size:28px;line-height:1.08;font-weight:800;letter-spacing:-.04em}
+.hospital-page .panel-head p{margin-top:7px;font-size:13px;line-height:1.55}
+.hospital-page .eyebrow{margin-bottom:8px;font-size:10px;letter-spacing:.14em}
+
+.hospital-page-intro,.hospital-settings-intro{gap:6px;margin-bottom:18px}
+.hospital-page-intro h2,.hospital-settings-intro h2{font-size:28px;line-height:1.08;font-weight:800;letter-spacing:-.04em}
+.hospital-page-intro p,.hospital-settings-intro p{max-width:640px;font-size:13px;line-height:1.55}
+
+.hospital-video-overview{gap:12px;margin-bottom:18px}
+.hospital-video-overview>div{min-height:104px;padding:18px 20px;border-radius:var(--h-card-radius);align-content:space-between}
+.hospital-video-overview small{font-size:11px;font-weight:700}
+.hospital-video-overview b{font-size:30px;line-height:1;font-weight:820;letter-spacing:-.035em}
+.hospital-video-overview span{font-size:11px;line-height:1.4}
+
+.hospital-playlist-layout{grid-template-columns:minmax(300px,.62fr) minmax(0,1fr);gap:16px;align-items:stretch}
+.hospital-playlist-list,.hospital-playlist-editor,.hospital-settings-card{padding:22px;border-radius:var(--h-card-radius)}
+.hospital-playlist-list,.hospital-playlist-editor{min-height:520px}
+.hospital-playlist-list{display:flex;flex-direction:column}
+.hospital-playlist-editor{display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;gap:16px}
+.hospital-section-title{min-height:48px;align-items:flex-start;margin-bottom:16px}
+.hospital-section-title>div{gap:5px}
+.hospital-section-title b{font-size:17px;line-height:1.25;font-weight:800;letter-spacing:-.025em}
+.hospital-section-title small{font-size:11px;line-height:1.5}
+.hospital-section-title .btn.small{min-height:36px;padding:7px 11px}
+.hospital-playlist-items{gap:8px;align-content:start}
+.hospital-playlist-item{min-height:58px;padding:13px 14px;border:1px solid transparent;border-radius:11px}
+.hospital-playlist-item:hover{background:#f3f4f6}
+.hospital-playlist-item.is-active{background:#fff;border-color:#111}
+.hospital-playlist-item span{gap:4px}
+.hospital-playlist-item b{font-size:13px;line-height:1.35;font-weight:760}
+.hospital-playlist-item small{font-size:10px}
+.hospital-playlist-item i{font-size:16px}
+.hospital-empty-card{min-height:92px;padding:18px;border-radius:11px;align-content:center}
+.hospital-empty-card b{font-size:13px}.hospital-empty-card span{font-size:11px;line-height:1.45}
+
+.hospital-playlist-editor .field,.hospital-settings-card .field{gap:7px;font-size:12px;font-weight:750;color:#444}
+.hospital-playlist-editor input,.hospital-playlist-editor select,.hospital-settings-card input,.hospital-settings-card select{min-height:42px;font-size:13px;padding:9px 11px}
+.hospital-playlist-select-field{max-width:none}
+.site-playlist-videos{min-height:0;grid-template-rows:auto auto minmax(0,1fr)}
+.site-playlist-videos>small{font-size:10px;line-height:1.4}
+.site-playlist-videos select{height:100%;min-height:260px}
+.hospital-editor-actions{gap:8px;margin-top:2px}
+.hospital-editor-actions .btn{min-width:118px}
+
+.hospital-settings-primary{gap:16px}
+.hospital-settings-card{padding:22px}
+.hospital-settings-card .hospital-admin-block-head{margin-bottom:18px}
+.hospital-settings-card .hospital-admin-block-head b{font-size:17px;line-height:1.25;font-weight:800;letter-spacing:-.025em}
+.hospital-settings-card .hospital-admin-block-head small{font-size:11px;line-height:1.5}
+.hospital-settings-card .grid-2{gap:16px;margin-top:0}
+.hospital-settings-card .btn.primary{margin-top:16px}
+.hospital-settings-advanced{margin-top:16px;border-radius:var(--h-card-radius)}
+.hospital-settings-advanced>summary{min-height:72px;padding:18px 22px}
+.hospital-settings-advanced>summary>span{gap:5px}
+.hospital-settings-advanced>summary b{font-size:16px;line-height:1.25;font-weight:800;letter-spacing:-.02em}
+.hospital-settings-advanced>summary small,.hospital-settings-advanced>summary em{font-size:11px;line-height:1.45}
+.hospital-settings-advanced-body{gap:24px;padding:22px}
+
+.hospital-page .btn{min-height:42px;font-size:12px;padding:9px 13px}
+.hospital-page .btn.small{min-height:36px;font-size:11px;padding:7px 10px}
+
+@media(max-width:900px){
+  .hospital-playlist-layout{grid-template-columns:1fr}
+  .hospital-playlist-list,.hospital-playlist-editor{min-height:auto}
+  .site-playlist-videos select{min-height:240px}
+}
+@media(max-width:760px){
+  .hospital-page .shell{padding-top:32px}
+  .hospital-page .page-head h1{font-size:40px}
+  .hospital-page-intro h2,.hospital-settings-intro h2{font-size:25px}
+  .hospital-video-overview{grid-template-columns:1fr 1fr}
+  .hospital-video-overview>div{min-height:92px;padding:16px}
+  .hospital-video-overview b{font-size:26px}
+  .hospital-playlist-list,.hospital-playlist-editor,.hospital-settings-card{padding:16px}
+  .hospital-section-title{min-height:0;margin-bottom:14px}
+  .hospital-editor-actions{justify-content:stretch}
+  .hospital-editor-actions .btn{min-width:0;flex:1}
+  .hospital-settings-advanced>summary{padding:16px;align-items:flex-start}
+  .hospital-settings-advanced-body{padding:16px}
+}
