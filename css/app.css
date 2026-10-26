@@ -2223,3 +2223,61 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-output-summary{gap:8px 14px}
   .hospital-page .hospital-settings-card .grid-2{grid-template-columns:1fr}
 }
+
+/* v2.34.16 — one hospital-admin content width across every tab */
+.hospital-page{
+  --hospital-content-width:920px;
+  --hospital-shell-width:988px;
+}
+.hospital-page .topbar-inner,
+.hospital-page .shell{
+  width:100%;
+  max-width:var(--hospital-shell-width);
+  margin-left:auto;
+  margin-right:auto;
+}
+.hospital-page #hospitalRoot{
+  width:100%;
+  max-width:var(--hospital-content-width);
+  margin:0 auto;
+  min-width:0;
+}
+.hospital-page .hospital-content-page,
+.hospital-page .hospital-admin-settings-page,
+.hospital-page .hospital-settings-primary,
+.hospital-page .hospital-settings-advanced,
+.hospital-page .hospital-playlist-layout,
+.hospital-page .hospital-video-overview,
+.hospital-page .hospital-broadcast-card,
+.hospital-page .hospital-issue-notice,
+.hospital-page .staff-building-board,
+.hospital-page .staff-space-detail-drawer,
+.hospital-page .hospital-simple-head,
+.hospital-page .staff-control{
+  width:100%;
+  max-width:none;
+  margin-left:0;
+  margin-right:0;
+}
+/* Remove the previous tab-specific width split. */
+.hospital-page .hospital-content-page,
+.hospital-page .hospital-admin-settings-page{
+  max-width:none;
+}
+/* Forms stay readable inside the common page width without changing the page edges. */
+.hospital-page .operating-row{
+  max-width:720px;
+}
+@media(max-width:988px){
+  .hospital-page .topbar-inner,
+  .hospital-page .shell{
+    max-width:none;
+  }
+  .hospital-page #hospitalRoot{
+    max-width:none;
+  }
+}
+@media(max-width:760px){
+  .hospital-page{--hospital-content-width:none;--hospital-shell-width:none}
+  .hospital-page .operating-row{max-width:none}
+}
