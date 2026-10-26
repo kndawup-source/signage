@@ -164,32 +164,12 @@
     const ungrouped=state.rooms.filter(r=>!r.group_id);if(ungrouped.length)out.push({id:'ungrouped',name:'미분류',rooms:ungrouped});
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
   }
-  const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'지원',name:'기공실'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
-  const FLOOR_GUIDES={
-    1:{flow:'입구 → 접수·안내 → 엘리베이터',purpose:'첫 방문 안내와 병원 신뢰 형성',content:'병원 소개 · 진료 분야 · 이용 안내',exposure:'로비 · 접수 대기'},
-    2:{flow:'접수·검사 → 대기 → 다음 진료 이동',purpose:'대기 중 정보 제공과 불안 완화',content:'치료 전 안내 · 자주 묻는 질문 · 케이스 소개',exposure:'대기공간 · 이동 동선'},
-    3:{flow:'엘리베이터 → 대기 → 진료실',purpose:'진료 전 치료 이해도 높이기',content:'진료 과정 · 치료 전후 주의사항 · 케이스',exposure:'대기공간 · 진료실 앞'},
-    4:{flow:'대기 → 상담 → 진료·검사',purpose:'교정·임플란트 치료 이해와 상담 보조',content:'치료 과정 · 장비/기술 설명 · 전후 관리',exposure:'상담 대기 · 진료실 앞'},
-    5:{flow:'직원·내부 이동 중심',purpose:'공간 목적에 맞는 안내',content:'운영 안내 · 필요 콘텐츠',exposure:'주요 체류 지점'},
-    6:{flow:'직원·기공 업무 동선',purpose:'내부 업무 지원과 공지',content:'업무 안내 · 교육 · 내부 공지',exposure:'업무 공간'},
-    7:{flow:'엘리베이터 → 대기 → 진료실',purpose:'예방·진료 이해와 치료 준비',content:'예방 관리 · 치료 과정 · 주의사항',exposure:'대기공간 · 진료실 앞'},
-    8:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 신뢰 형성',content:'미니쉬 과정 · 케이스 · 치료 후 관리',exposure:'대기공간 · 진료실 앞'},
-    9:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 치료 선택 지원',content:'미니쉬 과정 · 전후 사례 · FAQ',exposure:'대기공간 · 진료실 앞'},
-    10:{flow:'엘리베이터 → 대기 → 진료실',purpose:'치료 이해와 긴장 완화',content:'미니쉬 치료 과정 · 전후 관리 · 브랜드 신뢰',exposure:'대기공간 · 진료실 앞 · 상담실'},
-    11:{flow:'의료진·직원 내부 이동',purpose:'내부 커뮤니케이션 지원',content:'교육 · 공지 · 운영 안내',exposure:'의국 · 공용 공간'},
-    12:{flow:'직원 내부 이동',purpose:'업무 정보와 내부 공지 전달',content:'운영 공지 · 교육 · 캠페인',exposure:'사무 공용 공간'},
-    13:{flow:'직원·방문객 식사 및 휴식',purpose:'휴식 공간 정보 제공',content:'병원 소식 · 캠페인 · 가벼운 브랜드 콘텐츠',exposure:'식당 · 휴게공간'},
-    14:{flow:'상담·진료 후 → 라운지 → 퇴원/이동',purpose:'진료 후 신뢰 강화와 관리 안내',content:'치료 후 관리 · 브랜드 스토리 · 케이스',exposure:'라운지 · 상담 대기'}
-  };
-  const floorGuide=(g)=>FLOOR_GUIDES[floorNumber(g)]||{flow:'주요 이동 동선',purpose:'공간 목적에 맞는 영상 송출',content:'안내 · 치료 정보 · 운영 콘텐츠',exposure:'대기 및 주요 체류 지점'};
-
-  function staffBuildingFloor(n,g){
-    const rooms=g?g.rooms||state.rooms.filter(r=>r.group_id===g.id):[],st=g?groupStatusSummary(rooms):{key:'idle',issues:0,offline:0,live:0,total:0};
-    const def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'},rawName=String(g?.name||'').trim(),shortName=(rawName&&!/^\d+$/.test(rawName))?rawName.replace(new RegExp(`^${n}\s*(층|F)?\s*`,'i'),'').trim():def.name;
-    const status=!g?'미사용':st.issues?'확인 필요':st.offline?'연결 안 됨':'정상';
-    const cls=`building-stack-floor floor-state-${st.key}${g?'':' is-unmanaged'}${selectedFloorId===g?.id?' is-selected':''}`;
-    if(!g)return `<div class="${cls}" aria-hidden="true"><b>${n}F</b><span>${esc(shortName)}</span><em>${status}</em><i aria-hidden="true"></i></div>`;
-    return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-label="${n}층 ${esc(shortName)} ${esc(status)}"><b>${n}F</b><span>${esc(shortName)}</span><em>${esc(status)}</em><i aria-hidden="true"></i></button>`;
+  function staffBuildingFloor(g){
+    const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),rawName=String(g?.name||'').trim();
+    const shortName=rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim()||`${n}층`;
+    const status=st.issues?`확인 필요 ${st.issues}`:st.offline?'연결 안 됨':'정상';
+    const cls=`hospital-floor-row floor-state-${st.key}${selectedFloorId===g.id?' is-selected':''}`;
+    return `<div class="hospital-floor-item ${selectedFloorId===g.id?'is-open':''}"><button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}"><span class="hospital-floor-number">${n}F</span><span class="hospital-floor-name">${esc(shortName)}</span><span class="hospital-floor-state">${esc(status)}</span><span class="hospital-floor-chevron" aria-hidden="true">${selectedFloorId===g.id?'⌃':'⌄'}</span></button>${selectedFloorId===g.id?staffFloorPanelMarkup(g):''}</div>`;
   }
   function staffFloorMarker(r){
     if(!roomMapPlaced(r))return '';
@@ -197,17 +177,16 @@
     return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" title="${esc(r.name)} · ${esc(st.label)}" aria-label="${esc(r.name)} · ${esc(st.label)}"><span class="display-screen-icon"></span><span class="floor-display-dot"></span></button>`;
   }
   function staffFloorPanelMarkup(g){
-    if(!g)return `<section class="building-plan-pane is-empty"><div><h3>층을 선택하세요</h3><p>층을 누르면 도면과 디스플레이 위치가 바로 표시됩니다.</p></div></section>`;
+    if(!g)return '';
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
-    const n=floorNumber(g),def=FLOOR_DEFAULTS[n]||{kind:'기타',name:'공간'};
-    return `<section class="building-plan-pane"><div class="building-plan-head"><div><h3>${n?`${n}층`:esc(groupDisplayName(g.name))} · ${esc(g.name||def.name)}</h3><p>도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.</p></div><div class="building-plan-status"><span class="room-status-badge status-${sum.key}">${esc(sum.issues?'확인 필요':sum.offline?'연결 안 됨':'정상')}</span></div></div>${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(staffFloorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-staff-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><b>디스플레이를 선택하세요.</b></div><p>현재 영상과 왜 이 영상이 나오는지 바로 확인할 수 있습니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면이 없습니다.</b><span>병원 설정에서 이 층의 도면을 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>도면 등록</button></div>`}${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}</section>`;
+    const n=floorNumber(g),online=rooms.filter(r=>displayControlMode(r)==='manual'||staffIsOnline(r)).length;
+    return `<section class="hospital-floor-detail"><div class="hospital-floor-detail-head"><div><b>${n}층 · ${esc(groupDisplayName(g.name))}</b><span>디스플레이 ${rooms.length}대 · 연결 ${online}대${sum.issues?` · 확인 필요 ${sum.issues}대`:''}</span></div></div>${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(staffFloorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-staff-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><b>TV를 선택하세요.</b></div><p>현재 영상과 송출 이유를 확인할 수 있습니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action hospital-floor-empty"><b>등록된 도면이 없습니다.</b><button type="button" class="btn small" data-staff-open-settings>도면 등록</button></div>`}${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}</section>`;
   }
   function staffBuildingOverview(groups){
-    const floorGroups=groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14),byFloor=new Map(floorGroups.map(g=>[floorNumber(g),g]));
-    if(!selectedFloorId||!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=(floorGroups.find(g=>groupStatusSummary(g.rooms).issues>0&&floorAsset(g))||floorGroups.find(g=>floorAsset(g))||floorGroups[0]||{}).id||null;
-    const selected=floorGroups.find(g=>g.id===selectedFloorId)||null,issueFloors=floorGroups.filter(g=>groupStatusSummary(g.rooms).issues>0).length;
-    const rows=Array.from({length:14},(_,i)=>14-i).map(n=>staffBuildingFloor(n,byFloor.get(n)||null)).join('');
-    return `<section class="building-command-board hospital-building-command"><div class="building-command-head"><div><h2>층을 선택하세요</h2><p>확인할 층을 누르면 도면이 열립니다.</p></div></div><div class="building-command-grid"><aside class="building-nav-pane"><div class="building-floor-stack" role="list" aria-label="1층부터 14층까지 병원 송출 현황">${rows}</div></aside>${staffFloorPanelMarkup(selected)}</div></section>`;
+    const floorGroups=groups.filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
+    if(selectedFloorId&&!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=null;
+    if(!floorGroups.length)return `<section class="hospital-building-empty"><b>등록된 층이 없습니다.</b><p>병원 설정에서 층을 먼저 추가하세요.</p><button type="button" class="btn small" data-staff-open-settings>병원 설정 열기</button></section>`;
+    return `<section class="hospital-building-overview"><div class="hospital-building-head"><div><span class="eyebrow">건물</span><h2>${floorGroups.length}개 층</h2></div><small>층을 누르면 해당 층의 도면과 TV 위치가 펼쳐집니다.</small></div><div class="hospital-floor-list" role="list">${floorGroups.map(staffBuildingFloor).join('')}</div></section>`;
   }
 
 
@@ -379,7 +358,7 @@
       ? `<div class="reception-head reception-head-board hospital-simple-head hospital-output-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>원내 영상 송출</h1><p>진료실·대기실 디스플레이에서 지금 어떤 영상이 나가고 있는지 확인하고 필요한 곳만 바꿉니다.</p><div class="hospital-output-summary"><span><b>${state.rooms.length}</b> 전체 디스플레이</span><span><b>${Math.max(0,state.rooms.length-offline)}</b> 현재 연결</span><span class="${issues?'is-alert':''}"><b>${issues}</b> 확인 필요</span></div></div><button id="staffStatusRefresh" class="btn">새로고침</button></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
-    if(tab==='output')content=`${hospitalBroadcastCard()}${issues?`<div class="hospital-issue-notice"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}${staffBuildingOverview(groups)}<details class="staff-space-detail-drawer"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details>`;
+    if(tab==='output')content=`${issues?`<div class="hospital-issue-notice"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary>전체 송출 · 상세 관리</summary><div class="hospital-output-tools-body">${hospitalBroadcastCard()}<details class="staff-space-detail-drawer"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
     else if(tab==='videos')content=hospitalVideosPageMarkup();
     else content=hospitalSettingsPageMarkup();
     qs('#hospitalRoot').innerHTML=`${state.broadcast?.active&&tab==='output'?'<div class="broadcast-strip">전체 송출 중입니다.</div>':''}${head}${content}`;
@@ -417,7 +396,7 @@
 
   function bind(){
     bindHospitalAdminSettings();
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=selectedFloorId===b.dataset.staffSelectFloor?null:b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
     qsa('#hospitalRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-player-open]').forEach(b=>b.addEventListener('click',()=>openRoomPlayer(b.dataset.staffPlayerOpen)));
