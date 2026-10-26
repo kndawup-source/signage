@@ -167,26 +167,87 @@
   function staffBuildingFloor(g){
     const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),rawName=String(g?.name||'').trim();
     const shortName=rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim()||`${n}층`;
-    const status=st.issues?`확인 필요 ${st.issues}`:st.offline?'연결 안 됨':'정상';
+    const status=st.issues?'확인 필요':st.offline?'연결 안 됨':rooms.length?'정상':'미사용';
     const cls=`hospital-floor-row floor-state-${st.key}${selectedFloorId===g.id?' is-selected':''}`;
-    return `<div class="hospital-floor-item ${selectedFloorId===g.id?'is-open':''}"><button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}"><span class="hospital-floor-number">${n}F</span><span class="hospital-floor-name">${esc(shortName)}</span><span class="hospital-floor-state">${esc(status)}</span><span class="hospital-floor-chevron" aria-hidden="true">${selectedFloorId===g.id?'⌃':'⌄'}</span></button>${selectedFloorId===g.id?staffFloorPanelMarkup(g):''}</div>`;
+    return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}">
+      <span class="hospital-floor-number">${n}F</span>
+      <span class="hospital-floor-name">${esc(shortName)}</span>
+      <span class="hospital-floor-state"><i></i>${esc(status)}${st.issues?` ${st.issues}`:''}</span>
+    </button>`;
   }
   function staffFloorMarker(r){
     if(!roomMapPlaced(r))return '';
     const st=roomDisplayStatus(r),x=Number(r.map_x_pct),y=Number(r.map_y_pct);
-    return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" title="${esc(r.name)} · ${esc(st.label)}" aria-label="${esc(r.name)} · ${esc(st.label)}"><span class="display-screen-icon"></span><span class="floor-display-dot"></span></button>`;
+    const current=currentVideoForRoom(r),thumb=current?.thumbnail_data_url?`<img src="${esc(current.thumbnail_data_url)}" alt="">`:'<span class="display-screen-icon"></span>';
+    return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" title="${esc(r.name)} · ${esc(st.label)}" aria-label="${esc(r.name)} · ${esc(st.label)}">
+      <span class="floor-display-card"><b><i></i>${esc(r.name)}</b><span class="floor-display-preview">${thumb}</span></span>
+    </button>`;
   }
   function staffFloorPanelMarkup(g){
-    if(!g)return '';
+    if(!g)return `<section class="hospital-floor-detail hospital-floor-detail-empty"><div><b>층을 선택하세요.</b><p>확인할 층을 누르면 도면과 디스플레이 위치가 열립니다.</p></div></section>`;
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
     const n=floorNumber(g),online=rooms.filter(r=>displayControlMode(r)==='manual'||staffIsOnline(r)).length;
-    return `<section class="hospital-floor-detail"><div class="hospital-floor-detail-head"><div><b>${n}층 · ${esc(groupDisplayName(g.name))}</b><span>디스플레이 ${rooms.length}대 · 연결 ${online}대${sum.issues?` · 확인 필요 ${sum.issues}대`:''}</span></div></div>${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(staffFloorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-staff-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><b>TV를 선택하세요.</b></div><p>현재 영상과 송출 이유를 확인할 수 있습니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action hospital-floor-empty"><b>등록된 도면이 없습니다.</b><button type="button" class="btn small" data-staff-open-settings>도면 등록</button></div>`}${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}</section>`;
+    return `<section class="hospital-floor-detail">
+      <div class="hospital-floor-detail-head">
+        <div><b>${n}층 · ${esc(groupDisplayName(g.name))}</b><span>도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.</span></div>
+        <div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${sum.issues?`<span class="is-alert">확인 필요 <b>${sum.issues}</b></span>`:''}</div>
+      </div>
+      ${asset?`<div class="building-floorplan-wrap floor-activation-shell">
+        <div class="floor-plan-stage building-floor-plan-stage is-floor-activating">
+          <div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>
+          ${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}
+          ${rooms.map(staffFloorMarker).join('')}
+        </div>
+        <div class="floor-zone-inspector building-zone-inspector" data-staff-floor-zone-inspector>
+          <div class="floor-zone-inspector-empty"><div><b>TV를 선택하세요.</b></div><p>현재 영상과 송출 이유를 확인할 수 있습니다.</p></div>
+        </div>
+      </div>`:`<div class="floor-plan-empty floor-plan-empty-action hospital-floor-empty"><b>등록된 도면이 없습니다.</b><p>설정에서 이 층의 도면을 등록하세요.</p><button type="button" class="btn small" data-staff-open-settings>도면 등록</button></div>`}
+      ${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}
+    </section>`;
+  }
+  function buildingFloorRail(floorGroups){
+    const byNo=new Map(floorGroups.map(g=>[floorNumber(g),g]));
+    const max=Math.max(14,...floorGroups.map(floorNumber));
+    const min=Math.min(1,...floorGroups.map(floorNumber));
+    const nums=[]; for(let n=max;n>=min;n--) nums.push(n);
+    return `<div class="hospital-building-floor-rail">${nums.map(n=>{
+      const g=byNo.get(n),selected=g&&selectedFloorId===g.id;
+      return `<button type="button" class="${selected?'is-selected':''} ${g?'':'is-empty'}" ${g?`data-staff-select-floor="${g.id}"`:'disabled'}><span>${n}F</span></button>`;
+    }).join('')}</div>`;
   }
   function staffBuildingOverview(groups){
     const floorGroups=groups.filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
     if(selectedFloorId&&!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=null;
     if(!floorGroups.length)return `<section class="hospital-building-empty"><b>등록된 층이 없습니다.</b><p>병원 설정에서 층을 먼저 추가하세요.</p><button type="button" class="btn small" data-staff-open-settings>병원 설정 열기</button></section>`;
-    return `<section class="hospital-building-overview"><div class="hospital-building-head"><div><span class="eyebrow">건물</span><h2>${floorGroups.length}개 층</h2></div><small>층을 누르면 해당 층의 도면과 TV 위치가 펼쳐집니다.</small></div><div class="hospital-floor-list" role="list">${floorGroups.map(staffBuildingFloor).join('')}</div></section>`;
+    if(!selectedFloorId){
+      const preferred=floorGroups.find(g=>floorNumber(g)===10&&floorAsset(g))||floorGroups.find(g=>floorAsset(g))||floorGroups.find(g=>groupStatusSummary(g.rooms||[]).issues)||floorGroups[0];
+      selectedFloorId=preferred?.id||null;
+    }
+    const selected=floorGroups.find(g=>g.id===selectedFloorId)||null;
+    const statuses=state.rooms.map(roomDisplayStatus),offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
+    const selectedNo=selected?floorNumber(selected):null;
+    const slabTop=selectedNo?Math.max(14,Math.min(87,15+(14-selectedNo)*5.45)):null;
+    return `<section class="hospital-building-dashboard">
+      <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
+        <div class="hospital-building-image-wrap">
+          <img src="/assets/building/hospital-cutaway.png?v=2.34.18" alt="병원 건물 층별 이미지">
+          ${selectedNo?`<span class="hospital-building-selected-slab" style="top:${slabTop}%"></span>`:''}
+          <span class="hospital-building-nameplate">${esc(state.site?.name||'CLINIC')}</span>
+          ${buildingFloorRail(floorGroups)}
+        </div>
+      </aside>
+      <div class="hospital-building-console">
+        ${hospitalBroadcastCard()}
+        ${issues?`<div class="hospital-issue-notice hospital-issue-notice-wide"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}
+        <div class="hospital-floor-console-card">
+          <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>확인할 층을 누르면 도면이 열립니다.</p></div></div>
+          <div class="hospital-floor-console-grid">
+            <div class="hospital-floor-list" role="list">${floorGroups.map(staffBuildingFloor).join('')}</div>
+            ${staffFloorPanelMarkup(selected)}
+          </div>
+        </div>
+      </div>
+    </section>`;
   }
 
 
@@ -354,11 +415,12 @@
     const issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
     const groups=groupedRooms();
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
+    const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="reception-head reception-head-board hospital-simple-head hospital-output-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>원내 영상 송출</h1><p>진료실·대기실 디스플레이에서 지금 어떤 영상이 나가고 있는지 확인하고 필요한 곳만 바꿉니다.</p><div class="hospital-output-summary"><span><b>${state.rooms.length}</b> 전체 디스플레이</span><span><b>${Math.max(0,state.rooms.length-offline)}</b> 현재 연결</span><span class="${issues?'is-alert':''}"><b>${issues}</b> 확인 필요</span></div></div><button id="staffStatusRefresh" class="btn">새로고침</button></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>원내 영상 송출</h1><p>진료실·대기실 디스플레이에서 지금 어떤 영상이 나가고 있는지 확인하고 필요한 곳만 바꿉니다.</p></div><div class="hospital-output-kpis"><div><span class="kpi-icon">▣</span><small>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div><span class="kpi-dot is-online"></span><small>현재 연결</small><b>${Math.max(0,state.rooms.length-offline)}<em>대</em></b></div><div class="${issues?'has-issue':''}"><span class="kpi-dot is-issue"></span><small>확인 필요</small><b>${issues}<em>대</em></b></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
-    if(tab==='output')content=`${issues?`<div class="hospital-issue-notice"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary>전체 송출 · 상세 관리</summary><div class="hospital-output-tools-body">${hospitalBroadcastCard()}<details class="staff-space-detail-drawer"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
+    if(tab==='output')content=`${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="hospital-output-tools-body"><details class="staff-space-detail-drawer" open><summary><span><b>공간별 세부 관리</b><small>고급 제어가 필요한 경우에만 사용합니다.</small></span></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
     else if(tab==='videos')content=hospitalVideosPageMarkup();
     else content=hospitalSettingsPageMarkup();
     qs('#hospitalRoot').innerHTML=`${state.broadcast?.active&&tab==='output'?'<div class="broadcast-strip">전체 송출 중입니다.</div>':''}${head}${content}`;
