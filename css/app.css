@@ -2643,3 +2643,11 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-detail .floor-room-actions .floor-room-preview-open{justify-self:start}
   .hospital-floor-detail .floor-display-pin{width:62px;height:42px;margin-left:-31px;margin-top:-21px}
 }
+
+
+/* v2.34.27 — faster building/floorplan rendering; no selected-floor outline */
+.hospital-building-floor-shape{display:none!important}
+.hospital-building-floor-hit{box-shadow:none!important;outline:0!important;border:0!important;transition:background .12s ease}
+.hospital-building-floor-hit:hover{background:rgba(35,33,118,.035)!important;box-shadow:none!important}
+.hospital-building-floor-hit.is-selected{background:rgba(35,33,118,.075)!important;box-shadow:none!important}
+.hospital-building-image-host>.hospital-building-image{will-change:auto;transform:translateZ(0)}

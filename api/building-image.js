@@ -1,6 +1,6 @@
 'use strict';
 const { requireMember, resolveSite, json, SUPABASE_URL, SUPABASE_ANON_KEY } = require('./_lib/auth');
-const { signedFetch } = require('./_lib/r2');
+const { presignGet, signedFetch } = require('./_lib/r2');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -8,6 +8,14 @@ module.exports = async (req, res) => {
     const session = await requireMember(req);
     const siteId = resolveSite(session, req.query?.siteId);
     const token = String(req.headers['x-signage-session'] || '');
+    const requestedKey = String(req.query?.key || '').trim();
+    const mode = String(req.query?.mode || '').trim();
+    const safeSite = String(siteId).replace(/[^A-Za-z0-9_-]/g, '');
+    const expectedPrefix = `buildings/${safeSite}/`;
+    if (requestedKey) {
+      if (!safeSite || !requestedKey.startsWith(expectedPrefix) || requestedKey.includes('..')) return json(res, 400, { error: 'INVALID_BUILDING_OBJECT_KEY' });
+      if (mode === 'url') return json(res, 200, { url: presignGet(requestedKey, 300) });
+    }
 
     const lookup = await fetch(`${SUPABASE_URL}/rest/v1/rpc/hospital_building_asset`, {
       method: 'POST',
@@ -25,8 +33,6 @@ module.exports = async (req, res) => {
     const key = String(asset?.key || '').trim();
     if (!key) return json(res, 404, { error: 'BUILDING_IMAGE_NOT_SET' });
 
-    const safeSite = String(siteId).replace(/[^A-Za-z0-9_-]/g, '');
-    const expectedPrefix = `buildings/${safeSite}/`;
     if (!safeSite || !key.startsWith(expectedPrefix) || key.includes('..')) {
       return json(res, 400, { error: 'INVALID_BUILDING_OBJECT_KEY' });
     }

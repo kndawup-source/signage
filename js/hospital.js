@@ -27,6 +27,7 @@
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,selectedFloorId=null,tab='output';
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanTextCache=new Map();
+  const buildingImageUrlCache=new Map();
   const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
   const ackState=new Map();
@@ -233,11 +234,6 @@
     2:{top:81.4,left:30.4,width:41.7,height:4.7,points:'0,2 99,0 100,98 2,100'},
     1:{top:86.1,left:28.7,width:45.2,height:7.8,points:'0,1 100,0 100,98 0,100'}
   };
-  function buildingSelectedFloorShape(floorNo){
-    const shape=BUILDING_FLOOR_SHAPES[Number(floorNo)];
-    if(!shape)return '';
-    return `<svg class="hospital-building-floor-shape" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon class="hospital-building-floor-fill" points="${shape.points}"></polygon><polygon class="hospital-building-floor-outline" points="${shape.points}"></polygon></svg>`;
-  }
   function buildingFloorHitZones(floorGroups){
     const byNo=new Map(floorGroups.map(g=>[floorNumber(g),g]));
     return Object.entries(BUILDING_FLOOR_SHAPES).map(([floor,shape])=>{
@@ -261,7 +257,7 @@
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
         <div class="hospital-building-image-wrap">
-          ${state.buildingAsset?.key?`<div class="hospital-building-image-host" data-building-image style="aspect-ratio:${Number(state.buildingAsset?.width||state.buildingAsset?.source_width||948)}/${Number(state.buildingAsset?.height||state.buildingAsset?.source_height||1659)}"><span data-building-loading>건물 이미지를 불러오는 중입니다.</span><div class="hospital-building-floor-layer">${buildingFloorHitZones(floorGroups)}${selectedNo?buildingSelectedFloorShape(selectedNo):''}</div></div>`:`<div class="hospital-building-image-empty"><b>건물 이미지가 없습니다.</b><span>병원 설정에서 건물 이미지를 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>건물 이미지 등록</button></div>`}
+          ${state.buildingAsset?.key?`<div class="hospital-building-image-host" data-building-image style="aspect-ratio:${Number(state.buildingAsset?.width||state.buildingAsset?.source_width||948)}/${Number(state.buildingAsset?.height||state.buildingAsset?.source_height||1659)}"><span data-building-loading>건물 이미지를 불러오는 중입니다.</span><div class="hospital-building-floor-layer">${buildingFloorHitZones(floorGroups)}</div></div>`:`<div class="hospital-building-image-empty"><b>건물 이미지가 없습니다.</b><span>병원 설정에서 건물 이미지를 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>건물 이미지 등록</button></div>`}
         </div>
       </aside>
       <div class="hospital-building-console">
@@ -296,8 +292,19 @@
   function floorSpaceOverlay(x,editable=false){return `<button type="button" class="floor-space-overlay ${editable?'is-editable':''}" data-floor-space="${x.id}" style="left:${Number(x.x_pct)}%;top:${Number(x.y_pct)}%;width:${Number(x.width_pct)}%;height:${Number(x.height_pct)}%"><span>${esc(x.name)}</span></button>`;}
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
-    const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]];
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.34.23'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const floorplanWidth=meta?.width||meta?.source_width||0,floorplanHeight=meta?.height||meta?.source_height||0;if(floorplanWidth&&floorplanHeight){params.set('width',String(floorplanWidth));params.set('height',String(floorplanHeight));}const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
+    const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]].filter(host=>!host.closest('details:not([open])'));
+    await Promise.all(hosts.map(async host=>{
+      const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;
+      try{
+        const meta=floorplanMeta(floor),floorplanWidth=meta?.width||meta?.source_width||0,floorplanHeight=meta?.height||meta?.source_height||0;
+        const cacheKey=`${state.site?.id||''}:${meta?.key||floor}:${floorplanWidth}x${floorplanHeight}`;
+        const cached=floorplanTextCache.get(cacheKey);
+        if(cached&&cached.expiresAt>Date.now()){host.innerHTML=cached.text;host.dataset.loaded='1';return;}
+        const params=new URLSearchParams({floor:String(floor),v:'2.34.27'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);if(floorplanWidth&&floorplanHeight){params.set('width',String(floorplanWidth));params.set('height',String(floorplanHeight));}
+        const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'default'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
+        const text=await response.text();floorplanTextCache.set(cacheKey,{text,expiresAt:Date.now()+240000});host.innerHTML=text;host.dataset.loaded='1';
+      }catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}
+    }));
   }
   async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
   async function pruneFloorplanVersions(siteId,floor,keep=5){
@@ -343,17 +350,27 @@
       return {file:new File([best],`${base}.webp`,{type:'image/webp',lastModified:Date.now()}),optimized:true,originalSize:file.size,width:bestWidth,height:bestHeight,source_width:originalWidth,source_height:originalHeight};
     }finally{image.close?.();}
   }
+  async function getBuildingImageUrl(){
+    const key=String(state.buildingAsset?.key||'');if(!key)return '';
+    const cached=buildingImageUrlCache.get(key);if(cached&&cached.expiresAt>Date.now())return cached.url;
+    const params=new URLSearchParams({siteId:state.site?.id||'',key,mode:'url'}),data=await apiJson(`/api/building-image?${params}`);
+    if(!data?.url)throw new Error('BUILDING_IMAGE_URL_MISSING');
+    buildingImageUrlCache.set(key,{url:data.url,expiresAt:Date.now()+240000});return data.url;
+  }
   async function loadBuildingImages(root=qs('#hospitalRoot')){
-    const hosts=[...(root||document).querySelectorAll?.('[data-building-image]')||[]];
-    await Promise.all(hosts.map(async host=>{if(host.dataset.loaded==='1')return;try{const response=await fetch(`/api/building-image?siteId=${encodeURIComponent(state.site?.id||'')}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);const blob=await response.blob(),url=URL.createObjectURL(blob),img=new Image();img.alt='병원 건물 이미지';img.decoding='async';img.src=url;img.className='hospital-building-image';host.prepend(img);host.querySelector('[data-building-loading]')?.remove();host.dataset.loaded='1';host.dataset.objectUrl=url;}catch(_){const loading=host.querySelector('[data-building-loading]');if(loading)loading.outerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';}}));
+    const hosts=[...(root||document).querySelectorAll?.('[data-building-image]')||[]];if(!hosts.length||!state.buildingAsset?.key)return;
+    try{
+      const url=await getBuildingImageUrl();
+      hosts.forEach(host=>{if(host.dataset.loaded==='1')return;const img=new Image();img.alt='병원 건물 이미지';img.decoding='async';img.loading='eager';img.fetchPriority='high';img.className='hospital-building-image';img.onload=()=>host.querySelector('[data-building-loading]')?.remove();img.onerror=()=>{const loading=host.querySelector('[data-building-loading]');if(loading)loading.outerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';};img.src=url;host.prepend(img);host.dataset.loaded='1';});
+    }catch(_){hosts.forEach(host=>{const loading=host.querySelector('[data-building-loading]');if(loading)loading.outerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';});}
   }
   async function saveBuildingAsset(asset){const {error}=await db.rpc('hospital_set_building_asset',{p_site:targetSiteId,p_asset:asset||{}});if(error)throw error;state.buildingAsset=asset||{};state.siteSettings={...state.siteSettings,building_asset:asset||{}};}
   async function uploadBuildingImage(file){
     if(!state.site?.id)return toast('병원 정보가 없습니다.','error');
     const type=String(file.type||'').toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(type))return toast('PNG, JPG, WebP 이미지만 업로드할 수 있습니다.','error');if(file.size>12*1024*1024)return toast('원본 이미지는 12MB 이하 파일을 사용하세요.','error');
-    try{toast('건물 이미지를 최적화하고 있습니다.');const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();const signed=await apiJson('/api/building-presign',{method:'POST',body:JSON.stringify({filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,uploadFile,mime);const old=state.buildingAsset?.key||'';const next={key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,width:optimized.width||null,height:optimized.height||null,source_width:optimized.source_width||optimized.width||null,source_height:optimized.source_height||optimized.height||null,updated_at:new Date().toISOString()};await saveBuildingAsset(next);if(old&&old!==signed.key){try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] old image cleanup failed',e);}}toast('건물 이미지를 저장했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}
+    try{toast('건물 이미지를 최적화하고 있습니다.');const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();const signed=await apiJson('/api/building-presign',{method:'POST',body:JSON.stringify({filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,uploadFile,mime);const old=state.buildingAsset?.key||'';const next={key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,width:optimized.width||null,height:optimized.height||null,source_width:optimized.source_width||optimized.width||null,source_height:optimized.source_height||optimized.height||null,updated_at:new Date().toISOString()};await saveBuildingAsset(next);buildingImageUrlCache.clear();if(old&&old!==signed.key){try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] old image cleanup failed',e);}}toast('건물 이미지를 저장했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}
   }
-  async function removeBuildingImage(){const old=state.buildingAsset?.key||'';if(!old)return;if(!confirm('건물 이미지를 삭제할까요?'))return;try{await saveBuildingAsset({});try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] R2 cleanup failed',e);}toast('건물 이미지를 삭제했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
+  async function removeBuildingImage(){const old=state.buildingAsset?.key||'';if(!old)return;if(!confirm('건물 이미지를 삭제할까요?'))return;try{await saveBuildingAsset({});buildingImageUrlCache.clear();try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] R2 cleanup failed',e);}toast('건물 이미지를 삭제했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
   function buildingImageSettingsMarkup(){const a=state.buildingAsset||{};return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>건물 이미지</b><small>송출 현황의 왼쪽 건물 시각화에 사용합니다. 병원별로 따로 저장됩니다.</small></div></div><div class="building-image-settings">${a.key?`<div class="building-image-settings-preview" data-building-image><span>이미지 불러오는 중</span></div>`:`<div class="building-image-settings-empty">등록된 건물 이미지가 없습니다.</div>`}<div class="building-image-settings-actions"><label class="btn small"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-building-upload><span>${a.key?'교체':'업로드'}</span></label>${a.key?'<button type="button" class="btn small" data-staff-building-remove>삭제</button>':''}</div></div></div>`;}
   async function uploadFloorplan(floor,file){
     if(!state.site?.id)return toast('병원 정보가 없습니다.','error');
@@ -443,6 +460,7 @@
     qsa('[data-staff-building-upload]').forEach(input=>input.addEventListener('change',()=>{const f=input.files?.[0];if(f)uploadBuildingImage(f);input.value='';}));qs('[data-staff-building-remove]')?.addEventListener('click',removeBuildingImage);qsa('[data-staff-floorplan-upload]').forEach(input=>input.addEventListener('change',()=>{const f=input.files?.[0];if(f)uploadFloorplan(Number(input.dataset.staffFloorplanUpload),f);input.value='';}));
     qsa('[data-staff-floorplan-reset]').forEach(b=>b.addEventListener('click',()=>resetFloorplan(Number(b.dataset.staffFloorplanReset))));
     qsa('[data-staff-floorplan-restore]').forEach(b=>b.addEventListener('click',()=>restoreHospitalFloorplan(Number(b.dataset.staffFloorplanRestore))));
+    qsa('details').forEach(d=>d.addEventListener('toggle',()=>{if(d.open)loadFloorplanSvgs(d).catch(()=>{});}));
     bindFloorSpaceManager();bindDisplaySetup();loadBuildingImages(qs('#hospitalRoot')).catch(()=>{});if(tab==='settings')loadFloorplanSvgs(qs('#hospitalRoot')).catch(()=>{});
   }
 

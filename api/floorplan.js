@@ -17,11 +17,13 @@ module.exports = async (req, res) => {
     const modern = new RegExp(`^floorplans/${safeSite}/[0-9]{2}/[A-Za-z0-9._-]+\\.(?:png|jpg|webp)$`,'i');
     const legacy = /^floorplans\/[0-9]{2}\/[A-Za-z0-9._-]+\.(?:png|jpg|webp)$/i;
     if (key.includes('..') || (!modern.test(key) && !(session.role==='admin' && legacy.test(key)))) return json(res, 400, { error: 'INVALID_OBJECT_KEY' });
-    image = buildFloorplanSvgUrl(floor, presignGet(key, 300));
+    const width = Math.trunc(Number(req.query?.width));
+    const height = Math.trunc(Number(req.query?.height));
+    image = buildFloorplanSvgUrl(floor, presignGet(key, 300), { width, height });
     if (!image) return json(res, 404, { error: 'FLOORPLAN_NOT_FOUND' });
     res.statusCode = 200;
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=120');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(image);
   } catch (e) { return json(res, e.statusCode || 500, { error: e.message || 'FLOORPLAN_FAILED' }); }
