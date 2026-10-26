@@ -405,16 +405,35 @@
 
     transitionInProgress=true;
     const token=++switchToken;
-    /* Start immediately. Waiting for canplay/loadeddata before calling play() added
-       several seconds on large R2 MP4 files and made slow-start files look frozen.
-       The play() promise already waits until Chromium can actually begin playback. */
     loadSlot(nextEl,v,normalized,'auto');
+
+    /* Cold start must be visible immediately. The previous implementation played
+       the hidden slot first and waited up to four seconds for a rendered-frame
+       callback before making it visible. On startup that created an artificial
+       delay even when Chromium had already begun decoding the video. */
+    const coldStart=!currentEl?.dataset?.videoId;
+    if(coldStart){
+      nextEl.classList.add('is-active');
+      currentEl?.classList.remove('is-active');
+      activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
+    }
+
     const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
-    if(!started||token!==switchToken){transitionInProgress=false;return false;}
-    if(!(await waitForRenderedFrame(nextEl,token,4000))||token!==switchToken){transitionInProgress=false;return false;}
-    nextEl.classList.add('is-active');
-    activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
-    currentEl?.classList.remove('is-active');
+    if(!started||token!==switchToken){
+      if(coldStart){nextEl.classList.remove('is-active');currentEl?.classList.add('is-active');activeSlot=targetSlot===0?1:0;}
+      transitionInProgress=false;return false;
+    }
+
+    if(!coldStart){
+      /* During an actual video-to-video transition, wait only briefly for the first
+         decoded frame so we keep the seamless swap without delaying startup. */
+      await waitForRenderedFrame(nextEl,token,700);
+      if(token!==switchToken){transitionInProgress=false;return false;}
+      nextEl.classList.add('is-active');
+      activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
+      currentEl?.classList.remove('is-active');
+    }
+    confirmedPlaybackState='playing';
     requestAnimationFrame(()=>{
       if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
       transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
