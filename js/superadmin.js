@@ -77,26 +77,26 @@
     if(sitesRes.error)throw sitesRes.error;if(roomsRes.error)throw roomsRes.error;if(groupsRes.error)throw groupsRes.error;
     const live=new Map((liveRes.data?.rows||[]).map(x=>[x.room_id,x]));
     const rooms=(roomsRes.data||[]).map(r=>{const x=live.get(r.id);return x?{...r,last_seen_at:x.last_seen_at||r.last_seen_at,player_status:x.player_status||r.player_status}:r;});
-    state={sites:(sitesRes.data||[]).filter(s=>s.active!==false),rooms,groups:groupsRes.data||[]};
+    state={sites:(sitesRes.data||[]),rooms,groups:groupsRes.data||[]};
     if(selectedSiteId&&!state.sites.some(s=>s.id===selectedSiteId))selectedSiteId=null;
     render();
   }
 
   function render(){
-    const allRows=state.sites.map(site=>({site,stats:siteStats(site)})).sort((a,b)=>b.stats.issues-a.stats.issues||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
+    const allRows=state.sites.map(site=>({site,stats:siteStats(site)})).sort((a,b)=>Number(a.site.active===false)-Number(b.site.active===false)||b.stats.issues-a.stats.issues||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
     const filtered=allRows.filter(({site})=>!searchTerm||`${site.name||''} ${siteSlug(site)}`.toLowerCase().includes(searchTerm));
-    const totalDisplays=allRows.reduce((n,x)=>n+x.stats.total,0),issues=allRows.reduce((n,x)=>n+x.stats.issues,0),online=allRows.reduce((n,x)=>n+x.stats.online,0);
+    const activeRows=allRows.filter(x=>x.site.active!==false),totalDisplays=activeRows.reduce((n,x)=>n+x.stats.total,0),issues=activeRows.reduce((n,x)=>n+x.stats.issues,0),online=activeRows.reduce((n,x)=>n+x.stats.online,0);
     const overallRisk=loadRisk(online);
     const selected=state.sites.find(s=>s.id===selectedSiteId)||null;
 
     qs('#adminRoot').innerHTML=`
       <section class="superadmin-home">
         <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><button type="button" class="btn" id="openAddHospital">병원 추가</button></div>
-        <div class="hospital-overview-summary superadmin-summary"><span><b>${allRows.length}</b><small>병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span><span class="${overallRisk.cls}"><b>${overallRisk.label}</b><small>송출 부하</small></span></div>
+        <div class="hospital-overview-summary superadmin-summary"><span><b>${activeRows.length}</b><small>활성 병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span><span class="${overallRisk.cls}"><b>${overallRisk.label}</b><small>송출 부하</small></span></div>
         <div class="superadmin-layout ${selected?'has-selection':''}">
           <div class="superadmin-hospital-list-wrap">
             <div class="superadmin-list-head"><h2>병원 현황</h2><label class="superadmin-search"><span class="sr-only">병원 검색</span><input id="hospitalSearch" type="search" placeholder="병원 검색" value="${esc(searchTerm)}"></label></div>
-            <div class="hospital-overview-list">${filtered.map(({site,stats})=>`<button type="button" class="hospital-overview-row ${stats.issues?'has-issue':''} ${selectedSiteId===site.id?'is-selected':''}" data-site-summary="${site.id}"><span class="hospital-overview-identity"><b>${esc(site.name||'병원')}</b><small>${stats.issues?`확인 필요 ${stats.issues}`:'정상'}</small></span><span class="hospital-overview-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-overview-stat"><b>${stats.offline}</b><small>오프라인</small></span><span class="hospital-overview-risk ${stats.risk.cls}">${stats.risk.label}</span><span class="hospital-overview-arrow" aria-hidden="true">›</span></button>`).join('')||'<div class="empty-state">조건에 맞는 병원이 없습니다.</div>'}</div>
+            <div class="hospital-overview-list">${filtered.map(({site,stats})=>`<button type="button" class="hospital-overview-row ${site.active===false?'is-inactive':stats.issues?'has-issue':''} ${selectedSiteId===site.id?'is-selected':''}" data-site-summary="${site.id}"><span class="hospital-overview-identity"><b>${esc(site.name||'병원')}</b><small>${site.active===false?'비활성':stats.issues?`확인 필요 ${stats.issues}`:'정상'}</small></span><span class="hospital-overview-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-overview-stat"><b>${site.active===false?'—':stats.offline}</b><small>오프라인</small></span><span class="hospital-overview-risk ${site.active===false?'risk-inactive':stats.risk.cls}">${site.active===false?'중지':stats.risk.label}</span><span class="hospital-overview-arrow" aria-hidden="true">›</span></button>`).join('')||'<div class="empty-state">조건에 맞는 병원이 없습니다.</div>'}</div>
           </div>
           ${selected?renderSiteSummary(selected):'<aside class="superadmin-site-summary is-empty"><b>병원을 선택하세요</b><p>병원의 현재 상태를 먼저 확인한 뒤 관리자 페이지로 이동할 수 있습니다.</p></aside>'}
         </div>
@@ -111,20 +111,45 @@
     qs('[data-export-site]')?.addEventListener('click',exportSelectedSite);
     qs('[data-import-site]')?.addEventListener('change',importSelectedSite);
     qs('[data-prune-logs]')?.addEventListener('click',pruneLogs);
+    qs('[data-toggle-site]')?.addEventListener('click',toggleSelectedSite);
+    qs('[data-delete-site]')?.addEventListener('click',deleteSelectedSite);
   }
 
   function renderSiteSummary(site){
-    const stats=siteStats(site),floors=floorRows(site),problemFloors=floors.filter(f=>f.issues),normalFloors=floors.filter(f=>!f.issues);
+    const stats=siteStats(site),isActive=site.active!==false,floors=floorRows(site),problemFloors=floors.filter(f=>f.issues),normalFloors=floors.filter(f=>!f.issues);
     const floorHtml=(problemFloors.length?problemFloors:floors.slice(0,6)).map(f=>`<div class="superadmin-floor-row ${f.issues?'has-issue':''}"><b>${f.floor}층</b><span>${f.issues?`확인 필요 ${f.issues}`:'정상'}</span><small>${f.total}대${f.offline?` · 오프라인 ${f.offline}`:''}</small></div>`).join('');
     return `<aside class="superadmin-site-summary">
-      <div class="superadmin-site-summary-head"><div><span class="eyebrow">HOSPITAL</span><h2>${esc(site.name||'병원')}</h2><p>${stats.issues?'확인이 필요한 항목이 있습니다.':'현재 정상 운영 중입니다.'}</p></div><span class="superadmin-status-pill ${stats.issues?'has-issue':''}">${stats.issues?'확인 필요':'정상'}</span></div>
+      <div class="superadmin-site-summary-head"><div><span class="eyebrow">HOSPITAL</span><h2>${esc(site.name||'병원')}</h2><p>${!isActive?'현재 비활성화되어 관리자 로그인과 환자 화면 송출이 중지됩니다.':stats.issues?'확인이 필요한 항목이 있습니다.':'현재 정상 운영 중입니다.'}</p></div><span class="superadmin-status-pill ${!isActive?'is-inactive':stats.issues?'has-issue':''}">${!isActive?'비활성':stats.issues?'확인 필요':'정상'}</span></div>
       <div class="superadmin-site-metrics"><div><small>디스플레이</small><b>${stats.total}</b></div><div><small>현재 연결</small><b>${stats.online}</b></div><div class="${stats.offline?'has-issue':''}"><small>오프라인</small><b>${stats.offline}</b></div><div class="${stats.issues?'has-issue':''}"><small>확인 필요</small><b>${stats.issues}</b></div></div>
       <div class="superadmin-risk-card ${stats.risk.cls}"><div><small>송출 부하</small><b>${stats.risk.label}</b></div><p>${esc(stats.risk.note)} · 현재 연결된 원격 디스플레이 수 기준</p></div>
       <div class="superadmin-attention ${stats.issues?'has-issue':''}"><small>지금 확인할 내용</small><b>${esc(issueHeadline(stats))}</b></div>
       <div class="superadmin-floor-summary"><div class="superadmin-subhead"><b>층별 현황</b>${problemFloors.length&&normalFloors.length?`<small>정상 ${normalFloors.length}개 층은 접어 표시</small>`:''}</div>${floorHtml||'<p class="muted">층 정보가 없습니다.</p>'}</div>
-      <details class="superadmin-maintenance"><summary><span><b>관리 도구</b><small>자주 쓰지 않는 설정과 백업</small></span></summary><div class="superadmin-maintenance-body"><label class="field"><span>병원 관리자 PIN</span><div class="inline"><input id="selectedHospitalPin" type="password" inputmode="numeric" maxlength="6" placeholder="4~6자리"><button type="button" class="btn" data-save-site-pin="${site.id}">PIN 변경</button></div></label><div class="inline"><button type="button" class="btn" data-export-site="${site.id}">설정 백업</button><label class="btn"><input type="file" accept="application/json" data-import-site="${site.id}" hidden>설정 복원</label><button type="button" class="btn" data-prune-logs>오래된 로그 정리</button></div></div></details>
-      <a class="btn primary superadmin-open-hospital" href="${esc(sitePath(site))}">병원 관리자 페이지 열기</a>
+      <div class="superadmin-site-actions"><button type="button" class="btn ${isActive?'':'primary'}" data-toggle-site="${site.id}" data-next-active="${isActive?'false':'true'}">${isActive?'병원 비활성화':'병원 활성화'}</button>${isActive?`<a class="btn primary superadmin-open-hospital" href="${esc(sitePath(site))}">병원 관리자 페이지 열기</a>`:''}</div>
+      <details class="superadmin-maintenance"><summary><span><b>관리 도구</b><small>PIN, 백업, 삭제</small></span></summary><div class="superadmin-maintenance-body"><label class="field"><span>병원 관리자 PIN</span><div class="inline"><input id="selectedHospitalPin" type="password" inputmode="numeric" maxlength="6" placeholder="4~6자리" ${isActive?'':'disabled'}><button type="button" class="btn" data-save-site-pin="${site.id}" ${isActive?'':'disabled'}>PIN 변경</button></div></label><div class="inline"><button type="button" class="btn" data-export-site="${site.id}">설정 백업</button><label class="btn"><input type="file" accept="application/json" data-import-site="${site.id}" hidden>설정 복원</label><button type="button" class="btn" data-prune-logs>오래된 로그 정리</button></div>${!isActive?`<div class="danger-zone"><div><b>병원 삭제</b><small>비활성 병원만 삭제할 수 있습니다. 병원 소속 층·디스플레이·플레이리스트·환자 세션이 함께 삭제됩니다.</small></div><button type="button" class="btn danger" data-delete-site="${site.id}">병원 삭제</button></div>`:''}</div></details>
     </aside>`;
+  }
+
+  async function toggleSelectedSite(){
+    const el=qs('[data-toggle-site]'),siteId=el?.dataset.toggleSite,next=el?.dataset.nextActive==='true',site=state.sites.find(x=>x.id===siteId);
+    if(!siteId||!site)return;
+    const msg=next?`${site.name}을(를) 다시 활성화할까요?`:`${site.name}을(를) 비활성화할까요?\n\n병원 관리자 로그인과 환자 화면 송출이 즉시 중지됩니다.`;
+    if(!confirm(msg))return;
+    const {error}=await db.rpc('admin_set_site_active',{p_site:siteId,p_active:next});
+    if(error)return toast(error.message||'병원 상태를 변경하지 못했습니다.','error');
+    toast(next?'병원을 활성화했습니다.':'병원을 비활성화했습니다.');await load();
+  }
+  async function deleteSelectedSite(){
+    const el=qs('[data-delete-site]'),siteId=el?.dataset.deleteSite,site=state.sites.find(x=>x.id===siteId);
+    if(!siteId||!site)return;
+    if(site.active!==false)return toast('병원을 먼저 비활성화하세요.','error');
+    const typed=prompt(`병원을 영구 삭제합니다.\n삭제하면 복구할 수 없습니다.\n\n확인을 위해 병원명을 입력하세요.\n${site.name}`);
+    if(typed===null)return;if(typed.trim()!==String(site.name||'').trim())return toast('병원명이 일치하지 않아 삭제하지 않았습니다.','error');
+    if(!confirm('정말 삭제할까요? 병원 소속 데이터가 함께 삭제됩니다.'))return;
+    const token=Signage.getPinSession?.()?.token||'';
+    const response=await fetch('/api/site-delete',{method:'POST',headers:{'Content-Type':'application/json','x-signage-session':token},body:JSON.stringify({siteId,confirmName:typed.trim()})});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)return toast(result.error||'병원을 삭제하지 못했습니다.','error');
+    selectedSiteId=null;toast('병원과 병원 전용 도면 파일을 삭제했습니다.');await load();
   }
 
   async function saveSelectedSitePin(){const siteId=qs('[data-save-site-pin]')?.dataset.saveSitePin,pin=(qs('#selectedHospitalPin')?.value||'').replace(/\D/g,'');if(!siteId||pin.length<4||pin.length>6)return toast('PIN은 4~6자리 숫자로 입력하세요.','error');const {error}=await db.rpc('admin_set_site_staff_pin',{p_site:siteId,p_pin:pin});if(error)return toast(error.message,'error');qs('#selectedHospitalPin').value='';toast('병원 관리자 PIN을 변경했습니다.');}

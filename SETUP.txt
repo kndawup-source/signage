@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.8 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.9 · CANONICAL SETUP
 
 [역할]
 - SUPER ADMIN: /admin.html
-  전체 병원 현황, 병원 생성, 병원 관리자 PIN, 병원 설정 백업/복원, 로그 정리
+  전체 병원 현황, 병원 생성, 활성화/비활성화/삭제, 병원 관리자 PIN, 병원 설정 백업/복원, 로그 정리
 - HOSPITAL ADMIN: /hospital.html?site=병원슬러그
   자기 병원 송출/플레이리스트/운영시간/층/도면/공간/디스플레이 관리
 - PATIENT DISPLAY: /player.html?key=디스플레이키
@@ -16,15 +16,15 @@ CLINIC SIGNAGE v2.34.8 · CANONICAL SETUP
 
 [기존 v2.34.x 운영 DB 업그레이드]
 1. DB 백업
-2. supabase/v2.34.8-launch-fixes.sql 1회 실행
-3. 프런트/서버 v2.34.8 배포
+2. supabase/v2.34.9-site-lifecycle.sql 1회 실행
+3. 프런트/서버 v2.34.9 배포
 4. 관리자/플레이어 강력 새로고침
 5. 아래 검수 진행
 
 [중요]
 - supabase/v2.33.22-player-state-rpc-restore.sql 은 폐기되었습니다. 실행하지 마세요.
-- 이전 버전 SQL을 장애 대응용으로 다시 실행하지 마세요. v2.34.8 이후에는 canonical schema 또는 현재 버전 migration만 사용합니다.
-- schema_version 테이블에서 v2.34.8 적용 여부를 확인할 수 있습니다.
+- 이전 버전 SQL을 장애 대응용으로 다시 실행하지 마세요. v2.34.9 이후에는 canonical schema 또는 현재 버전 migration만 사용합니다.
+- schema_version 테이블에서 v2.34.9 적용 여부를 확인할 수 있습니다.
 
 [출시 전 검수]
 1. A병원 기본 플레이리스트 지정 → A병원 TV에서 재생되는지
@@ -46,9 +46,12 @@ CLINIC SIGNAGE v2.34.8 · CANONICAL SETUP
 - 디스플레이/층에 별도 플레이리스트가 없으면 해당 병원의 kind=default 플레이리스트를 공용 default보다 우선합니다.
 - 병원 default가 없을 때만 공용 default를 사용합니다.
 
-[병원 생성]
+[병원 생성/상태]
 - SUPER ADMIN > 병원 추가에서 병원명, 고유 주소, 병원 관리자 PIN을 함께 지정합니다.
 - 고유 주소가 중복되면 새 병원으로 처리하지 않습니다.
+- 비활성화하면 해당 병원 관리자 로그인 세션이 종료되고 환자 화면 송출이 중지됩니다.
+- 비활성 병원은 다시 활성화할 수 있습니다.
+- 삭제는 비활성 병원에서만 가능하며 병원명을 직접 입력해야 합니다. 병원 소속 DB 데이터와 병원 전용 도면 R2 파일을 함께 정리합니다.
 
 [층/디스플레이 생성]
 - HOSPITAL ADMIN > 설정 > 공간·도면·디스플레이 설정에서 생성합니다.
