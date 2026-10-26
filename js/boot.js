@@ -2,7 +2,7 @@
   'use strict';
   const current = document.currentScript;
   const entry = String(current?.dataset?.entry || '').trim();
-  const appVersion = String(current?.dataset?.version || '2.34.2').trim();
+  const appVersion = String(current?.dataset?.version || '2.34.3').trim();
   const playerVersion = String(current?.dataset?.playerVersion || appVersion).trim();
   const supabaseVersion = '2.118.0';
   const supabaseSrc = location.protocol === 'http:'

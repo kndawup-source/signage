@@ -3023,6 +3023,19 @@ end $$;
 revoke all on function public.hospital_reception_state(uuid) from public;
 grant execute on function public.hospital_reception_state(uuid) to anon,authenticated;
 
+-- Return a patient-display URL only for a room the current hospital admin can manage.
+create or replace function public.hospital_room_player_path(p_room uuid)
+returns text language plpgsql stable security definer set search_path=public as $$
+declare v_site uuid; v_key uuid;
+begin
+  select r.site_id,r.player_key into v_site,v_key from public.rooms r where r.id=p_room;
+  if v_site is null or v_key is null then raise exception 'display not found'; end if;
+  if not public.can_manage_site(v_site) then raise exception 'not allowed'; end if;
+  return '/player.html?key='||v_key::text;
+end $$;
+revoke all on function public.hospital_room_player_path(uuid) from public;
+grant execute on function public.hospital_room_player_path(uuid) to anon,authenticated;
+
 -- Site-level hospital settings work for both superadmin and that hospital's admin.
 create or replace function public.hospital_update_site_identity(p_site uuid,p_name text,p_building_label text) returns void language plpgsql security definer set search_path=public as $$ begin if not public.can_manage_site(p_site) then raise exception 'not allowed'; end if; update public.sites set name=coalesce(nullif(trim(p_name),''),name),building_label=coalesce(nullif(trim(p_building_label),''),building_label),updated_at=clock_timestamp() where id=p_site; if not found then raise exception 'site not found'; end if; end $$;
 create or replace function public.hospital_set_floorplan_assets(p_site uuid,p_assets jsonb) returns void language plpgsql security definer set search_path=public as $$ begin if not public.can_manage_site(p_site) then raise exception 'not allowed'; end if; insert into public.site_settings(site_id,floorplan_assets,updated_at) values(p_site,coalesce(p_assets,'{}'::jsonb),clock_timestamp()) on conflict(site_id) do update set floorplan_assets=excluded.floorplan_assets,updated_at=clock_timestamp(); end $$;

@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.2');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.3');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
