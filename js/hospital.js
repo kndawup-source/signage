@@ -1,8 +1,23 @@
 (async function () {
   'use strict';
   const { db, qs, qsa, esc, toast, formatDuration } = Signage;
-  const auth=await Signage.requireAuth('staff');
+  const auth=await Signage.requireAuth();
+  if(!['admin','staff'].includes(auth.role)){location.replace('/');return;}
   qs('#signOut').addEventListener('click', Signage.signOut);
+  const requestedSiteCode=new URLSearchParams(location.search).get('site')||'';
+  let targetSiteId=auth.site_id||null;
+  if(auth.role==='admin'){
+    if(!requestedSiteCode){location.replace('/admin.html');return;}
+    const {data:target,error:targetError}=await db.from('sites').select('id,code,name').eq('code',requestedSiteCode).maybeSingle();
+    if(targetError||!target?.id){location.replace('/admin.html');return;}
+    targetSiteId=target.id;
+    document.body.classList.add('hospital-superadmin-mode');
+  } else {
+    if(!targetSiteId){toast('병원 소속이 지정되지 않은 계정입니다.','error');await Signage.signOut();return;}
+    const {data:ownSite}=await db.from('sites').select('id,code').eq('id',targetSiteId).maybeSingle();
+    if(requestedSiteCode&&ownSite?.code&&requestedSiteCode!==ownSite.code){location.replace(`/hospital.html?site=${encodeURIComponent(ownSite.code)}`);return;}
+    if(!requestedSiteCode&&ownSite?.code)history.replaceState(null,'',`/hospital.html?site=${encodeURIComponent(ownSite.code)}`);
+  }
 
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
@@ -16,7 +31,7 @@
   const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
   const ackState=new Map();
-  const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res)});
+  const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res),roomIds:()=>state.rooms.map(r=>r.id)});
   async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
@@ -95,16 +110,14 @@
   const isQuickSession=(r)=>!!r.session_treatment&&!patientForRoom(r.id);
 
   async function load({background=false}={}){
-    const [reception,liveStatuses]=await Promise.all([
-      db.rpc('staff_reception_state'),
-      monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error}))
-    ]);
+    const reception=await db.rpc('hospital_reception_state',{p_site:targetSiteId});
     if(reception.error)throw reception.error;
-    if(liveStatuses.error)throw liveStatuses.error;
-    const data=reception.data||{},liveByRoom=new Map((liveStatuses.data?.rows||[]).map(x=>[x.room_id,x]));
-    const rooms=(data.rooms||[]).map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;});
-    state={site:data.site||null,siteSettings:{floorplan_assets:data.floorplan_assets||{}},floorplanAssets:data.floorplan_assets||{},floorSpaces:data.spaces||[],floorplanVersions:data.floorplan_versions||[],patients:data.patients||[],rooms,groups:data.groups||[],playlists:data.playlists||[],videos:data.videos||[],playlistItems:data.playlist_items||[],roomRules:data.room_video_rules||[],broadcast:data.broadcast||{active:false}};
-    const actualSlug=String(state.site?.slug||'').trim();
+    const data=reception.data||{},baseRooms=data.rooms||[];
+    const liveStatuses=await monitor.fetchStatus({roomIds:baseRooms.map(r=>r.id)}).catch(()=>({rows:[]}));
+    const liveByRoom=new Map((liveStatuses.rows||[]).map(x=>[x.room_id,x]));
+    const rooms=baseRooms.map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;});
+    state={site:data.site||null,siteSettings:{...(data.site_settings||{}),floorplan_assets:data.floorplan_assets||{}},floorplanAssets:data.floorplan_assets||{},floorSpaces:data.spaces||[],floorplanVersions:data.floorplan_versions||[],patients:data.patients||[],rooms,groups:data.groups||[],playlists:data.playlists||[],videos:data.videos||[],playlistItems:data.playlist_items||[],roomRules:data.room_video_rules||[],broadcast:data.broadcast||{active:false}};
+    const actualSlug=String(state.site?.code||'').trim();
     if(actualSlug){const expected=`/hospital.html?site=${encodeURIComponent(actualSlug)}`;if(location.pathname!=='/hospital.html'||new URLSearchParams(location.search).get('site')!==actualSlug)history.replaceState(null,'',expected);}
     if(background&&isInteracting())return;
     renderPreservingUi(background);
@@ -204,9 +217,9 @@
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]];
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.33.2'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.34.0'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
   }
-  async function saveFloorplanAssets(next){const {error}=await db.rpc('staff_set_floorplan_assets',{p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
+  async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
   async function pruneFloorplanVersions(siteId,floor,keep=5){
     try{
       const {data,error}=await db.from('floorplan_versions').select('*').eq('site_id',siteId).eq('floor_number',floor).order('created_at',{ascending:false});
@@ -220,7 +233,7 @@
     try{const signed=await apiJson('/api/floorplan-presign',{method:'POST',body:JSON.stringify({floor,filename:file.name,contentType:mime,size:file.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,file,mime);const next={...state.floorplanAssets,[String(floor)]:{key:signed.key,filename:file.name,mime,size:file.size,updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);await db.from('floorplan_versions').insert({site_id:state.site.id,floor_number:floor,object_key:signed.key,filename:file.name,mime,size_bytes:file.size,active:true});await saveFloorplanAssets(next);await pruneFloorplanVersions(state.site.id,floor);toast(`${floor}층 도면을 저장했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}
   }
   async function resetFloorplan(floor){const old=floorplanMeta(floor);if(!old)return;if(!confirm(`${floor}층 업로드 도면을 기본/미등록 상태로 되돌릴까요?`))return;try{const next={...state.floorplanAssets};delete next[String(floor)];await saveFloorplanAssets(next);await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);toast('현재 도면을 해제했습니다. 이전 버전은 보관됩니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
-  function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>각 층의 실제 도면을 업로드합니다. 이전 버전은 유지되어 되돌릴 수 있습니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),fallback=FLOORPLAN_FLOORS.has(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':fallback?'기본 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'필요하면 직접 업로드하세요.'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">기본/없음</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
+  function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>각 층의 실제 도면을 업로드합니다. 이전 버전은 유지되어 되돌릴 수 있습니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),fallback=state.site?.code==='minish'&&FLOORPLAN_FLOORS.has(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':fallback?'기본 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'필요하면 직접 업로드하세요.'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">기본/없음</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
   function displaySetupMarkup(){
     const floors=[...state.groups].filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
     return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>디스플레이 위치</b><small>운영 방식을 고르고 도면을 클릭하면 점으로 저장됩니다. 점을 드래그해 다시 옮길 수 있습니다.</small></div></div><div class="display-setup-list">${floors.map(g=>{const rooms=state.rooms.filter(r=>r.group_id===g.id),asset=floorAsset(g);if(!rooms.length)return '';return `<details class="display-setup-floor"><summary><span><b>${esc(g.name)}</b><small>디스플레이 ${rooms.length}대 · 위치 미설정 ${rooms.filter(r=>!roomMapPlaced(r)).length}대</small></span></summary><div class="display-setup-body"><div class="display-setup-toolbar"><label><span>디스플레이</span><select data-staff-map-room="${g.id}">${rooms.map(r=>`<option value="${r.id}">${esc(r.name)} · ${esc(displayControlLabel(r))}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label><label><span>운영 방식</span><select data-staff-map-mode="${g.id}">${CONTROL_MODES.map(([v,l])=>`<option value="${v}" ${displayControlMode(rooms[0])===v?'selected':''}>${l}</option>`).join('')}</select></label><button class="btn small" type="button" data-staff-map-clear="${g.id}">선택 위치 지우기</button></div>${asset?`<div class="settings-map-stage display-setup-stage" data-staff-map-stage="${g.id}"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(r=>displayMarker(r,true)).join('')}</div>`:'<div class="floor-plan-empty">도면을 먼저 업로드하세요.</div>'}</div></details>`;}).join('')}</div></div>`;
@@ -236,11 +249,22 @@
     return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>병원 플레이리스트</b><small>본사/공용 영상을 조합해 이 병원에서만 사용하는 재생목록을 만듭니다.</small></div></div><div class="site-playlist-manager"><label class="field"><span>플레이리스트</span><select id="staffPlaylistSelect"><option value="">새 플레이리스트</option>${own.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffPlaylistName" maxlength="60" placeholder="예: 대기실 기본 영상"></label><label class="field site-playlist-videos"><span>영상 선택 · Ctrl/⌘ 또는 터치로 여러 개 선택</span><select id="staffPlaylistVideos" multiple size="7">${state.videos.filter(v=>v.active).map(v=>`<option value="${v.id}">${esc(v.title)}</option>`).join('')}</select></label><div class="inline"><button id="staffSavePlaylist" class="btn primary" type="button">저장</button><button id="staffDeletePlaylist" class="btn danger-outline" type="button" disabled>삭제</button></div></div></div>`;
   }
   function fillHospitalPlaylistEditor(){const id=qs('#staffPlaylistSelect')?.value||'',p=state.playlists.find(x=>x.id===id);const name=qs('#staffPlaylistName'),videos=qs('#staffPlaylistVideos'),del=qs('#staffDeletePlaylist');if(name)name.value=p?.name||'';if(del)del.disabled=!p;if(videos){const ids=new Set((p?state.playlistItems.filter(x=>x.playlist_id===p.id).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>x.video_id):[]));[...videos.options].forEach(o=>o.selected=ids.has(o.value));}}
-  async function saveHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value||null,name=(qs('#staffPlaylistName')?.value||'').trim(),videoIds=[...(qs('#staffPlaylistVideos')?.selectedOptions||[])].map(o=>o.value);if(!name)return toast('플레이리스트 이름을 입력하세요.','error');if(!videoIds.length)return toast('영상은 1개 이상 선택하세요.','error');const {error}=await db.rpc('staff_save_site_playlist',{p_id:id,p_name:name,p_video_ids:videoIds});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 저장했습니다.');await load();}
-  async function deleteHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value;if(!id||!confirm('이 병원 플레이리스트를 삭제할까요?'))return;const {error}=await db.rpc('staff_delete_site_playlist',{p_id:id});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 삭제했습니다.');await load();}
-  function hospitalSettingsPageMarkup(){const site=state.site||{};return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>이 병원의 관리자 화면 이름입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">저장</button></div>${floorplanAdminMarkup()}${floorSpaceManagerMarkup()}${displaySetupMarkup()}</section>`;}
+  async function saveHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value||null,name=(qs('#staffPlaylistName')?.value||'').trim(),videoIds=[...(qs('#staffPlaylistVideos')?.selectedOptions||[])].map(o=>o.value);if(!name)return toast('플레이리스트 이름을 입력하세요.','error');if(!videoIds.length)return toast('영상은 1개 이상 선택하세요.','error');const {error}=await db.rpc('hospital_save_site_playlist',{p_site:targetSiteId,p_id:id,p_name:name,p_video_ids:videoIds});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 저장했습니다.');await load();}
+  async function deleteHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value;if(!id||!confirm('이 병원 플레이리스트를 삭제할까요?'))return;const {error}=await db.rpc('hospital_delete_site_playlist',{p_site:targetSiteId,p_id:id});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 삭제했습니다.');await load();}
+  const operatingConfig=()=>state.siteSettings||{};
+  function operatingSettingsMarkup(){
+    const c=operatingConfig(), row=(key,label,defStart,defEnd,defEnabled)=>`<div class="operating-row"><label class="switch"><input type="checkbox" data-op-enabled="${key}" ${String(c[`${key}_enabled`]??defEnabled)==='true'||c[`${key}_enabled`]===true?'checked':''}><i></i></label><b>${label}</b><input type="time" data-op-start="${key}" value="${esc(c[`${key}_start`]||defStart)}"><span>–</span><input type="time" data-op-end="${key}" value="${esc(c[`${key}_end`]||defEnd)}"></div>`;
+    return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>운영시간</b><small>이 병원에만 적용됩니다.</small></div></div><div class="operating-list">${row('weekday','평일','09:00','20:00',true)}${row('saturday','토요일','09:00','17:00',true)}${row('sunday','일요일','09:00','17:00',false)}</div><label class="field"><span>비상 영상</span><select id="staffEmergencyVideo"><option value="">선택 안 함</option>${state.videos.map(v=>`<option value="${v.id}" ${String(c.emergency_video_id||'')===v.id?'selected':''}>${esc(v.title)}</option>`).join('')}</select></label><div class="inline"><button id="staffSaveOperating" class="btn primary" type="button">운영시간 저장</button><button id="staffCloseToday" class="btn" type="button">오늘 송출 종료</button><button id="staffReopenToday" class="btn" type="button">오늘 다시 열기</button></div></div>`;
+  }
+  async function saveOperatingConfig(){
+    const read=(k,t)=>qs(`[data-op-${t}="${k}"]`),config={};
+    for(const k of ['weekday','saturday','sunday']){config[`${k}_enabled`]=!!read(k,'enabled')?.checked;config[`${k}_start`]=read(k,'start')?.value||'09:00';config[`${k}_end`]=read(k,'end')?.value||'17:00';}
+    config.emergency_video_id=qs('#staffEmergencyVideo')?.value||null;
+    const {error}=await db.rpc('hospital_save_operating_config',{p_site:targetSiteId,p_config:config});if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();
+  }
+  function hospitalSettingsPageMarkup(){const site=state.site||{};return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>이 병원의 관리자 화면 이름입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">저장</button></div>${operatingSettingsMarkup()}${floorplanAdminMarkup()}${floorSpaceManagerMarkup()}${displaySetupMarkup()}</section>`;}
   function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="page-head compact"><div><span class="eyebrow">VIDEOS</span><h2>영상</h2><p>이 병원에서 사용하는 플레이리스트만 관리합니다.</p></div></div>${hospitalPlaylistManagerMarkup()}</section>`;}
-  async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('staff_update_site_identity',{p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
+  async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   async function saveDisplaySetup(roomId,x,y,mode){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const useMode=mode||displayControlMode(r);const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});if(error)return toast(error.message,'error');r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';render();}
   function bindDisplaySetup(){
     qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',e=>{if(e.target.closest('[data-display-marker]'))return;const gid=stage.dataset.staffMapStage,select=qs(`[data-staff-map-room="${gid}"]`),mode=qs(`[data-staff-map-mode="${gid}"]`)?.value,roomId=select?.value;if(!roomId)return;const rect=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(e.clientX-rect.left)/rect.width*100)),y=Math.max(0,Math.min(100,(e.clientY-rect.top)/rect.height*100));saveDisplaySetup(roomId,x,y,mode);}));
@@ -261,6 +285,9 @@
   function bindHospitalAdminSettings(){
     const details=qs('.hospital-admin-settings');
     qs('#staffSaveSiteIdentity')?.addEventListener('click',saveHospitalIdentity);
+    qs('#staffSaveOperating')?.addEventListener('click',saveOperatingConfig);
+    qs('#staffCloseToday')?.addEventListener('click',async()=>{if(!confirm('오늘 남은 송출을 이 병원에서 종료할까요?'))return;const {error}=await db.rpc('hospital_close_today',{p_site:targetSiteId});if(error)return toast(error.message,'error');toast('오늘 송출을 종료했습니다.');await load();});
+    qs('#staffReopenToday')?.addEventListener('click',async()=>{const {error}=await db.rpc('hospital_reopen_today',{p_site:targetSiteId});if(error)return toast(error.message,'error');toast('오늘 송출을 다시 열었습니다.');await load();});
     qs('#staffPlaylistSelect')?.addEventListener('change',fillHospitalPlaylistEditor);
     qs('#staffSavePlaylist')?.addEventListener('click',saveHospitalPlaylist);
     qs('#staffDeletePlaylist')?.addEventListener('click',deleteHospitalPlaylist);
@@ -439,8 +466,9 @@
     // Control changes reload staff configuration. Status changes wake a one-room RPC refresh;
     // the 30s delta poll remains only as loss recovery.
     try{
-      signalChannel=db.channel('clinic-hospital-signal-v23319').on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals'},scheduleStaffStateReload).subscribe();
-      statusWakeChannel=db.channel('clinic-signage-status')
+      const roomIds=state.rooms.map(r=>r.id).filter(Boolean);
+      if(roomIds.length)signalChannel=db.channel(`clinic-hospital-signal:${state.site?.id||'unknown'}`).on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals',filter:`room_id=in.(${roomIds.join(',')})`},scheduleStaffStateReload).subscribe();
+      statusWakeChannel=db.channel(`clinic-signage-status:${state.site?.id||'unknown'}`)
         .on('broadcast',{event:'changed'},({payload})=>queueLiveRoomRefresh(payload?.room_id))
         .subscribe();
     }catch(_){}

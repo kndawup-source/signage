@@ -26,6 +26,18 @@ function resolveSite(data, requested) {
   if (reqSite && data?.site_id && reqSite !== String(data.site_id)) throw Object.assign(new Error('SITE_FORBIDDEN'), { statusCode: 403 });
   return String(data?.site_id || reqSite || 'default');
 }
+async function getSite(req, siteId) {
+  const token = String(req.headers['x-signage-session'] || '');
+  const id = String(siteId || '').trim();
+  if (!token || !id) return null;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/sites?id=eq.${encodeURIComponent(id)}&select=id,code,name&limit=1`, {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'x-signage-session': token }
+  });
+  if (!response.ok) return null;
+  const rows = await response.json();
+  return Array.isArray(rows) ? (rows[0] || null) : null;
+}
+
 function json(res, status, body) {
   res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end(JSON.stringify(body));
 }
@@ -34,4 +46,4 @@ function parseBody(req) {
   if (typeof req.body === 'string' && req.body) { try { return JSON.parse(req.body); } catch {} }
   return {};
 }
-module.exports = { requireAdmin, requireMember, resolveSite, json, parseBody };
+module.exports = { requireAdmin, requireMember, resolveSite, getSite, json, parseBody };

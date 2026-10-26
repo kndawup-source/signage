@@ -31,7 +31,33 @@ function canonicalQuery(params) {
   return Object.entries(params).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${enc(k)}=${enc(v)}`).join('&');
 }
 
-function presignPut(key, expires = 900) {
+function presignPut(key, expires = 900, contentType = 'application/octet-stream') {
+  const c = config();
+  if (!c.ready) throw new Error('R2_NOT_CONFIGURED');
+  const amz = amzDate();
+  const host = endpoint(c);
+  const uri = `/${enc(c.bucket)}/${encodePath(key)}`;
+  const type = String(contentType || 'application/octet-stream').toLowerCase();
+  const params = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${c.accessKeyId}/${scope(amz)}`,
+    'X-Amz-Date': amz,
+    'X-Amz-Expires': String(expires),
+    'X-Amz-SignedHeaders': 'content-type;host'
+  };
+  const query = canonicalQuery(params);
+  const canonicalHeaders = `content-type:${type}\nhost:${host}\n`;
+  const canonicalRequest = ['PUT', uri, query, canonicalHeaders, 'content-type;host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amz, scope(amz), sha256(canonicalRequest)].join('\n');
+  const signature = hmac(signingKey(c.secretAccessKey, amz), stringToSign, 'hex');
+  return {
+    uploadUrl: `https://${host}${uri}?${query}&X-Amz-Signature=${signature}`,
+    publicUrl: `${c.publicBaseUrl}/${encodePath(key)}`,
+    requiredHeaders: { 'Content-Type': type }
+  };
+}
+
+function presignGet(key, expires = 300) {
   const c = config();
   if (!c.ready) throw new Error('R2_NOT_CONFIGURED');
   const amz = amzDate();
@@ -45,13 +71,10 @@ function presignPut(key, expires = 900) {
     'X-Amz-SignedHeaders': 'host'
   };
   const query = canonicalQuery(params);
-  const canonicalRequest = ['PUT', uri, query, `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const canonicalRequest = ['GET', uri, query, `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', amz, scope(amz), sha256(canonicalRequest)].join('\n');
   const signature = hmac(signingKey(c.secretAccessKey, amz), stringToSign, 'hex');
-  return {
-    uploadUrl: `https://${host}${uri}?${query}&X-Amz-Signature=${signature}`,
-    publicUrl: `${c.publicBaseUrl}/${encodePath(key)}`
-  };
+  return `https://${host}${uri}?${query}&X-Amz-Signature=${signature}`;
 }
 
 async function signedFetch(method, objectKey = '', query = {}) {
@@ -105,4 +128,4 @@ function makeObjectKey(filename) {
   return `videos/${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${crypto.randomUUID()}-${sanitizeFilename(filename)}`;
 }
 
-module.exports = { config, presignPut, signedFetch, makeObjectKey, makeFloorplanObjectKey, floorplanExtension };
+module.exports = { config, presignPut, presignGet, signedFetch, makeObjectKey, makeFloorplanObjectKey, floorplanExtension };

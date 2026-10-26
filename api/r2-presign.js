@@ -14,7 +14,7 @@ module.exports = async (req, res) => {
     if (!filename || contentType !== 'video/mp4' || !filename.toLowerCase().endsWith('.mp4')) return json(res, 400, { error: 'MP4_ONLY' });
     if (!Number.isFinite(size) || size <= 0 || size > 2 * 1024 * 1024 * 1024) return json(res, 400, { error: 'INVALID_FILE_SIZE' });
     const key = makeObjectKey(filename);
-    const signed = presignPut(key, 900);
+    const signed = presignPut(key, 900, contentType);
     return json(res, 200, { key, ...signed });
   } catch (e) {
     return json(res, e.statusCode || 500, { error: e.message || 'R2_PRESIGN_FAILED' });

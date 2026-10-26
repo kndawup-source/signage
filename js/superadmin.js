@@ -51,6 +51,7 @@
     const {data,error}=await db.rpc('admin_create_site',{p_name:name,p_code:code,p_building_label:'MAIN BUILDING'});
     if(error)return toast(error.message||'병원을 추가하지 못했습니다.','error');
     if(data?.ok===false)return toast(data.message||'병원을 추가하지 못했습니다.','error');
+    if(data?.existing)return toast('이미 사용 중인 고유 주소입니다. 다른 주소를 입력하세요.','error');
     location.href=sitePath(data?.site||{code});
   }
   await load().catch(e=>{console.error(e);qs('#adminRoot').innerHTML='<div class="loading error">병원 현황을 불러오지 못했습니다.</div>';});

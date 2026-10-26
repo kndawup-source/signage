@@ -171,6 +171,7 @@
     let timer = null;
     let busy = false;
     let intervalMs = 0;
+    const scopedRoomIds = typeof options.roomIds === 'function' ? options.roomIds : () => null;
 
     const serverNow = () => Date.now() + offsetMs;
     const normalizeRow = (x) => ({
@@ -182,7 +183,9 @@
 
     async function fetchStatus({ roomIds = null, since = null } = {}) {
       if (!db) return { rows: [], seen: [], serverTime: null };
-      const ids = Array.isArray(roomIds) && roomIds.length ? [...new Set(roomIds.filter(Boolean))] : null;
+      const hasScope=Array.isArray(roomIds);
+      const ids = hasScope ? [...new Set(roomIds.filter(Boolean))] : null;
+      if(hasScope&&!ids.length)return {rows:[],seen:[],serverTime:new Date(serverNow()).toISOString()};
       if (rpcSupported) {
         const t0 = Date.now();
         const { data, error } = await db.rpc('signage_live_status', { p_room_ids: ids, p_since: since });
@@ -213,7 +216,7 @@
     }
 
     async function loadAll() {
-      const result = await fetchStatus();
+      const result = await fetchStatus({roomIds:scopedRoomIds()});
       advanceSince(result);
       return result;
     }
@@ -222,7 +225,7 @@
       if (busy || document.hidden || !db) return;
       busy = true;
       try {
-        const result = await fetchStatus({ since: rpcSupported ? lastSince : null });
+        const result = await fetchStatus({ roomIds: scopedRoomIds(), since: rpcSupported ? lastSince : null });
         advanceSince(result);
         emit(result, reason);
       } catch (e) {

@@ -23,7 +23,7 @@ function getFloorplan(floor) {
   const sourceFloor = FLOORPLAN_SOURCE[n];
   if (!sourceFloor) return null;
   const sourceKey = String(sourceFloor).padStart(2, '0');
-  const imageFile = path.join(__dirname, '..', '..', 'floorplans_source', `${sourceKey}.png`);
+  const imageFile = path.join(__dirname, '..', '_private', 'floorplans', `${sourceKey}.png`);
   if (!fs.existsSync(imageFile)) return null;
   try {
     const data = buildFloorplanSvg(n, fs.readFileSync(imageFile), 'image/png', sourceFloor);
@@ -31,4 +31,12 @@ function getFloorplan(floor) {
     return data;
   } catch (_) { return null; }
 }
-module.exports = { getFloorplan, buildFloorplanSvg, FLOORPLAN_SOURCE };
+
+function buildFloorplanSvgUrl(floor, imageUrl, sourceFloor=floor) {
+  const n=Math.trunc(Number(floor));
+  if(!imageUrl)return null;
+  const safe=escAttr(imageUrl);
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 632" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${n}층 평면도" data-floor="${n}" data-source-floor="${sourceFloor}"><rect fill="#fff" width="1440" height="632"/><image href="${safe}" x="0" y="0" width="1440" height="632" preserveAspectRatio="xMidYMid meet"/></svg>`,'utf8');
+}
+module.exports = { getFloorplan, buildFloorplanSvg, buildFloorplanSvgUrl, FLOORPLAN_SOURCE };
+

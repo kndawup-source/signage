@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.33.27');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.0');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -641,10 +641,10 @@
       roomBroadcastChannel=db.channel(`room:${key}`).on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
     }
     if(!controlBroadcastChannel){
-      controlBroadcastChannel=db.channel('clinic-signage-control').on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
+      controlBroadcastChannel=db.channel(`clinic-signage-control:${state?.room?.site_id||'unknown'}`).on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
     }
     if(!statusBroadcastChannel){
-      statusBroadcastChannel=db.channel('clinic-signage-status',{config:{broadcast:{ack:false}}});
+      statusBroadcastChannel=db.channel(`clinic-signage-status:${state?.room?.site_id||'unknown'}`,{config:{broadcast:{ack:false}}});
       statusBroadcastChannel.subscribe(status=>{statusBroadcastReady=status==='SUBSCRIBED';});
     }
     if(!roomId||realtimeRoomId===roomId)return;

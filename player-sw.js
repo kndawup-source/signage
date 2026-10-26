@@ -1,6 +1,6 @@
-/* Clinic Signage Player offline runtime — v2.33.28 */
+/* Clinic Signage Player offline runtime — v2.34.0 */
 'use strict';
-const VERSION='2.33.28';
+const VERSION='2.34.0';
 const SHELL_CACHE=`clinic-signage-player-shell-${VERSION}`;
 const MEDIA_CACHE='clinic-signage-playlist-media-v1';
 const RUNTIME_CACHE='clinic-signage-player-runtime-v1';
@@ -44,12 +44,21 @@ async function cachedVideoResponse(request){
   const headers=new Headers(full.headers);headers.set('Accept-Ranges','bytes');headers.set('Content-Range',`bytes ${range.start}-${range.end}/${blob.size}`);headers.set('Content-Length',String(range.end-range.start+1));
   return new Response(body,{status:206,statusText:'Partial Content',headers});
 }
-async function networkFirst(request,fallback){
+function runtimeKey(request){
+  const url=new URL(request.url);
+  return new Request(`${url.origin}${url.pathname}`,{method:'GET'});
+}
+async function networkFirst(request,fallback,{cacheRuntime=true}={}){
+  const key=runtimeKey(request);
   try{
     const response=await fetch(request);
-    if(response&&response.ok){const cache=await caches.open(RUNTIME_CACHE);try{await cache.put(request,response.clone());}catch(_){} }
+    if(cacheRuntime&&response&&response.ok){const cache=await caches.open(RUNTIME_CACHE);try{await cache.put(key,response.clone());}catch(_){} }
     return response;
-  }catch(_){return fallback?.()||Response.error();}
+  }catch(_){
+    if(fallback)return fallback();
+    if(cacheRuntime){const runtime=await caches.open(RUNTIME_CACHE),hit=await runtime.match(key);if(hit)return hit;}
+    return Response.error();
+  }
 }
 self.addEventListener('fetch',event=>{
   const request=event.request;if(request.method!=='GET')return;
@@ -57,11 +66,11 @@ self.addEventListener('fetch',event=>{
   if(request.destination==='video'){
     event.respondWith((async()=>{try{const response=await fetch(request);if(response&&response.status<500)return response;}catch(_){}return (await cachedVideoResponse(request))||Response.error();})());return;
   }
-  if(request.mode==='navigate'&&url.origin===self.location.origin){
-    event.respondWith(networkFirst(request,async()=>{const cache=await caches.open(SHELL_CACHE);return (await cache.match('/player.html'))||Response.error();}));return;
+  if(request.mode==='navigate'&&url.origin===self.location.origin&&url.pathname==='/player.html'){
+    event.respondWith(networkFirst(request,async()=>{const cache=await caches.open(SHELL_CACHE);return (await cache.match('/player.html'))||Response.error();},{cacheRuntime:false}));return;
   }
-  if(url.origin===self.location.origin&&(/\/(?:js|css)\//.test(url.pathname)||url.pathname==='/player-release.json')){
-    event.respondWith((async()=>{const shell=await caches.open(SHELL_CACHE),hit=await shell.match(request);if(hit)return hit;return networkFirst(request,async()=>{const runtime=await caches.open(RUNTIME_CACHE);return (await runtime.match(request))||Response.error();});})());return;
+  if(url.origin===self.location.origin&&(['/js/player.js','/js/common.js','/js/config.js','/js/version.js','/js/boot.js','/css/app.css','/player-release.json'].includes(url.pathname))){
+    event.respondWith((async()=>{const shell=await caches.open(SHELL_CACHE),hit=await shell.match(request);if(hit)return hit;return networkFirst(request,async()=>{const runtime=await caches.open(RUNTIME_CACHE);return (await runtime.match(runtimeKey(request)))||Response.error();});})());return;
   }
   if(request.url===SUPABASE_CDN){
     event.respondWith(networkFirst(request,async()=>{const shell=await caches.open(SHELL_CACHE);return (await shell.match(SUPABASE_CDN))||Response.error();}));
