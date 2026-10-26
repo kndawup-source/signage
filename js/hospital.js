@@ -322,25 +322,27 @@
     stage.style.minHeight='0px';
     host.style.aspectRatio=`${w} / ${h}`;
   }
-  function imageSizeFromUrl(url){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve({width:img.naturalWidth,height:img.naturalHeight});img.onerror=()=>reject(new Error('도면 크기를 읽을 수 없습니다.'));img.src=url;});}
+  function floorplanImageUrl(floor,meta){
+    const params=new URLSearchParams({floor:String(floor),v:'2.34.30'});
+    if(meta?.key)params.set('key',meta.key);
+    if(state.site?.id)params.set('siteId',state.site.id);
+    return `/api/floorplan?${params}`;
+  }
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]].filter(host=>!host.closest('details:not([open])'));
     await Promise.all(hosts.map(async host=>{
       const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;
       try{
-        const meta=floorplanMeta(floor),metaW=Number(meta?.width||meta?.source_width||0),metaH=Number(meta?.height||meta?.source_height||0);
-        const cacheKey=`${state.site?.id||''}:${meta?.key||floor}`;
-        let cached=floorplanTextCache.get(cacheKey);
-        if(!cached||cached.expiresAt<=Date.now()){
-          const params=new URLSearchParams({floor:String(floor),v:'2.34.29'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);
-          const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
-          const payload=await response.json();if(!payload?.url)throw new Error('FLOORPLAN_URL_MISSING');
-          let width=metaW,height=metaH;if(!width||!height){const size=await imageSizeFromUrl(payload.url);width=size.width;height=size.height;}
-          cached={url:payload.url,width,height,expiresAt:Date.now()+240000};floorplanTextCache.set(cacheKey,cached);
-        }
-        applyFloorplanGeometry(host,cached.width,cached.height);
-        host.innerHTML=`<img src="${cached.url}" alt="${floor}층 평면도" draggable="false">`;
-        const img=host.querySelector('img');if(img&&!img.complete)await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('도면 이미지를 표시할 수 없습니다.'));});
+        const meta=floorplanMeta(floor);
+        if(!meta?.key)throw new Error('FLOORPLAN_KEY_MISSING');
+        const url=floorplanImageUrl(floor,meta);
+        host.innerHTML=`<img src="${url}" alt="${floor}층 평면도" draggable="false" loading="eager" decoding="async">`;
+        const img=host.querySelector('img');
+        await new Promise((resolve,reject)=>{
+          const done=()=>{const w=Number(img.naturalWidth||meta?.width||meta?.source_width||0),h=Number(img.naturalHeight||meta?.height||meta?.source_height||0);if(w&&h)applyFloorplanGeometry(host,w,h);resolve();};
+          if(img.complete){if(img.naturalWidth)done();else reject(new Error('도면 이미지를 표시할 수 없습니다.'));return;}
+          img.onload=done;img.onerror=()=>reject(new Error('도면 이미지를 표시할 수 없습니다.'));
+        });
         host.dataset.loaded='1';
       }catch(e){console.error('[floorplan] load failed',floor,e);host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}
     }));
