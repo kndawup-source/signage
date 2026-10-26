@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.33.26');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.33.27');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -210,7 +210,7 @@
 
   function ensureSurface(){
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
-    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="metadata"></video><video id="screenVideoB" class="player-video" muted playsinline preload="metadata"></video>${bars()}`;
+    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="auto"></video><video id="screenVideoB" class="player-video" muted playsinline preload="auto"></video>${bars()}`;
     slots=[qs('#screenVideoA'),qs('#screenVideoB')];
     activeSlot=0;
     slots.forEach((el,slotIndex)=>{
@@ -255,7 +255,7 @@
     el.loop=false;el.removeAttribute('src');el.dataset.videoId='';el.dataset.mediaUrl='';el.dataset.videoIndex='';el.dataset.prerolled='';
     try{el.load();}catch(_){}
   }
-  function loadSlot(el,v,videoIndex,preloadMode='metadata'){
+  function loadSlot(el,v,videoIndex,preloadMode='auto'){
     const url=mediaUrl(v); if(!el||!url)return false;
     const preload=preloadMode==='auto'?'auto':'metadata';
     if(slotMatches(el,v)){
@@ -426,8 +426,8 @@
     const items=list(); if(items.length<2)return;
     const nextIndex=(index+1)%items.length,nextVideo=items[nextIndex],el=slots[inactiveSlotIndex()];
     if(!nextVideo||!mediaUrl(nextVideo))return;
-    /* Keep the next item lightweight until it is close to transition. */
-    loadSlot(el,nextVideo,nextIndex,'metadata');
+    /* Signage favors instant switching over bandwidth savings: keep the next item hot. */
+    loadSlot(el,nextVideo,nextIndex,'auto');
   }
   async function advanceSeamless(){
     const items=list(); if(!items.length)return;
