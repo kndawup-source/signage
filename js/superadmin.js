@@ -5,46 +5,123 @@
   qs('#signOut')?.addEventListener('click', Signage.signOut);
 
   const monitor=Signage.createLiveMonitor({onUpdate:()=>load().catch(()=>{})});
-  let state={sites:[],rooms:[]};
+  let state={sites:[],rooms:[],groups:[]};
+  let selectedSiteId=null;
+  let searchTerm='';
 
   const siteSlug=(s)=>String(s?.code||s?.slug||s?.id||'').trim();
   const sitePath=(s)=>`/hospital.html?site=${encodeURIComponent(siteSlug(s))}`;
-  const roomStatus=(r)=>{
-    if(String(r.display_control_mode||'remote')==='manual')return r.manual_check_status==='checked'?'ok':'issue';
-    const h=Signage.roomHealth(r,monitor.serverNow());
-    const st=r.player_status||{};
-    if(h==='offline')return 'issue';
-    if(st.update_error||st.update_pending_version||st.error||st.offline_cache_error||Number(st.failed_video_count||0)>0)return 'issue';
-    return 'ok';
+  const isManual=(r)=>String(r?.display_control_mode||'remote')==='manual';
+  const isRemoteDisplay=(r)=>!isManual(r);
+  const healthOf=(r)=>isManual(r)?(r.manual_check_status==='checked'?'manual-ok':'manual-issue'):Signage.roomHealth(r,monitor.serverNow());
+  const isOffline=(r)=>isRemoteDisplay(r)&&healthOf(r)==='offline';
+  const roomIssueReason=(r)=>{
+    if(isManual(r))return r.manual_check_status==='checked'?'':'현장 확인 필요';
+    const h=healthOf(r),st=r.player_status||{};
+    if(h==='offline')return '연결 안 됨';
+    if(st.update_error||st.update_pending_version)return '업데이트 필요';
+    if(st.offline_cache_error)return '캐시 오류';
+    if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}건`;
+    if(st.error)return String(st.error).slice(0,50);
+    return '';
   };
-  function siteStats(site){
-    const rooms=state.rooms.filter(r=>r.site_id===site.id),issues=rooms.filter(r=>roomStatus(r)==='issue').length;
-    return {total:rooms.length,issues};
+  const roomHasIssue=(r)=>Boolean(roomIssueReason(r));
+  const isOnline=(r)=>isRemoteDisplay(r)&&!isOffline(r);
+
+  function loadRisk(onlineRemote){
+    const n=Number(onlineRemote||0);
+    if(n>=80)return {label:'주의',cls:'risk-alert',note:'원격 디스플레이가 매우 많음'};
+    if(n>=40)return {label:'높음',cls:'risk-high',note:'송출 부하가 높은 편'};
+    if(n>=15)return {label:'보통',cls:'risk-normal',note:'일반적인 송출 규모'};
+    return {label:'낮음',cls:'risk-low',note:'현재 송출 부하가 낮음'};
   }
+  function siteRooms(siteId){return state.rooms.filter(r=>r.site_id===siteId);}
+  function siteGroups(siteId){return state.groups.filter(g=>g.site_id===siteId);}
+  function siteStats(site){
+    const rooms=siteRooms(site.id);
+    const issues=rooms.filter(roomHasIssue);
+    const online=rooms.filter(isOnline).length;
+    const offline=rooms.filter(isOffline).length;
+    const manual=rooms.filter(isManual).length;
+    const risk=loadRisk(online);
+    return {total:rooms.length,issues:issues.length,issueRooms:issues,online,offline,manual,risk};
+  }
+  function floorRows(site){
+    const groups=siteGroups(site.id).filter(g=>Number.isFinite(Number(g.floor_number)));
+    const byId=new Map(groups.map(g=>[g.id,g]));
+    const floors=new Map();
+    for(const g of groups){
+      const f=Number(g.floor_number);if(!floors.has(f))floors.set(f,{floor:f,total:0,issues:0,offline:0});
+    }
+    for(const r of siteRooms(site.id)){
+      const g=byId.get(r.group_id);if(!g||!Number.isFinite(Number(g.floor_number)))continue;
+      const f=Number(g.floor_number),row=floors.get(f)||{floor:f,total:0,issues:0,offline:0};
+      row.total+=1;if(roomHasIssue(r))row.issues+=1;if(isOffline(r))row.offline+=1;floors.set(f,row);
+    }
+    return [...floors.values()].sort((a,b)=>b.floor-a.floor);
+  }
+  function issueHeadline(stats){
+    if(!stats.issues)return '현재 확인할 문제가 없습니다.';
+    const first=stats.issueRooms[0],reason=first?roomIssueReason(first):'';
+    if(stats.issues===1)return `${first?.name||'디스플레이'} · ${reason||'확인 필요'}`;
+    return `${first?.name||'디스플레이'} · ${reason||'확인 필요'} 외 ${stats.issues-1}건`;
+  }
+
   async function load(){
-    const [sitesRes,roomsRes,liveRes]=await Promise.all([
+    const [sitesRes,roomsRes,groupsRes,liveRes]=await Promise.all([
       db.from('sites').select('*').order('created_at'),
-      db.from('rooms').select('id,site_id,name,display_control_mode,manual_check_status,last_seen_at,player_status'),
+      db.from('rooms').select('id,site_id,group_id,name,display_control_mode,manual_check_status,last_seen_at,player_status'),
+      db.from('signage_groups').select('id,site_id,name,floor_number,sort_order'),
       monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error}))
     ]);
-    if(sitesRes.error)throw sitesRes.error;if(roomsRes.error)throw roomsRes.error;
+    if(sitesRes.error)throw sitesRes.error;if(roomsRes.error)throw roomsRes.error;if(groupsRes.error)throw groupsRes.error;
     const live=new Map((liveRes.data?.rows||[]).map(x=>[x.room_id,x]));
     const rooms=(roomsRes.data||[]).map(r=>{const x=live.get(r.id);return x?{...r,last_seen_at:x.last_seen_at||r.last_seen_at,player_status:x.player_status||r.player_status}:r;});
-    state={sites:(sitesRes.data||[]).filter(s=>s.active!==false),rooms};render();
+    state={sites:(sitesRes.data||[]).filter(s=>s.active!==false),rooms,groups:groupsRes.data||[]};
+    if(selectedSiteId&&!state.sites.some(s=>s.id===selectedSiteId))selectedSiteId=null;
+    render();
   }
+
   function render(){
-    const rows=state.sites.map(site=>({site,stats:siteStats(site)})).sort((a,b)=>b.stats.issues-a.stats.issues||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
-    const totalDisplays=rows.reduce((n,x)=>n+x.stats.total,0),issues=rows.reduce((n,x)=>n+x.stats.issues,0);
+    const allRows=state.sites.map(site=>({site,stats:siteStats(site)})).sort((a,b)=>b.stats.issues-a.stats.issues||String(a.site.name||'').localeCompare(String(b.site.name||''),'ko'));
+    const filtered=allRows.filter(({site})=>!searchTerm||`${site.name||''} ${siteSlug(site)}`.toLowerCase().includes(searchTerm));
+    const totalDisplays=allRows.reduce((n,x)=>n+x.stats.total,0),issues=allRows.reduce((n,x)=>n+x.stats.issues,0),online=allRows.reduce((n,x)=>n+x.stats.online,0);
+    const overallRisk=loadRisk(online);
+    const selected=state.sites.find(s=>s.id===selectedSiteId)||null;
+
     qs('#adminRoot').innerHTML=`
       <section class="superadmin-home">
-        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>병원 현황</h1><p>전체 상태만 확인하고, 관리가 필요할 때 해당 병원으로 들어갑니다.</p></div><button type="button" class="btn" id="openAddHospital">병원 추가</button></div>
-        <div class="hospital-overview-summary"><span><b>${rows.length}</b><small>병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span></div>
-        <div class="hospital-overview-list">${rows.map(({site,stats})=>`<a class="hospital-overview-row ${stats.issues?'has-issue':''}" href="${esc(sitePath(site))}"><span class="hospital-overview-identity"><b>${esc(site.name||'병원')}</b><small>${stats.issues?`확인 필요 ${stats.issues}`:'정상'}</small></span><span class="hospital-overview-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-overview-arrow" aria-hidden="true">›</span></a>`).join('')||'<div class="empty-state">등록된 병원이 없습니다.</div>'}</div>
+        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><button type="button" class="btn" id="openAddHospital">병원 추가</button></div>
+        <div class="hospital-overview-summary superadmin-summary"><span><b>${allRows.length}</b><small>병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span><span class="${overallRisk.cls}"><b>${overallRisk.label}</b><small>송출 부하</small></span></div>
+        <div class="superadmin-layout ${selected?'has-selection':''}">
+          <div class="superadmin-hospital-list-wrap">
+            <div class="superadmin-list-head"><h2>병원 현황</h2><label class="superadmin-search"><span class="sr-only">병원 검색</span><input id="hospitalSearch" type="search" placeholder="병원 검색" value="${esc(searchTerm)}"></label></div>
+            <div class="hospital-overview-list">${filtered.map(({site,stats})=>`<button type="button" class="hospital-overview-row ${stats.issues?'has-issue':''} ${selectedSiteId===site.id?'is-selected':''}" data-site-summary="${site.id}"><span class="hospital-overview-identity"><b>${esc(site.name||'병원')}</b><small>${stats.issues?`확인 필요 ${stats.issues}`:'정상'}</small></span><span class="hospital-overview-stat"><b>${stats.total}</b><small>디스플레이</small></span><span class="hospital-overview-stat"><b>${stats.offline}</b><small>오프라인</small></span><span class="hospital-overview-risk ${stats.risk.cls}">${stats.risk.label}</span><span class="hospital-overview-arrow" aria-hidden="true">›</span></button>`).join('')||'<div class="empty-state">조건에 맞는 병원이 없습니다.</div>'}</div>
+          </div>
+          ${selected?renderSiteSummary(selected):'<aside class="superadmin-site-summary is-empty"><b>병원을 선택하세요</b><p>병원의 현재 상태를 먼저 확인한 뒤 관리자 페이지로 이동할 수 있습니다.</p></aside>'}
+        </div>
       </section>
       <dialog id="addHospitalDialog" class="simple-dialog"><form method="dialog" class="simple-dialog-card"><div class="simple-dialog-head"><div><span class="eyebrow">NEW HOSPITAL</span><h2>병원 추가</h2></div><button class="text-btn dark" value="cancel">닫기</button></div><label class="field"><span>병원명</span><input id="newHospitalName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>고유 주소</span><div class="slug-input"><i>/</i><input id="newHospitalSlug" maxlength="32" autocomplete="off" spellcheck="false" placeholder="gangnam"></div></label><div class="inline top-gap"><button type="button" class="btn primary" id="createHospital">추가</button></div></form></dialog>`;
+
     qs('#openAddHospital')?.addEventListener('click',()=>qs('#addHospitalDialog')?.showModal());
     qs('#createHospital')?.addEventListener('click',createHospital);
+    qs('#hospitalSearch')?.addEventListener('input',e=>{searchTerm=String(e.target.value||'').trim().toLowerCase();render();requestAnimationFrame(()=>{const el=qs('#hospitalSearch');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}});});
+    document.querySelectorAll('[data-site-summary]').forEach(el=>el.addEventListener('click',()=>{selectedSiteId=el.dataset.siteSummary||null;render();}));
   }
+
+  function renderSiteSummary(site){
+    const stats=siteStats(site),floors=floorRows(site),problemFloors=floors.filter(f=>f.issues),normalFloors=floors.filter(f=>!f.issues);
+    const floorHtml=(problemFloors.length?problemFloors:floors.slice(0,6)).map(f=>`<div class="superadmin-floor-row ${f.issues?'has-issue':''}"><b>${f.floor}층</b><span>${f.issues?`확인 필요 ${f.issues}`:'정상'}</span><small>${f.total}대${f.offline?` · 오프라인 ${f.offline}`:''}</small></div>`).join('');
+    return `<aside class="superadmin-site-summary">
+      <div class="superadmin-site-summary-head"><div><span class="eyebrow">HOSPITAL</span><h2>${esc(site.name||'병원')}</h2><p>${stats.issues?'확인이 필요한 항목이 있습니다.':'현재 정상 운영 중입니다.'}</p></div><span class="superadmin-status-pill ${stats.issues?'has-issue':''}">${stats.issues?'확인 필요':'정상'}</span></div>
+      <div class="superadmin-site-metrics"><div><small>디스플레이</small><b>${stats.total}</b></div><div><small>현재 연결</small><b>${stats.online}</b></div><div class="${stats.offline?'has-issue':''}"><small>오프라인</small><b>${stats.offline}</b></div><div class="${stats.issues?'has-issue':''}"><small>확인 필요</small><b>${stats.issues}</b></div></div>
+      <div class="superadmin-risk-card ${stats.risk.cls}"><div><small>송출 부하</small><b>${stats.risk.label}</b></div><p>${esc(stats.risk.note)} · 현재 연결된 원격 디스플레이 수 기준</p></div>
+      <div class="superadmin-attention ${stats.issues?'has-issue':''}"><small>지금 확인할 내용</small><b>${esc(issueHeadline(stats))}</b></div>
+      <div class="superadmin-floor-summary"><div class="superadmin-subhead"><b>층별 현황</b>${problemFloors.length&&normalFloors.length?`<small>정상 ${normalFloors.length}개 층은 접어 표시</small>`:''}</div>${floorHtml||'<p class="muted">층 정보가 없습니다.</p>'}</div>
+      <a class="btn primary superadmin-open-hospital" href="${esc(sitePath(site))}">병원 관리자 페이지 열기</a>
+    </aside>`;
+  }
+
   async function createHospital(){
     const name=(qs('#newHospitalName')?.value||'').trim(),code=(qs('#newHospitalSlug')?.value||'').trim().toLowerCase();
     if(!name||!code)return toast('병원명과 고유 주소를 입력하세요.','error');
@@ -52,7 +129,7 @@
     if(error)return toast(error.message||'병원을 추가하지 못했습니다.','error');
     if(data?.ok===false)return toast(data.message||'병원을 추가하지 못했습니다.','error');
     if(data?.existing)return toast('이미 사용 중인 고유 주소입니다. 다른 주소를 입력하세요.','error');
-    location.href=sitePath(data?.site||{code});
+    selectedSiteId=data?.site?.id||null;await load();
   }
   await load().catch(e=>{console.error(e);qs('#adminRoot').innerHTML='<div class="loading error">병원 현황을 불러오지 못했습니다.</div>';});
 })();
