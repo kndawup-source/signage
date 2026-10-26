@@ -1829,3 +1829,91 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 
 /* v2.34.11 launch blockers */
 .hospital-broadcast-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:center;padding:20px 22px;border:1px solid #e6e6e6;border-radius:14px;background:#fff;margin-bottom:16px}.hospital-broadcast-card.is-active{border-color:#111}.hospital-broadcast-card small{display:block;font-size:11px;color:#777;margin-bottom:5px}.hospital-broadcast-card b{font-size:16px}.hospital-broadcast-card p{margin:5px 0 0;font-size:12px;color:#777}.hospital-broadcast-actions{display:flex;align-items:center;gap:8px}.hospital-broadcast-actions select{min-width:220px;height:42px}@media(max-width:760px){.hospital-broadcast-card{grid-template-columns:1fr}.hospital-broadcast-actions{align-items:stretch;flex-direction:column}.hospital-broadcast-actions select{min-width:0;width:100%}}
+
+
+/* v2.34.12 · superadmin single-column desktop control surface */
+.superadmin-page .shell{max-width:1480px;padding-left:32px;padding-right:32px}
+.superadmin-home{gap:24px}
+.superadmin-home .hospital-overview-head{align-items:center}
+.superadmin-home .hospital-overview-head h1{font-size:34px!important;line-height:1.05}
+.superadmin-home .hospital-overview-head p{margin-top:7px;font-size:12px;line-height:1.5}
+.superadmin-home .hospital-overview-head>.inline{gap:8px}
+.superadmin-home .hospital-overview-head>.inline .btn{height:40px;padding:0 15px;font-size:11px}
+.superadmin-summary{border-radius:14px}
+.superadmin-summary>span{min-height:96px;padding:20px 22px}
+.superadmin-summary b{font-size:30px;line-height:1}
+.superadmin-summary small{font-size:11px}
+.superadmin-hospital-section{display:grid;gap:10px}
+.superadmin-list-head{min-height:42px;margin:0;align-items:center}
+.superadmin-list-head h2{font-size:20px;letter-spacing:-.03em}
+.superadmin-search{width:280px;max-width:38%}
+.superadmin-search input{height:40px;padding:0 14px;border:1px solid var(--ui-line);border-radius:10px;background:#fff;font-size:12px;color:var(--ink)}
+.superadmin-search input::placeholder{color:#999}
+.superadmin-search input:focus{border-color:#9d9da8;box-shadow:0 0 0 3px rgba(40,36,91,.06)}
+.superadmin-home .hospital-overview-list{border-radius:14px;overflow:hidden}
+.superadmin-home .hospital-overview-item{background:#fff;border-top:1px solid var(--ui-line)}
+.superadmin-home .hospital-overview-item:first-child{border-top:0}
+.superadmin-home .hospital-overview-item.is-selected{background:#fbfbfd}
+.superadmin-home .hospital-overview-item.is-inactive{opacity:.64}
+.superadmin-home .hospital-overview-item.is-inactive.is-selected{opacity:.8}
+.superadmin-home .hospital-overview-row{min-height:74px;grid-template-columns:minmax(280px,1fr) 120px 120px 90px 30px;gap:20px;padding:14px 22px;background:transparent;border:0}
+.superadmin-home .hospital-overview-row:hover{background:#fafafd}
+.superadmin-home .hospital-overview-item.is-selected>.hospital-overview-row{background:#f7f7fb}
+.superadmin-home .hospital-overview-identity{gap:4px}
+.superadmin-home .hospital-overview-identity b{font-size:15px;line-height:1.3}
+.superadmin-home .hospital-overview-identity small{font-size:11px}
+.superadmin-home .hospital-overview-stat{gap:4px}
+.superadmin-home .hospital-overview-stat b{font-size:16px}
+.superadmin-home .hospital-overview-stat small{font-size:10px}
+.superadmin-home .hospital-overview-risk{font-size:10px;padding:6px 9px}
+.superadmin-home .hospital-overview-arrow{font-size:18px;transition:transform .18s ease;transform:rotate(-90deg);text-align:center}
+.superadmin-home .hospital-overview-item.is-selected .hospital-overview-arrow{transform:rotate(0deg)}
+.superadmin-inline-summary{padding:0 22px 22px;background:#fbfbfd}
+.superadmin-inline-summary .superadmin-site-summary{position:static;top:auto;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.72fr);gap:18px;padding:22px;border:1px solid var(--ui-line);border-radius:14px;background:#fff}
+.superadmin-inline-summary .superadmin-site-summary-head{grid-column:1/-1;padding-bottom:4px}
+.superadmin-inline-summary .superadmin-site-summary-head h2{font-size:24px}
+.superadmin-inline-summary .superadmin-site-summary-head p{font-size:11px}
+.superadmin-inline-summary .superadmin-site-metrics{grid-column:1/2;grid-template-columns:repeat(4,1fr);align-self:start}
+.superadmin-inline-summary .superadmin-site-metrics>div{padding:14px 13px}
+.superadmin-inline-summary .superadmin-site-metrics small{font-size:9px}
+.superadmin-inline-summary .superadmin-site-metrics b{font-size:20px}
+.superadmin-inline-summary .superadmin-risk-card{grid-column:2/3;grid-row:2/3;height:100%;align-items:flex-start;flex-direction:column;justify-content:center;padding:14px 16px}
+.superadmin-inline-summary .superadmin-risk-card p{text-align:left;font-size:10px}
+.superadmin-inline-summary .superadmin-attention{grid-column:1/-1;padding:14px 16px}
+.superadmin-inline-summary .superadmin-attention small{font-size:9px}
+.superadmin-inline-summary .superadmin-attention b{font-size:12px}
+.superadmin-inline-summary .superadmin-floor-summary{grid-column:1/2;padding:4px 0 0}
+.superadmin-inline-summary .superadmin-subhead b{font-size:12px}
+.superadmin-inline-summary .superadmin-subhead small{font-size:9px}
+.superadmin-inline-summary .superadmin-floor-row{padding:10px 0}
+.superadmin-inline-summary .superadmin-floor-row b{font-size:11px}
+.superadmin-inline-summary .superadmin-floor-row span{font-size:10px}
+.superadmin-inline-summary .superadmin-floor-row small{font-size:9px}
+.superadmin-inline-summary .superadmin-site-actions{grid-column:2/3;grid-row:4/5;align-self:start;margin:0;display:grid;gap:8px}
+.superadmin-inline-summary .superadmin-site-actions .btn,.superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{width:100%;height:42px}
+.superadmin-inline-summary .superadmin-maintenance{grid-column:1/-1;margin-top:0;padding-top:16px}
+
+@media(max-width:980px){
+  .superadmin-page .shell{max-width:100%;padding-left:20px;padding-right:20px}
+  .superadmin-inline-summary .superadmin-site-summary{grid-template-columns:1fr}
+  .superadmin-inline-summary .superadmin-site-summary-head,.superadmin-inline-summary .superadmin-site-metrics,.superadmin-inline-summary .superadmin-risk-card,.superadmin-inline-summary .superadmin-attention,.superadmin-inline-summary .superadmin-floor-summary,.superadmin-inline-summary .superadmin-site-actions,.superadmin-inline-summary .superadmin-maintenance{grid-column:1;grid-row:auto}
+  .superadmin-home .hospital-overview-row{grid-template-columns:minmax(220px,1fr) 88px 88px 78px 26px;gap:12px}
+}
+@media(max-width:680px){
+  .superadmin-page .shell{padding-left:14px;padding-right:14px}
+  .superadmin-home{gap:18px}
+  .superadmin-home .hospital-overview-head{align-items:flex-start;flex-direction:column}
+  .superadmin-home .hospital-overview-head h1{font-size:30px!important}
+  .superadmin-home .hospital-overview-head>.inline{width:100%}
+  .superadmin-home .hospital-overview-head>.inline .btn{flex:1}
+  .superadmin-summary{grid-template-columns:repeat(2,1fr)}
+  .superadmin-summary>span{min-height:78px;padding:15px}
+  .superadmin-summary b{font-size:24px}
+  .superadmin-list-head{align-items:stretch;flex-direction:column;gap:10px}
+  .superadmin-search{width:100%;max-width:none}
+  .superadmin-home .hospital-overview-row{min-height:68px;grid-template-columns:minmax(0,1fr) 62px 24px;padding:12px 14px;gap:10px}
+  .superadmin-home .hospital-overview-row>.hospital-overview-stat:nth-of-type(2),.superadmin-home .hospital-overview-risk{display:none}
+  .superadmin-inline-summary{padding:0 12px 12px}
+  .superadmin-inline-summary .superadmin-site-summary{padding:16px}
+  .superadmin-inline-summary .superadmin-site-metrics{grid-template-columns:repeat(2,1fr)}
+}
