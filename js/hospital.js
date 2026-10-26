@@ -114,6 +114,26 @@
     return {live,offline,manual,manualNeedsCheck,issues,online,total:rooms.length,key,label};
   }
   function groupDisplayName(name){const n=String(name||'미분류').trim();return /^\d+$/.test(n)?`${n}층`:n;}
+  function normalizedPurposeName(name){
+    let value=String(name||'').trim().replace(/\s+/g,' ');
+    if(!value)return '';
+    value=value.replace(/\s*(?:#?\d+|[A-Z])\s*$/i,'').trim();
+    if(/^(?:엘리베이터|계단|복도|화장실|공용부|기타)$/i.test(value))return '';
+    if(/^[0-9F_ -]+$/i.test(value))return '';
+    return value;
+  }
+  function floorPurposeLabel(g){
+    const n=floorNumber(g),raw=String(g?.name||'').trim();
+    const stripped=raw.replace(new RegExp(`^${n}\\s*(?:층|F)?\\s*`,'i'),'').trim();
+    if(stripped&&!/^\d+\s*(?:층|F)?$/i.test(stripped)&&stripped!==`${n}층`&&stripped!==`${n}F`)return stripped;
+    const spaceNames=[...new Set(state.floorSpaces.filter(x=>x.group_id===g?.id).map(x=>normalizedPurposeName(x.name)).filter(Boolean))];
+    const preferred=spaceNames.filter(x=>/(진료실|고객대기실|대기실|상담실|라운지|로비|접수|검사실|수술실|촬영실|식당|사무|의국|기공실)/.test(x));
+    const picked=(preferred.length?preferred:spaceNames).slice(0,2);
+    if(picked.length)return picked.join(' · ');
+    const roomNames=[...new Set((g?.rooms||state.rooms.filter(r=>r.group_id===g?.id)).map(r=>normalizedPurposeName(r.name)).filter(Boolean))].filter(x=>/[가-힣]/.test(x));
+    if(roomNames.length)return roomNames.slice(0,2).join(' · ');
+    return '공간 미설정';
+  }
   const currentVideoForRoom=(r)=>state.videos.find(v=>v.id===r.player_status?.video_id)||null;
   const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨'})[String(v||'').toLowerCase()]||'연결됨';
   const activePatients=()=>state.patients.filter(p=>['waiting','assigned','in_progress'].includes(p.status));
@@ -166,8 +186,7 @@
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
   }
   function staffBuildingFloor(g){
-    const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),rawName=String(g?.name||'').trim();
-    const shortName=rawName.replace(new RegExp(`^${n}\\s*(층|F)?\\s*`,'i'),'').trim()||`${n}층`;
+    const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),shortName=floorPurposeLabel(g);
     const status=st.issues?'확인 필요':st.offline?'연결 안 됨':rooms.length?'정상':'미사용';
     const cls=`hospital-floor-row floor-state-${st.key}${selectedFloorId===g.id?' is-selected':''}`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}">
@@ -190,7 +209,7 @@
     const n=floorNumber(g),online=rooms.filter(r=>displayControlMode(r)==='manual'||staffIsOnline(r)).length;
     return `<section class="hospital-floor-detail">
       <div class="hospital-floor-detail-head">
-        <div><b>${n}층 · ${esc(groupDisplayName(g.name))}</b><span>도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.</span></div>
+        <div><b>${n}층 · ${esc(floorPurposeLabel(g))}</b><span>도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.</span></div>
         <div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${sum.issues?`<span class="is-alert">확인 필요 <b>${sum.issues}</b></span>`:''}</div>
       </div>
       ${asset?`<div class="building-floorplan-wrap floor-activation-shell">
@@ -294,7 +313,6 @@
   function floorSpaceOverlay(x,editable=false){return `<button type="button" class="floor-space-overlay ${editable?'is-editable':''}" data-floor-space="${x.id}" style="left:${Number(x.x_pct)}%;top:${Number(x.y_pct)}%;width:${Number(x.width_pct)}%;height:${Number(x.height_pct)}%"><span>${esc(x.name)}</span></button>`;}
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   function revokeFloorplanCache(){
-    for(const entry of floorplanTextCache.values())if(entry?.url)try{URL.revokeObjectURL(entry.url);}catch(_){ }
     floorplanTextCache.clear();
   }
   function applyFloorplanGeometry(host,width,height){
@@ -314,18 +332,17 @@
         const cacheKey=`${state.site?.id||''}:${meta?.key||floor}`;
         let cached=floorplanTextCache.get(cacheKey);
         if(!cached||cached.expiresAt<=Date.now()){
-          if(cached?.url)try{URL.revokeObjectURL(cached.url);}catch(_){ }
-          const params=new URLSearchParams({floor:String(floor),v:'2.34.28'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);
-          const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'default'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
-          const blob=await response.blob(),url=URL.createObjectURL(blob);
-          let width=metaW,height=metaH;
-          if(!width||!height){const size=await imageSizeFromUrl(url);width=size.width;height=size.height;}
-          cached={url,width,height,expiresAt:Date.now()+240000};floorplanTextCache.set(cacheKey,cached);
+          const params=new URLSearchParams({floor:String(floor),v:'2.34.29'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);
+          const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
+          const payload=await response.json();if(!payload?.url)throw new Error('FLOORPLAN_URL_MISSING');
+          let width=metaW,height=metaH;if(!width||!height){const size=await imageSizeFromUrl(payload.url);width=size.width;height=size.height;}
+          cached={url:payload.url,width,height,expiresAt:Date.now()+240000};floorplanTextCache.set(cacheKey,cached);
         }
         applyFloorplanGeometry(host,cached.width,cached.height);
         host.innerHTML=`<img src="${cached.url}" alt="${floor}층 평면도" draggable="false">`;
+        const img=host.querySelector('img');if(img&&!img.complete)await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('도면 이미지를 표시할 수 없습니다.'));});
         host.dataset.loaded='1';
-      }catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}
+      }catch(e){console.error('[floorplan] load failed',floor,e);host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}
     }));
   }
   async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};revokeFloorplanCache();}
