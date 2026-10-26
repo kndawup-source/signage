@@ -1,3 +1,4 @@
+begin;
 -- Clinic Signage v2.34.9 · hospital lifecycle management
 -- Safe to re-run. Apply after v2.34.9.
 
@@ -80,3 +81,4 @@ grant execute on function public.signage_room_operating_window(uuid,date) to ano
 
 insert into public.schema_version(version) values('2.34.9') on conflict(version) do update set applied_at=excluded.applied_at;
 notify pgrst,'reload schema';
+commit;

@@ -91,7 +91,7 @@
 
     qs('#adminRoot').innerHTML=`
       <section class="superadmin-home">
-        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><button type="button" class="btn" id="openAddHospital">병원 추가</button></div>
+        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><div class="inline"><button type="button" class="btn" id="changeAdminPin">슈퍼어드민 PIN 변경</button><button type="button" class="btn" id="openAddHospital">병원 추가</button></div></div>
         <div class="hospital-overview-summary superadmin-summary"><span><b>${activeRows.length}</b><small>활성 병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span><span class="${overallRisk.cls}"><b>${overallRisk.label}</b><small>송출 부하</small></span></div>
         <div class="superadmin-layout ${selected?'has-selection':''}">
           <div class="superadmin-hospital-list-wrap">
@@ -103,7 +103,7 @@
       </section>
       <dialog id="addHospitalDialog" class="simple-dialog"><form method="dialog" class="simple-dialog-card"><div class="simple-dialog-head"><div><span class="eyebrow">NEW HOSPITAL</span><h2>병원 추가</h2></div><button class="text-btn dark" value="cancel">닫기</button></div><label class="field"><span>병원명</span><input id="newHospitalName" maxlength="60" placeholder="예: 강남 본원"></label><label class="field"><span>고유 주소</span><div class="slug-input"><i>/</i><input id="newHospitalSlug" maxlength="32" autocomplete="off" spellcheck="false" placeholder="gangnam"></div></label><label class="field"><span>병원 관리자 PIN</span><input id="newHospitalPin" type="password" inputmode="numeric" maxlength="6" placeholder="4~6자리"></label><div class="inline top-gap"><button type="button" class="btn primary" id="createHospital">추가</button></div></form></dialog>`;
 
-    qs('#openAddHospital')?.addEventListener('click',()=>qs('#addHospitalDialog')?.showModal());
+    qs('#openAddHospital')?.addEventListener('click',()=>qs('#addHospitalDialog')?.showModal());qs('#changeAdminPin')?.addEventListener('click',changeAdminPin);
     qs('#createHospital')?.addEventListener('click',createHospital);
     qs('#hospitalSearch')?.addEventListener('input',e=>{searchTerm=String(e.target.value||'').trim().toLowerCase();render();requestAnimationFrame(()=>{const el=qs('#hospitalSearch');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}});});
     document.querySelectorAll('[data-site-summary]').forEach(el=>el.addEventListener('click',()=>{selectedSiteId=el.dataset.siteSummary||null;render();}));
@@ -149,12 +149,14 @@
     const response=await fetch('/api/site-delete',{method:'POST',headers:{'Content-Type':'application/json','x-signage-session':token},body:JSON.stringify({siteId,confirmName:typed.trim()})});
     const result=await response.json().catch(()=>({}));
     if(!response.ok)return toast(result.error||'병원을 삭제하지 못했습니다.','error');
-    selectedSiteId=null;toast('병원과 병원 전용 도면 파일을 삭제했습니다.');await load();
+    selectedSiteId=null;if(Array.isArray(result.r2_cleanup_failed)&&result.r2_cleanup_failed.length)toast(`병원은 삭제됐지만 R2 파일 ${result.r2_cleanup_failed.length}개 정리가 남았습니다.`,'error');else toast('병원과 병원 전용 파일을 삭제했습니다.');await load();
   }
 
+
+  async function changeAdminPin(){const pin=prompt('새 슈퍼어드민 PIN 6자리를 입력하세요.');if(pin===null)return;const clean=String(pin).replace(/\D/g,'');if(clean.length!==6)return toast('슈퍼어드민 PIN은 숫자 6자리여야 합니다.','error');const again=prompt('확인을 위해 새 PIN을 다시 입력하세요.');if(again===null||String(again).replace(/\D/g,'')!==clean)return toast('PIN이 일치하지 않습니다.','error');const {error}=await db.rpc('admin_change_pin',{p_role:'admin',p_pin:clean});if(error)return toast(error.message||'PIN 변경에 실패했습니다.','error');toast('슈퍼어드민 PIN을 변경했습니다. 다시 로그인할 때 새 PIN을 사용하세요.');}
   async function saveSelectedSitePin(){const siteId=qs('[data-save-site-pin]')?.dataset.saveSitePin,pin=(qs('#selectedHospitalPin')?.value||'').replace(/\D/g,'');if(!siteId||pin.length<4||pin.length>6)return toast('PIN은 4~6자리 숫자로 입력하세요.','error');const {error}=await db.rpc('admin_set_site_staff_pin',{p_site:siteId,p_pin:pin});if(error)return toast(error.message,'error');qs('#selectedHospitalPin').value='';toast('병원 관리자 PIN을 변경했습니다.');}
   async function exportSelectedSite(){const siteId=qs('[data-export-site]')?.dataset.exportSite;if(!siteId)return;const {data,error}=await db.rpc('admin_export_site_config',{p_site:siteId});if(error)return toast(error.message,'error');const site=state.sites.find(x=>x.id===siteId),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`signage-${siteSlug(site)||siteId}-backup.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-  async function importSelectedSite(e){const file=e.target.files?.[0];e.target.value='';if(!file)return;if(!confirm('이 병원의 설정을 백업 파일 기준으로 복원할까요?'))return;try{const config=JSON.parse(await file.text());const {error}=await db.rpc('admin_import_site_config',{p_config:config});if(error)throw error;toast('병원 설정을 복원했습니다.');await load();}catch(err){toast(err.message||'복원 파일을 확인하세요.','error');}}
+  async function importSelectedSite(e){const file=e.target.files?.[0],siteId=e.target.dataset.importSite;e.target.value='';if(!file||!siteId)return;if(!confirm('이 병원의 설정을 백업 파일 기준으로 복원할까요?'))return;try{const config=JSON.parse(await file.text());if(String(config?.site?.id||'')!==String(siteId))throw new Error('선택한 병원과 백업 파일의 병원이 다릅니다.');const {error}=await db.rpc('admin_import_site_config',{p_config:config});if(error)throw error;toast('병원 설정을 복원했습니다.');await load();}catch(err){toast(err.message||'복원 파일을 확인하세요.','error');}}
   async function pruneLogs(){if(!confirm('30일이 지난 플레이어 이벤트를 정리할까요?'))return;const {data,error}=await db.rpc('admin_prune_player_events',{p_days:30});if(error)return toast(error.message,'error');toast(`오래된 로그 ${Number(data||0)}건을 정리했습니다.`);}
   async function createHospital(){
     const name=(qs('#newHospitalName')?.value||'').trim(),code=(qs('#newHospitalSlug')?.value||'').trim().toLowerCase(),pin=(qs('#newHospitalPin')?.value||'').replace(/\D/g,'');

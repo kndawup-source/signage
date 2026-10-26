@@ -1726,7 +1726,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 @media(max-width:760px){.hospital-video-overview{grid-template-columns:1fr 1fr}.hospital-playlist-layout{grid-template-columns:1fr}.hospital-playlist-list,.hospital-playlist-editor,.hospital-settings-card{padding:14px}.hospital-editor-actions{justify-content:stretch}.hospital-editor-actions .btn{flex:1}.hospital-settings-advanced>summary{align-items:flex-start}.hospital-settings-advanced>summary em{white-space:nowrap}.site-playlist-videos select{min-height:210px}}
 
 
-/* v2.34.10 — Hospital admin visual system */
+/* v2.34.11 — Hospital admin visual system */
 .hospital-page{
   --h-space-1:6px;
   --h-space-2:10px;
@@ -1821,8 +1821,11 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-settings-advanced-body{padding:16px}
 }
 
-/* v2.34.10 — launch setup controls */
+/* v2.34.11 — launch setup controls */
 .superadmin-maintenance{margin-top:14px;border-top:1px solid #e8e8e8;padding-top:12px}.superadmin-maintenance summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}.superadmin-maintenance summary span{display:grid;gap:3px}.superadmin-maintenance summary small{font-size:11px;color:#777}.superadmin-maintenance-body{display:grid;gap:12px;padding-top:14px}.hospital-settings-advanced-body>.hospital-admin-block:first-child{margin-top:0}.hospital-admin-block .settings-card h3{margin:0 0 12px;font-size:14px}.hospital-admin-block .settings-card .btn{margin-top:10px}
 
-/* v2.34.10 · superadmin hospital lifecycle */
+/* v2.34.11 · superadmin hospital lifecycle */
 .hospital-overview-row.is-inactive{opacity:.58;background:#fafafa}.hospital-overview-row.is-inactive:hover{opacity:.78}.risk-inactive{color:#777!important}.superadmin-status-pill.is-inactive{background:#f2f2f2;color:#666;border-color:#ddd}.superadmin-site-actions{display:flex;gap:10px;align-items:center;margin-top:18px}.superadmin-site-actions .superadmin-open-hospital{margin:0;flex:1}.danger-zone{margin-top:18px;padding-top:18px;border-top:1px solid #e6e6e6;display:flex;align-items:center;justify-content:space-between;gap:18px}.danger-zone>div{display:flex;flex-direction:column;gap:4px}.danger-zone b{font-size:13px}.danger-zone small{font-size:11px;color:#777;line-height:1.45}.btn.danger{border-color:#c92a2a;color:#c92a2a;background:#fff}.btn.danger:hover{background:#fff5f5}@media(max-width:720px){.superadmin-site-actions,.danger-zone{align-items:stretch;flex-direction:column}.superadmin-site-actions .btn,.superadmin-site-actions .superadmin-open-hospital,.danger-zone .btn{width:100%}}
+
+/* v2.34.11 launch blockers */
+.hospital-broadcast-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:center;padding:20px 22px;border:1px solid #e6e6e6;border-radius:14px;background:#fff;margin-bottom:16px}.hospital-broadcast-card.is-active{border-color:#111}.hospital-broadcast-card small{display:block;font-size:11px;color:#777;margin-bottom:5px}.hospital-broadcast-card b{font-size:16px}.hospital-broadcast-card p{margin:5px 0 0;font-size:12px;color:#777}.hospital-broadcast-actions{display:flex;align-items:center;gap:8px}.hospital-broadcast-actions select{min-width:220px;height:42px}@media(max-width:760px){.hospital-broadcast-card{grid-template-columns:1fr}.hospital-broadcast-actions{align-items:stretch;flex-direction:column}.hospital-broadcast-actions select{min-width:0;width:100%}}

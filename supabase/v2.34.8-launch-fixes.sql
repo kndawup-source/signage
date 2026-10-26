@@ -1,3 +1,4 @@
+begin;
 -- Clinic Signage v2.34.8 · launch fixes
 -- Safe to re-run. Apply after v2.34.0 / v2.34.3 on existing DBs.
 
@@ -187,3 +188,4 @@ alter function public.admin_change_pin(text,text) set search_path=public,extensi
 
 insert into public.schema_version(version) values('2.34.8') on conflict(version) do update set applied_at=excluded.applied_at;
 notify pgrst,'reload schema';
+commit;
