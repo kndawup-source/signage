@@ -2651,3 +2651,11 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-building-floor-hit:hover{background:rgba(35,33,118,.035)!important;box-shadow:none!important}
 .hospital-building-floor-hit.is-selected{background:rgba(35,33,118,.075)!important;box-shadow:none!important}
 .hospital-building-image-host>.hospital-building-image{will-change:auto;transform:translateZ(0)}
+
+
+/* v2.34.28 — direct floorplan image rendering */
+.floorplan-svg-host{position:absolute;inset:0;width:100%;height:100%;padding:0!important;display:block!important}
+.floorplan-svg-host>img{display:block;width:100%;height:100%;object-fit:fill!important;max-width:none!important;max-height:none!important;user-select:none;pointer-events:none}
+.hospital-floor-detail .floorplan-svg-host{padding:0!important}
+.hospital-floor-detail .floorplan-svg-host>img{width:100%;height:100%;object-fit:fill!important;filter:drop-shadow(0 10px 12px rgba(30,35,48,.06))}
+.floor-plan-stage,.settings-map-stage{height:auto}

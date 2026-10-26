@@ -275,6 +275,8 @@
   }
 
 
+  window.addEventListener('beforeunload',()=>revokeFloorplanCache(),{once:true});
+
   function apiHeaders(){
     const session=Signage.getPinSession?.();
     return {'content-type':'application/json',...(session?.token?{'x-signage-session':session.token}:{})};
@@ -291,22 +293,42 @@
   const roomMapPlaced=(r)=>r?.map_x_pct!==null&&r?.map_x_pct!==undefined&&r?.map_y_pct!==null&&r?.map_y_pct!==undefined&&Number.isFinite(Number(r.map_x_pct))&&Number.isFinite(Number(r.map_y_pct));
   function floorSpaceOverlay(x,editable=false){return `<button type="button" class="floor-space-overlay ${editable?'is-editable':''}" data-floor-space="${x.id}" style="left:${Number(x.x_pct)}%;top:${Number(x.y_pct)}%;width:${Number(x.width_pct)}%;height:${Number(x.height_pct)}%"><span>${esc(x.name)}</span></button>`;}
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
+  function revokeFloorplanCache(){
+    for(const entry of floorplanTextCache.values())if(entry?.url)try{URL.revokeObjectURL(entry.url);}catch(_){ }
+    floorplanTextCache.clear();
+  }
+  function applyFloorplanGeometry(host,width,height){
+    const w=Number(width)||0,h=Number(height)||0,stage=host.closest('.floor-plan-stage,.settings-map-stage');
+    if(!stage||!w||!h)return;
+    stage.style.aspectRatio=`${w} / ${h}`;
+    stage.style.minHeight='0px';
+    host.style.aspectRatio=`${w} / ${h}`;
+  }
+  function imageSizeFromUrl(url){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve({width:img.naturalWidth,height:img.naturalHeight});img.onerror=()=>reject(new Error('도면 크기를 읽을 수 없습니다.'));img.src=url;});}
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]].filter(host=>!host.closest('details:not([open])'));
     await Promise.all(hosts.map(async host=>{
       const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;
       try{
-        const meta=floorplanMeta(floor),floorplanWidth=meta?.width||meta?.source_width||0,floorplanHeight=meta?.height||meta?.source_height||0;
-        const cacheKey=`${state.site?.id||''}:${meta?.key||floor}:${floorplanWidth}x${floorplanHeight}`;
-        const cached=floorplanTextCache.get(cacheKey);
-        if(cached&&cached.expiresAt>Date.now()){host.innerHTML=cached.text;host.dataset.loaded='1';return;}
-        const params=new URLSearchParams({floor:String(floor),v:'2.34.27'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);if(floorplanWidth&&floorplanHeight){params.set('width',String(floorplanWidth));params.set('height',String(floorplanHeight));}
-        const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'default'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
-        const text=await response.text();floorplanTextCache.set(cacheKey,{text,expiresAt:Date.now()+240000});host.innerHTML=text;host.dataset.loaded='1';
+        const meta=floorplanMeta(floor),metaW=Number(meta?.width||meta?.source_width||0),metaH=Number(meta?.height||meta?.source_height||0);
+        const cacheKey=`${state.site?.id||''}:${meta?.key||floor}`;
+        let cached=floorplanTextCache.get(cacheKey);
+        if(!cached||cached.expiresAt<=Date.now()){
+          if(cached?.url)try{URL.revokeObjectURL(cached.url);}catch(_){ }
+          const params=new URLSearchParams({floor:String(floor),v:'2.34.28'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);
+          const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'default'});if(!response.ok)throw new Error(`HTTP ${response.status}`);
+          const blob=await response.blob(),url=URL.createObjectURL(blob);
+          let width=metaW,height=metaH;
+          if(!width||!height){const size=await imageSizeFromUrl(url);width=size.width;height=size.height;}
+          cached={url,width,height,expiresAt:Date.now()+240000};floorplanTextCache.set(cacheKey,cached);
+        }
+        applyFloorplanGeometry(host,cached.width,cached.height);
+        host.innerHTML=`<img src="${cached.url}" alt="${floor}층 평면도" draggable="false">`;
+        host.dataset.loaded='1';
       }catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}
     }));
   }
-  async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
+  async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};revokeFloorplanCache();}
   async function pruneFloorplanVersions(siteId,floor,keep=5){
     try{
       const {data,error}=await db.from('floorplan_versions').select('*').eq('site_id',siteId).eq('floor_number',floor).order('created_at',{ascending:false});
