@@ -234,7 +234,8 @@
   function buildingSelectedFloorShape(floorNo){
     const shape=BUILDING_FLOOR_SHAPES[Number(floorNo)];
     if(!shape)return '';
-    return `<svg class="hospital-building-floor-shape" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${shape.points}"></polygon></svg>`;
+    const outline=shape.outline||'3,24 86,4 99,19 99,76 86,97 9,100 3,84 3,24';
+    return `<svg class="hospital-building-floor-shape" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon class="hospital-building-floor-fill" points="${shape.points}"></polygon><polyline class="hospital-building-floor-outline" points="${outline}"></polyline></svg>`;
   }
   function staffBuildingOverview(groups){
     const floorGroups=groups.filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
@@ -249,10 +250,17 @@
     const selectedNo=selected?floorNumber(selected):null;
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
-        <div class="hospital-building-image-wrap">
-          <img src="/assets/building/hospital-cutaway.png?v=2.34.20" alt="병원 건물 단면 이미지">
+        <div class="hospital-building-image-wrap hospital-building-image-clean">
+          <img src="/assets/building/hospital-cutaway-14f.png?v=2.34.21" alt="병원 건물 단면 이미지">
+          <div class="hospital-building-cleanup" aria-hidden="true">
+            <span class="hospital-building-clean-mask mask-label-column"></span>
+            <span class="hospital-building-clean-mask mask-label-link"></span>
+            <span class="hospital-building-clean-mask mask-top-front"></span>
+            <span class="hospital-building-clean-mask mask-top-lower"></span>
+            <span class="hospital-building-clean-mask mask-top-left"></span>
+            <span class="hospital-building-clean-mask mask-top-right"></span>
+          </div>
           ${selectedNo?buildingSelectedFloorShape(selectedNo):''}
-          ${buildingFloorRail(floorGroups)}
         </div>
       </aside>
       <div class="hospital-building-console">
