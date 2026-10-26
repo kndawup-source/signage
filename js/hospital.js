@@ -216,20 +216,20 @@
     }).join('')}</div>`;
   }
   const BUILDING_FLOOR_SHAPES={
-    14:{top:11.2,left:12.8,width:83.4,height:6.0,points:'4,14 94,0 100,73 8,100'},
-    13:{top:17.1,left:13.2,width:82.8,height:6.0,points:'4,12 94,0 100,74 8,100'},
-    12:{top:23.0,left:13.7,width:82.2,height:6.0,points:'4,11 94,0 100,75 8,100'},
-    11:{top:28.9,left:14.1,width:81.6,height:6.0,points:'4,10 94,0 100,76 8,100'},
-    10:{top:34.8,left:14.6,width:81.0,height:6.0,points:'4,9 94,0 100,77 8,100'},
-    9:{top:40.7,left:15.0,width:80.4,height:6.0,points:'4,8 94,0 100,78 8,100'},
-    8:{top:46.6,left:15.5,width:79.8,height:6.0,points:'4,7 94,0 100,79 8,100'},
-    7:{top:52.5,left:15.9,width:79.2,height:6.0,points:'4,6 94,0 100,80 8,100'},
-    6:{top:58.4,left:16.4,width:78.6,height:6.0,points:'4,5 94,0 100,81 8,100'},
-    5:{top:64.3,left:16.8,width:78.0,height:6.0,points:'4,4 94,0 100,82 8,100'},
-    4:{top:70.2,left:17.3,width:77.4,height:6.0,points:'4,3 94,0 100,83 8,100'},
-    3:{top:76.1,left:17.7,width:76.8,height:6.0,points:'4,2 94,0 100,84 8,100'},
-    2:{top:82.0,left:18.2,width:76.2,height:6.2,points:'4,1 94,0 100,85 8,100'},
-    1:{top:88.0,left:18.8,width:75.4,height:7.0,points:'3,0 95,0 100,87 7,100'}
+    14:{top:14.1,left:18.7,width:70.4,height:5.0,points:'0,18 90,0 100,67 7,100'},
+    13:{top:19.35,left:18.2,width:71.3,height:5.0,points:'0,17 90,0 100,68 7,100'},
+    12:{top:24.6,left:17.7,width:72.2,height:5.0,points:'0,16 91,0 100,69 7,100'},
+    11:{top:29.85,left:17.2,width:73.1,height:5.0,points:'0,15 91,0 100,70 7,100'},
+    10:{top:35.1,left:16.7,width:74.0,height:5.0,points:'0,14 92,0 100,71 7,100'},
+    9:{top:40.35,left:16.2,width:74.9,height:5.0,points:'0,13 92,0 100,72 7,100'},
+    8:{top:45.6,left:15.7,width:75.8,height:5.0,points:'0,12 93,0 100,73 7,100'},
+    7:{top:50.85,left:15.2,width:76.7,height:5.0,points:'0,11 93,0 100,74 7,100'},
+    6:{top:56.1,left:14.7,width:77.6,height:5.0,points:'0,10 94,0 100,75 7,100'},
+    5:{top:61.35,left:14.2,width:78.5,height:5.0,points:'0,9 94,0 100,76 7,100'},
+    4:{top:66.6,left:13.7,width:79.4,height:5.0,points:'0,8 95,0 100,77 7,100'},
+    3:{top:71.85,left:13.2,width:80.3,height:5.1,points:'0,7 95,0 100,78 7,100'},
+    2:{top:77.2,left:12.7,width:81.2,height:5.4,points:'0,6 96,0 100,80 7,100'},
+    1:{top:82.9,left:12.2,width:82.1,height:7.0,points:'0,4 96,0 100,86 6,100'}
   };
   function buildingSelectedFloorShape(floorNo){
     const shape=BUILDING_FLOOR_SHAPES[Number(floorNo)];
@@ -250,10 +250,8 @@
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
         <div class="hospital-building-image-wrap">
-          <img src="/assets/building/hospital-cutaway.png?v=2.34.19" alt="병원 건물 단면 이미지">
+          <img src="/assets/building/hospital-cutaway.png?v=2.34.20" alt="병원 건물 단면 이미지">
           ${selectedNo?buildingSelectedFloorShape(selectedNo):''}
-          <span class="hospital-building-ground-mask is-left" aria-hidden="true"></span>
-          <span class="hospital-building-ground-mask is-right" aria-hidden="true"></span>
           ${buildingFloorRail(floorGroups)}
         </div>
       </aside>

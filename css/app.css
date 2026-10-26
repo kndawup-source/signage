@@ -2224,7 +2224,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-page .hospital-settings-card .grid-2{grid-template-columns:1fr}
 }
 
-/* v2.34.19 — one hospital-admin content width across every tab */
+/* v2.34.20 — one hospital-admin content width across every tab */
 .hospital-page{
   --hospital-content-width:920px;
   --hospital-shell-width:988px;
@@ -2282,7 +2282,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-page .operating-row{max-width:none}
 }
 
-/* v2.34.19 · hospital output progressive disclosure */
+/* v2.34.20 · hospital output progressive disclosure */
 .hospital-building-overview{border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden}
 .hospital-building-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:20px 22px 16px;border-bottom:1px solid #eceef1}
 .hospital-building-head>div{display:grid;gap:4px}.hospital-building-head h2{margin:0;font-size:21px!important}.hospital-building-head small{font-size:10px;color:var(--muted);font-weight:650}
@@ -2294,7 +2294,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-output-tools{margin-top:16px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden}.hospital-output-tools>summary{list-style:none;cursor:pointer;padding:15px 18px;font-size:11px;font-weight:850;color:#555b66}.hospital-output-tools>summary::-webkit-details-marker{display:none}.hospital-output-tools[open]>summary{border-bottom:1px solid #eceef1;color:var(--ink)}.hospital-output-tools-body{display:grid;gap:14px;padding:16px}.hospital-output-tools .hospital-broadcast-card{margin:0}.hospital-output-tools .staff-space-detail-drawer{margin:0}
 @media(max-width:700px){.hospital-building-head{display:grid;align-items:start;padding:16px}.hospital-floor-row{grid-template-columns:46px minmax(0,1fr) 20px;gap:10px;min-height:56px;padding:0 14px}.hospital-floor-state{display:none}.hospital-floor-detail{padding:0 14px 16px}.hospital-floor-detail .building-floor-plan-stage{min-height:280px}.hospital-output-tools-body{padding:12px}.hospital-floor-detail-head>div{display:grid;gap:3px}}
 
-/* v2.34.19 — building-first hospital command center */
+/* v2.34.20 — building-first hospital command center */
 .hospital-page{
   --hospital-content-width:1360px;
   --hospital-shell-width:1428px;
@@ -2391,7 +2391,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-building-nameplate{position:absolute;z-index:3;left:37%;bottom:13.4%;width:43%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:9px;font-weight:900;letter-spacing:.01em;color:#30354a;pointer-events:none}
 @media(max-width:1180px){.hospital-building-nameplate{font-size:8px}.hospital-building-selected-slab{left:42px}}
 
-/* v2.34.19 — clean building asset + perspective-correct selected floor */
+/* v2.34.20 — clean building asset + perspective-correct selected floor */
 .hospital-building-image-wrap{overflow:hidden;border-radius:16px}
 .hospital-building-image-wrap>img{
   position:relative;z-index:1;
@@ -2420,3 +2420,23 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-building-ground-mask.is-left{left:36px;width:70px;height:135px}
   .hospital-building-ground-mask.is-right{width:76px;height:165px}
 }
+
+
+/* v2.34.20 — clean architectural building + perspective floor focus */
+.hospital-building-image-wrap{overflow:visible;border-radius:18px;background:transparent}
+.hospital-building-image-wrap>img{
+  width:100%;height:auto;max-height:820px;object-fit:contain;object-position:center top;
+  filter:drop-shadow(0 20px 28px rgba(28,36,52,.09));
+}
+.hospital-building-ground-mask{display:none!important}
+.hospital-building-floor-shape{
+  z-index:4;overflow:visible;filter:drop-shadow(0 8px 13px rgba(53,45,153,.16));
+}
+.hospital-building-floor-shape polygon{
+  fill:rgba(71,58,190,.075);stroke:#5146c7;stroke-width:2.2;
+  vector-effect:non-scaling-stroke;stroke-linejoin:round;
+}
+.hospital-building-floor-rail{left:0;top:13.1%;bottom:8.2%;width:74px;grid-template-rows:repeat(14,1fr)}
+.hospital-building-floor-rail button{width:58px;height:26px;padding:0 8px;border-radius:7px;font-size:10px;background:rgba(255,255,255,.66);backdrop-filter:blur(3px)}
+.hospital-building-floor-rail button.is-selected{width:68px;background:#27227d;color:#fff;font-size:12px;box-shadow:0 8px 18px rgba(39,34,125,.22)}
+@media(max-width:1180px){.hospital-building-floor-rail{width:68px}.hospital-building-floor-rail button{width:54px}.hospital-building-floor-rail button.is-selected{width:64px}}
