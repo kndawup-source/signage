@@ -1,6 +1,6 @@
-/* Clinic Signage Player offline runtime — v2.34.3 */
+/* Clinic Signage Player offline runtime — v2.34.4 */
 'use strict';
-const VERSION='2.34.3';
+const VERSION='2.34.4';
 const SHELL_CACHE=`clinic-signage-player-shell-${VERSION}`;
 const MEDIA_CACHE='clinic-signage-playlist-media-v1';
 const RUNTIME_CACHE='clinic-signage-player-runtime-v1';
@@ -69,7 +69,7 @@ self.addEventListener('fetch',event=>{
   if(request.mode==='navigate'&&url.origin===self.location.origin&&url.pathname==='/player.html'){
     event.respondWith(networkFirst(request,async()=>{const cache=await caches.open(SHELL_CACHE);return (await cache.match('/player.html'))||Response.error();},{cacheRuntime:false}));return;
   }
-  if(url.origin===self.location.origin&&(['/js/player.js','/js/common.js','/js/config.js','/js/version.js','/js/boot.js','/css/app.css','/player-release.json'].includes(url.pathname))){
+  if(url.origin===self.location.origin&&(['/js/player.js','/js/player-fastboot.js','/js/common.js','/js/config.js','/js/version.js','/js/boot.js','/css/app.css','/player-release.json'].includes(url.pathname))){
     event.respondWith((async()=>{const shell=await caches.open(SHELL_CACHE),hit=await shell.match(request);if(hit)return hit;return networkFirst(request,async()=>{const runtime=await caches.open(RUNTIME_CACHE);return (await runtime.match(runtimeKey(request)))||Response.error();});})());return;
   }
   if(request.url===SUPABASE_CDN){

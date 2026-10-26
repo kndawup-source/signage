@@ -1698,7 +1698,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-superadmin-mode .hospital-focus-bar{position:sticky;top:var(--topbar-h);z-index:8}
 @media(max-width:720px){.superadmin-home .hospital-overview-row{grid-template-columns:minmax(0,1fr) 72px 22px}.simple-dialog-card{border-radius:16px;padding:18px}}
 
-/* v2.34.3 patient display link in hospital admin */
+/* v2.34.4 patient display link in hospital admin */
 .floor-room-patient-link{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid rgba(0,0,0,.08)}
 .floor-room-patient-link>small{font-size:12px;font-weight:700;color:#666}
 .floor-room-patient-link>div,.hospital-room-player-actions>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

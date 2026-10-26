@@ -2,7 +2,7 @@
   'use strict';
   const current = document.currentScript;
   const entry = String(current?.dataset?.entry || '').trim();
-  const appVersion = String(current?.dataset?.version || '2.34.3').trim();
+  const appVersion = String(current?.dataset?.version || '2.34.4').trim();
   const playerVersion = String(current?.dataset?.playerVersion || appVersion).trim();
   const supabaseVersion = '2.118.0';
   const supabaseSrc = location.protocol === 'http:'
@@ -25,7 +25,7 @@
         await loadScript(supabaseSrc, location.protocol === 'http:' ? {} : { crossorigin: 'anonymous' });
       }
       const version = entry === 'player' ? playerVersion : appVersion;
-      await loadScript(`/js/config.js?v=${version}`);
+      if (!window.CLINIC_SIGNAGE_CONFIG) await loadScript(`/js/config.js?v=${version}`);
       await loadScript(`/js/version.js?v=${playerVersion}`);
       await loadScript(`/js/common.js?v=${version}`);
       if (entry) await loadScript(`/js/${entry}.js?v=${version}`);

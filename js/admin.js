@@ -264,12 +264,11 @@
   const floorNumber=(g)=>Number(g?.floor_number||(/^\d+$/.test(String(g?.name||'').trim())?String(g.name).trim():String(g?.name||'').match(/(\d+)/)?.[1]||0));
   const floorTitle=(g)=>{const n=floorNumber(g);return n?`${n}F`:groupDisplayName(g);};
   function roomMapPlaced(r){if(r?.map_x_pct==null||r?.map_y_pct==null||r.map_x_pct===''||r.map_y_pct==='')return false;const x=Number(r.map_x_pct),y=Number(r.map_y_pct);return Number.isFinite(x)&&Number.isFinite(y)&&x>=0&&x<=100&&y>=0&&y<=100;}
-  const FLOORPLAN_FLOORS=new Set([1,2,3,4,6,7,8,9,10,11,12,13,14]);
   const floorplanAssets=()=>state.settings?.floorplan_assets&&typeof state.settings.floorplan_assets==='object'?state.settings.floorplan_assets:{};
   const floorplanMeta=(floor)=>floorplanAssets()?.[String(Math.trunc(Number(floor)))]||null;
   const floorplanVersionsFor=(floor)=>state.floorplanVersions.filter(v=>Number(v.floor_number)===Number(floor)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const floorplanKey=(floor)=>String(floorplanMeta(floor)?.key||'').trim();
-  const floorAsset=(g)=>{const n=floorNumber(g);return n&&(FLOORPLAN_FLOORS.has(n)||!!floorplanKey(n))?n:null;};
+  const floorAsset=(g)=>{const n=floorNumber(g);return n&&!!floorplanKey(n)?n:null;};
   const floorplanTextCache=new Map();
   const zoneTypeLabel=(v)=>({treatment:'진료',consult:'상담',waiting:'대기',reception:'안내',support:'지원',office:'사무',common:'공용'})[v]||'공간';
   function zoneRoomsForBounds(bounds){
@@ -284,7 +283,7 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.34.3'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.34.4'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -692,9 +691,9 @@
 
   function floorplanManagerMarkup(){
     const rows=Array.from({length:14},(_,i)=>i+1).map(floor=>{
-      const meta=floorplanMeta(floor),hasFallback=FLOORPLAN_FLOORS.has(floor),versions=floorplanVersionsFor(floor),status=meta?'업로드 도면':hasFallback?'기본 도면':'도면 없음';
+      const meta=floorplanMeta(floor),versions=floorplanVersionsFor(floor),status=meta?'업로드 도면':'도면 없음';
       const detail=meta?`${esc(meta.filename||'업로드 이미지')} · ${formatBytes(meta.size||0)}`:(hasFallback?'기본 제공 도면을 사용 중입니다.':'도면을 업로드하세요.');
-      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">${hasFallback?'기본 도면으로':'도면 제거'}</button>`:''}${versions.length>1?`<select class="compact-select" data-floorplan-version="${floor}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===meta?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" type="button" data-floorplan-restore="${floor}">선택 버전 복원</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
+      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">도면 제거</button>`:''}${versions.length>1?`<select class="compact-select" data-floorplan-version="${floor}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===meta?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" type="button" data-floorplan-restore="${floor}">선택 버전 복원</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
     }).join('');
     return `<section class="settings-section floorplan-manager"><div class="settings-section-head"><div><span class="eyebrow">FLOOR PLAN</span><h2>층별 도면</h2><p>각 층의 실제 도면을 직접 업로드합니다. PNG·JPG·WebP, 최대 12MB. 업로드한 도면은 내부 관제에서만 표시됩니다.</p></div></div><div class="floorplan-admin-list">${rows}</div></section>`;
   }
@@ -733,7 +732,7 @@
     try{
       const next={...floorplanAssets()};delete next[String(floor)];await saveFloorplanAssets(next);
       await db.from('floorplan_versions').update({active:false}).eq('site_id',state.currentSite.id).eq('floor_number',floor);
-      toast(FLOORPLAN_FLOORS.has(floor)?`${floor}층 기본 도면으로 되돌렸습니다.`:`${floor}층 도면을 제거했습니다.`);await load();
+      toast(`${floor}층 도면을 제거했습니다.`);await load();
     }catch(e){toast(e.message||'도면을 제거하지 못했습니다.','error');}
   }
   async function restoreFloorplanVersion(floor){const id=qs(`[data-floorplan-version="${floor}"]`)?.value,v=state.floorplanVersions.find(x=>x.id===id);if(!v)return;try{const next={...floorplanAssets(),[String(floor)]:{key:v.object_key,filename:v.filename,mime:v.mime,size:Number(v.size_bytes||0),updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.currentSite.id).eq('floor_number',floor);await db.from('floorplan_versions').update({active:true}).eq('id',v.id);await saveFloorplanAssets(next);toast(`${floor}층 도면 이전 버전을 복원했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}}

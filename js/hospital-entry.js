@@ -2,7 +2,7 @@
   'use strict';
   const session=await Signage.requireAuth();
   if(!['admin','staff'].includes(session.role)){location.replace('/');return;}
-  const version=String(document.currentScript?.dataset?.appVersion||'2.34.3');
+  const version=String(document.currentScript?.dataset?.appVersion||'2.34.4');
   const header=document.querySelector('.topbar-inner');
   if(header){
     const back=session.role==='admin'?'/admin.html':'/hospital.html';

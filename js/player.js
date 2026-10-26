@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.3');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.4');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -210,10 +210,19 @@
 
   function ensureSurface(){
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
-    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="auto"></video><video id="screenVideoB" class="player-video" muted playsinline preload="auto"></video>${bars()}`;
-    slots=[qs('#screenVideoA'),qs('#screenVideoB')];
-    activeSlot=0;
+    const existingA=qs('#screenVideoA'),existingB=qs('#screenVideoB');
+    if(existingA&&existingB){
+      slots=[existingA,existingB];
+      activeSlot=existingB.classList.contains('is-active')?1:0;
+      const html=bars();if(html&&!qs('#playerBar'))root.insertAdjacentHTML('beforeend',html);
+    }else{
+      root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="auto"></video><video id="screenVideoB" class="player-video" muted playsinline preload="auto"></video>${bars()}`;
+      slots=[qs('#screenVideoA'),qs('#screenVideoB')];
+      activeSlot=0;
+    }
     slots.forEach((el,slotIndex)=>{
+      if(el.dataset.playerBound==='1')return;
+      el.dataset.playerBound='1';
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
