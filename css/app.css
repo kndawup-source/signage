@@ -1682,3 +1682,18 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-focus-metric b{font-size:14px;line-height:1}
 .hospital-focus-metric small{font-size:9px;color:var(--muted)}
 @media(max-width:720px){.hospital-overview-summary>span{min-height:68px;padding:12px}.hospital-overview-summary b{font-size:20px}.hospital-overview-row{grid-template-columns:minmax(0,1fr) 64px 22px;padding:12px}.hospital-overview-row>.hospital-overview-stat:nth-of-type(2){display:none}.hospital-focus-bar{grid-template-columns:38px minmax(0,1fr) 62px}.hospital-focus-bar>.hospital-focus-metric:nth-of-type(2){display:none}}
+
+/* v2.33.21 role separation */
+.superadmin-page .shell{max-width:1040px}
+.superadmin-home{display:grid;gap:18px}
+.superadmin-home .hospital-overview-row{text-decoration:none}
+.superadmin-home .hospital-overview-row:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.simple-dialog{border:0;padding:0;background:transparent;max-width:min(92vw,520px);width:100%}
+.simple-dialog::backdrop{background:rgba(0,0,0,.32)}
+.simple-dialog-card{background:#fff;border-radius:18px;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.18);display:grid;gap:16px}
+.simple-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.simple-dialog-head h2{margin:3px 0 0;font-size:24px}
+.hospital-content-page,.hospital-admin-settings-page{display:grid;gap:16px}
+.hospital-admin-settings-page .hospital-admin-block,.hospital-content-page .hospital-admin-block{margin:0}
+.hospital-superadmin-mode .hospital-focus-bar{position:sticky;top:var(--topbar-h);z-index:8}
+@media(max-width:720px){.superadmin-home .hospital-overview-row{grid-template-columns:minmax(0,1fr) 72px 22px}.simple-dialog-card{border-radius:16px;padding:18px}}

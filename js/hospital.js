@@ -10,7 +10,8 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   const FLOORPLAN_FLOORS=new Set([1,2,3,4,6,7,8,9,10,11,12,13,14]);
-  let state={site:null,siteSettings:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,selectedFloorId=null;
+  let state={site:null,siteSettings:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,selectedFloorId=null,tab='output';
+  qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanTextCache=new Map();
   const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
@@ -237,7 +238,8 @@
   function fillHospitalPlaylistEditor(){const id=qs('#staffPlaylistSelect')?.value||'',p=state.playlists.find(x=>x.id===id);const name=qs('#staffPlaylistName'),videos=qs('#staffPlaylistVideos'),del=qs('#staffDeletePlaylist');if(name)name.value=p?.name||'';if(del)del.disabled=!p;if(videos){const ids=new Set((p?state.playlistItems.filter(x=>x.playlist_id===p.id).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>x.video_id):[]));[...videos.options].forEach(o=>o.selected=ids.has(o.value));}}
   async function saveHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value||null,name=(qs('#staffPlaylistName')?.value||'').trim(),videoIds=[...(qs('#staffPlaylistVideos')?.selectedOptions||[])].map(o=>o.value);if(!name)return toast('플레이리스트 이름을 입력하세요.','error');if(!videoIds.length)return toast('영상은 1개 이상 선택하세요.','error');const {error}=await db.rpc('staff_save_site_playlist',{p_id:id,p_name:name,p_video_ids:videoIds});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 저장했습니다.');await load();}
   async function deleteHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value;if(!id||!confirm('이 병원 플레이리스트를 삭제할까요?'))return;const {error}=await db.rpc('staff_delete_site_playlist',{p_id:id});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 삭제했습니다.');await load();}
-  function hospitalAdminSettingsMarkup(){const site=state.site||{};return `<details class="hospital-admin-settings" ${settingsOpen?'open':''}><summary><span><b>병원 설정</b><small>도면 · 공간 · 디스플레이 위치와 운영 방식을 관리합니다.</small></span><em>관리</em></summary><div class="hospital-admin-settings-body">${hospitalSetupProgress()}<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>이 병원의 관제 화면 이름입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">저장</button></div>${hospitalPlaylistManagerMarkup()}${floorplanAdminMarkup()}${floorSpaceManagerMarkup()}${displaySetupMarkup()}</div></details>`;}
+  function hospitalSettingsPageMarkup(){const site=state.site||{};return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>이 병원의 관리자 화면 이름입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">저장</button></div>${floorplanAdminMarkup()}${floorSpaceManagerMarkup()}${displaySetupMarkup()}</section>`;}
+  function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="page-head compact"><div><span class="eyebrow">VIDEOS</span><h2>영상</h2><p>이 병원에서 사용하는 플레이리스트만 관리합니다.</p></div></div>${hospitalPlaylistManagerMarkup()}</section>`;}
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('staff_update_site_identity',{p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   async function saveDisplaySetup(roomId,x,y,mode){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const useMode=mode||displayControlMode(r);const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});if(error)return toast(error.message,'error');r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';render();}
   function bindDisplaySetup(){
@@ -257,7 +259,7 @@
   }
   async function restoreHospitalFloorplan(floor){const id=qs(`[data-staff-floorplan-version="${floor}"]`)?.value,v=state.floorplanVersions.find(x=>x.id===id);if(!v)return;try{const next={...state.floorplanAssets,[String(floor)]:{key:v.object_key,filename:v.filename,mime:v.mime,size:Number(v.size_bytes||0),updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);await db.from('floorplan_versions').update({active:true}).eq('id',v.id);await saveFloorplanAssets(next);toast(`${floor}층 도면을 복원했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}}
   function bindHospitalAdminSettings(){
-    const details=qs('.hospital-admin-settings');details?.addEventListener('toggle',()=>{settingsOpen=details.open;if(details.open)loadFloorplanSvgs(details);});
+    const details=qs('.hospital-admin-settings');
     qs('#staffSaveSiteIdentity')?.addEventListener('click',saveHospitalIdentity);
     qs('#staffPlaylistSelect')?.addEventListener('change',fillHospitalPlaylistEditor);
     qs('#staffSavePlaylist')?.addEventListener('click',saveHospitalPlaylist);
@@ -266,7 +268,7 @@
     qsa('[data-staff-floorplan-upload]').forEach(input=>input.addEventListener('change',()=>{const f=input.files?.[0];if(f)uploadFloorplan(Number(input.dataset.staffFloorplanUpload),f);input.value='';}));
     qsa('[data-staff-floorplan-reset]').forEach(b=>b.addEventListener('click',()=>resetFloorplan(Number(b.dataset.staffFloorplanReset))));
     qsa('[data-staff-floorplan-restore]').forEach(b=>b.addEventListener('click',()=>restoreHospitalFloorplan(Number(b.dataset.staffFloorplanRestore))));
-    bindFloorSpaceManager();bindDisplaySetup();if(details?.open)loadFloorplanSvgs(details);
+    bindFloorSpaceManager();bindDisplaySetup();if(tab==='settings')loadFloorplanSvgs(qs('#hospitalRoot')).catch(()=>{});
   }
 
 
@@ -274,17 +276,13 @@
     const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
     const issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
     const groups=groupedRooms();
-    qs('#hospitalRoot').innerHTML=`
-      ${state.broadcast?.active?'<div class="broadcast-strip">전체 송출 중입니다.</div>':''}
-      <div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">HOSPITAL ADMIN</span><h1>${esc(state.site?.name||'병원')}</h1><p>층을 선택하고 도면에서 디스플레이를 눌러 영상을 확인하거나 바꿀 수 있습니다.</p></div><button id="staffStatusRefresh" class="btn">새로고침</button></div>
-      ${issues?`<div class="hospital-issue-notice"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}
-      ${staffBuildingOverview(groups)}
-      <details class="staff-space-detail-drawer">
-        <summary><span><b>상세 관리</b><small>영상 순서나 세부 설정이 필요할 때만 사용합니다.</small></span><em>${live}곳 송출 중</em></summary>
-        <div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div>
-      </details>
-      ${hospitalAdminSettingsMarkup()}
-`;
+    qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
+    const head=`<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">HOSPITAL ADMIN</span><h1>${esc(state.site?.name||'병원')}</h1><p>${tab==='output'?'층을 선택하고 도면에서 디스플레이를 눌러 현재 영상과 송출 이유를 확인합니다.':tab==='videos'?'이 병원에서 사용할 영상을 묶어 플레이리스트를 관리합니다.':'병원 정보와 도면, 디스플레이 위치를 설정합니다.'}</p></div>${tab==='output'?'<button id="staffStatusRefresh" class="btn">새로고침</button>':''}</div>`;
+    let content='';
+    if(tab==='output')content=`${issues?`<div class="hospital-issue-notice"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}${staffBuildingOverview(groups)}<details class="staff-space-detail-drawer"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details>`;
+    else if(tab==='videos')content=hospitalVideosPageMarkup();
+    else content=hospitalSettingsPageMarkup();
+    qs('#hospitalRoot').innerHTML=`${state.broadcast?.active&&tab==='output'?'<div class="broadcast-strip">전체 송출 중입니다.</div>':''}${head}${content}`;
     bind();
     loadFloorplanSvgs(qs('#hospitalRoot')).catch(()=>{});
   }
@@ -319,7 +317,7 @@
 
   function bind(){
     bindHospitalAdminSettings();
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{settingsOpen=true;renderPreservingUi(false);requestAnimationFrame(()=>{const d=qs('.hospital-admin-settings');if(d){d.open=true;d.scrollIntoView({behavior:'smooth',block:'start'});}});}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
     qsa('#hospitalRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));
