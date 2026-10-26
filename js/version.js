@@ -1,2 +1,2 @@
 'use strict';
-window.CLINIC_SIGNAGE_VERSION = '2.30.0';
+window.CLINIC_SIGNAGE_VERSION = '2.33.25';

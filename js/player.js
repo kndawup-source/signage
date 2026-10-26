@@ -11,7 +11,7 @@
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   const OFFLINE_CACHE_START_DELAY_MS = 5000;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.30.0');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.33.25');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000;
@@ -23,6 +23,7 @@
   let lastPlaylistSig = '';
   let lastNonce = null;
   let lastError = null;
+  let soundUnlocked = false;
   let expireTimer = null;
   let wakeLock = null;
   let cycleFailures = 0;
@@ -209,7 +210,7 @@
 
   function ensureSurface(){
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
-    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" playsinline preload="auto"></video><video id="screenVideoB" class="player-video" playsinline preload="auto"></video>${bars()}`;
+    root.innerHTML=`<video id="screenVideoA" class="player-video is-active" muted playsinline preload="auto"></video><video id="screenVideoB" class="player-video" muted playsinline preload="auto"></video>${bars()}`;
     slots=[qs('#screenVideoA'),qs('#screenVideoB')];
     activeSlot=0;
     slots.forEach((el,slotIndex)=>{
@@ -243,7 +244,9 @@
   function applyAudio(el){
     if(!el||!state?.room)return;
     el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
-    if(state.room.force_mute)el.muted=true;
+    /* Unattended displays must start muted so Chromium autoplay is deterministic.
+       Sound is restored only after a real user gesture, unless force_mute keeps it off. */
+    el.muted=Boolean(state.room.force_mute)||!soundUnlocked;
   }
   function slotMatches(el,v){return Boolean(el&&v&&el.dataset.videoId===String(v.id||'')&&el.dataset.mediaUrl===mediaUrl(v));}
   function resetSlot(el){
@@ -271,11 +274,27 @@
   async function playElement(el){
     if(!el)return false;
     if(state?.room?.paused)return true;
-    try{await el.play();return true;}
-    catch(_){
-      el.muted=true;
-      try{await el.play();return true;}
-      catch(e){lastError='자동재생 차단';queueHeartbeat(true);return false;}
+    const forceMute=Boolean(state?.room?.force_mute);
+    const targetVolume=Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));
+    el.volume=targetVolume;
+    /* Chromium guarantees muted autoplay. Do not try audible autoplay first: on
+       unattended Windows displays it can leave the decoded first frame visible
+       while playback never starts. */
+    el.muted=forceMute||!soundUnlocked;
+    try{
+      await el.play();
+      lastError=null;
+      return true;
+    }catch(firstError){
+      /* Even after an operator enabled sound, fall back to muted playback rather
+         than sacrificing video output. */
+      if(!el.muted){
+        el.muted=true;
+        try{await el.play();lastError=null;return true;}catch(_){}
+      }
+      lastError='자동재생 차단';
+      queueHeartbeat(true);
+      return false;
     }
   }
   async function waitForRenderedFrame(el,token,timeoutMs=1500){
@@ -432,7 +451,8 @@
   }
   function enableSound(){
     if(state?.room?.force_mute)return;
-    slots.forEach(el=>{if(el&&el.src)el.muted=false;});
+    soundUnlocked=true;
+    slots.forEach(el=>{if(el&&el.src){el.muted=false;applyAudio(el);}});
     const el=activeVideoEl();if(el&&!state?.room?.paused)playElement(el);
     document.documentElement.requestFullscreen?.().catch(()=>{});
   }
