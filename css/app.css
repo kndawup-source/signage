@@ -2442,7 +2442,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 @media(max-width:1180px){.hospital-building-floor-rail{width:68px}.hospital-building-floor-rail button{width:54px}.hospital-building-floor-rail button.is-selected{width:64px}}
 
 
-/* v2.34.21 — 14층 건물 시각 정리 */
+/* v2.34.22 — 14층 건물 시각 정리 */
 .hospital-building-image-wrap.hospital-building-image-clean{position:relative;overflow:hidden;border-radius:18px;background:var(--bg)}
 .hospital-building-image-clean>img{display:block;width:100%;height:auto;object-fit:contain;object-position:center top;filter:drop-shadow(0 16px 26px rgba(24,35,54,.08))}
 .hospital-building-cleanup{position:absolute;inset:0;z-index:2;pointer-events:none}
@@ -2464,3 +2464,18 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 @media(max-width:760px){
   .hospital-building-image-wrap.hospital-building-image-clean{max-width:360px;margin:0 auto}
 }
+
+
+/* v2.34.22 — hospital-managed building image */
+.hospital-building-image-wrap{position:relative;min-height:620px;display:grid;place-items:center;overflow:visible;border-radius:18px;background:transparent}
+.hospital-building-image-host{width:100%;height:100%;display:grid;place-items:center;color:var(--muted);font-size:11px}
+.hospital-building-image-host>img{display:block;width:100%;height:auto;max-height:820px;object-fit:contain;object-position:center top;filter:drop-shadow(0 20px 28px rgba(28,36,52,.09))}
+.hospital-building-image-empty{width:100%;min-height:520px;border:1px dashed var(--line);border-radius:16px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center}
+.hospital-building-image-empty>b{font-size:15px}.hospital-building-image-empty>span{font-size:10px;color:var(--muted)}
+.hospital-building-cleanup,.hospital-building-floor-rail{display:none!important}
+.building-image-settings{display:grid;grid-template-columns:minmax(0,260px) 1fr;gap:18px;align-items:start}
+.building-image-settings-preview,.building-image-settings-empty{min-height:180px;border:1px solid var(--line);border-radius:12px;background:#f7f8fa;display:grid;place-items:center;overflow:hidden;color:var(--muted);font-size:10px}
+.building-image-settings-preview>img{display:block;width:100%;height:180px;object-fit:contain;background:#fff}
+.building-image-settings-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.building-image-settings-actions input[type=file]{display:none}
+@media(max-width:760px){.hospital-building-image-wrap{min-height:0}.hospital-building-image-empty{min-height:220px}.building-image-settings{grid-template-columns:1fr}.building-image-settings-preview>img{height:220px}}

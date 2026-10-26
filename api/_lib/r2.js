@@ -118,6 +118,14 @@ function makeFloorplanObjectKey(floor, filename, contentType, siteId = 'default'
   return `floorplans/${site}/${String(n).padStart(2,'0')}/${crypto.randomUUID()}${ext}`;
 }
 
+
+function makeBuildingObjectKey(filename, contentType, siteId = 'default') {
+  const ext = floorplanExtension(filename, contentType);
+  if (!ext) throw new Error('INVALID_BUILDING_IMAGE_FILE');
+  const site = String(siteId || 'default').replace(/[^A-Za-z0-9_-]/g,'').slice(0,64) || 'default';
+  return `buildings/${site}/${crypto.randomUUID()}${ext}`;
+}
+
 function sanitizeFilename(name) {
   const ext = String(name).toLowerCase().endsWith('.webm') ? '.webm' : '.mp4';
   const base = String(name).replace(/\.[^.]+$/, '').normalize('NFKC').replace(/[^a-zA-Z0-9가-힣._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'video';
@@ -128,4 +136,4 @@ function makeObjectKey(filename) {
   return `videos/${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${crypto.randomUUID()}-${sanitizeFilename(filename)}`;
 }
 
-module.exports = { config, presignPut, presignGet, signedFetch, makeObjectKey, makeFloorplanObjectKey, floorplanExtension };
+module.exports = { config, presignPut, presignGet, signedFetch, makeObjectKey, makeFloorplanObjectKey, makeBuildingObjectKey, floorplanExtension };

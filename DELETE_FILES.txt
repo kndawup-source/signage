@@ -1,0 +1,2 @@
+assets/building/hospital-cutaway.png
+assets/building/hospital-cutaway-14f.png

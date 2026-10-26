@@ -26,13 +26,14 @@ module.exports=async(req,res)=>{
 
     // 1) DB 삭제 전에 R2 정리 대상을 모두 수집한다. 실제 R2 삭제는 DB 삭제 성공 후에만 수행한다.
     const [settingsRes,versionsRes,videosRes]=await Promise.all([
-      supabase(`/rest/v1/site_settings?site_id=eq.${encodeURIComponent(siteId)}&select=floorplan_assets&limit=1`,token),
+      supabase(`/rest/v1/site_settings?site_id=eq.${encodeURIComponent(siteId)}&select=floorplan_assets,building_asset&limit=1`,token),
       supabase(`/rest/v1/floorplan_versions?site_id=eq.${encodeURIComponent(siteId)}&select=object_key`,token),
       supabase(`/rest/v1/videos?site_id=eq.${encodeURIComponent(siteId)}&select=storage_path,file_path,source`,token)
     ]);
     if(!settingsRes.ok||!versionsRes.ok||!videosRes.ok)return json(res,502,{error:'SITE_ASSET_LIST_FAILED'});
     const rows=await settingsRes.json(),versions=await versionsRes.json(),videos=await videosRes.json();
     const keys=collectAssetKeys(rows?.[0]?.floorplan_assets,siteId);
+    const buildingKey=String(rows?.[0]?.building_asset?.key||'');if(buildingKey.startsWith(`buildings/${siteId}/`))keys.add(buildingKey);
     for(const v of versions||[]){const k=String(v?.object_key||'');if(k.startsWith(`floorplans/${siteId}/`))keys.add(k);}
     for(const v of videos||[]){if(String(v?.source||'')==='r2')collectVideoKey(v,keys);}
 
