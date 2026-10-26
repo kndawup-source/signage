@@ -2725,3 +2725,11 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   font-weight:800;
   text-align:center;
 }
+
+/* v2.34.36 — redraw existing floor spaces + keep non-remote displays configurable */
+.floor-space-redraw-note{display:flex;align-items:center;gap:10px;margin:10px 0 12px;padding:10px 12px;border:1px solid #d9d7ee;border-radius:10px;background:#f7f6fc;color:var(--ink)}
+.floor-space-redraw-note b{font-size:11px;white-space:nowrap}.floor-space-redraw-note span{font-size:10px;color:var(--muted)}
+.floor-space-stage.is-redrawing{cursor:crosshair;box-shadow:0 0 0 2px rgba(35,33,118,.08) inset}.floor-space-stage.is-redrawing .floor-space-overlay{pointer-events:none;opacity:.55}
+.floor-space-list>div.is-editing{background:#f7f6fc;border-radius:9px;padding:9px 10px;border-bottom-color:transparent}.floor-space-list-actions{display:flex;align-items:center;gap:10px}
+.floor-room-local-note{display:block;margin-top:8px;color:var(--muted);font-size:10px;line-height:1.5}.manual-config-row{margin:12px 0 8px}.manual-display-panel>small{display:block;color:var(--muted);font-size:10px;line-height:1.5;margin:2px 0 10px}
+@media(max-width:760px){.floor-space-redraw-note{align-items:flex-start;flex-direction:column}.floor-space-list-actions{gap:6px}.manual-config-row{grid-template-columns:1fr!important}}
