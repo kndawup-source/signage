@@ -26,7 +26,7 @@
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,selectedFloorId=null,tab='output';
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
-  const floorplanTextCache=new Map();
+  const floorplanUrlCache=new Map();
   const buildingImageUrlCache=new Map();
   const statusWakeTimers=new Map();
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
@@ -313,7 +313,7 @@
   function floorSpaceOverlay(x,editable=false){return `<button type="button" class="floor-space-overlay ${editable?'is-editable':''}" data-floor-space="${x.id}" style="left:${Number(x.x_pct)}%;top:${Number(x.y_pct)}%;width:${Number(x.width_pct)}%;height:${Number(x.height_pct)}%"><span>${esc(x.name)}</span></button>`;}
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   function revokeFloorplanCache(){
-    floorplanTextCache.clear();
+    floorplanUrlCache.clear();
   }
   function applyFloorplanGeometry(host,width,height){
     const w=Number(width)||0,h=Number(height)||0,stage=host.closest('.floor-plan-stage,.settings-map-stage');
@@ -322,11 +322,18 @@
     stage.style.minHeight='0px';
     host.style.aspectRatio=`${w} / ${h}`;
   }
-  function floorplanImageUrl(floor,meta){
-    const params=new URLSearchParams({floor:String(floor),v:'2.34.30'});
-    if(meta?.key)params.set('key',meta.key);
+  async function getFloorplanImageUrl(floor,meta){
+    const key=String(meta?.key||'').trim();
+    if(!key)throw new Error('FLOORPLAN_KEY_MISSING');
+    const cacheKey=`${state.site?.id||''}:${floor}:${key}`;
+    const cached=floorplanUrlCache.get(cacheKey);
+    if(cached&&cached.expiresAt>Date.now())return cached.url;
+    const params=new URLSearchParams({floor:String(floor),key});
     if(state.site?.id)params.set('siteId',state.site.id);
-    return `/api/floorplan?${params}`;
+    const data=await apiJson(`/api/floorplan?${params}`);
+    if(!data?.url)throw new Error('FLOORPLAN_URL_MISSING');
+    floorplanUrlCache.set(cacheKey,{url:data.url,expiresAt:Date.now()+240000});
+    return data.url;
   }
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]].filter(host=>!host.closest('details:not([open])'));
@@ -335,9 +342,14 @@
       try{
         const meta=floorplanMeta(floor);
         if(!meta?.key)throw new Error('FLOORPLAN_KEY_MISSING');
-        const url=floorplanImageUrl(floor,meta);
-        host.innerHTML=`<img src="${url}" alt="${floor}층 평면도" draggable="false" loading="eager" decoding="async">`;
-        const img=host.querySelector('img');
+        const url=await getFloorplanImageUrl(floor,meta);
+        const img=document.createElement('img');
+        img.src=url;
+        img.alt=`${floor}층 평면도`;
+        img.draggable=false;
+        img.loading='eager';
+        img.decoding='async';
+        host.replaceChildren(img);
         await new Promise((resolve,reject)=>{
           const done=()=>{const w=Number(img.naturalWidth||meta?.width||meta?.source_width||0),h=Number(img.naturalHeight||meta?.height||meta?.source_height||0);if(w&&h)applyFloorplanGeometry(host,w,h);resolve();};
           if(img.complete){if(img.naturalWidth)done();else reject(new Error('도면 이미지를 표시할 수 없습니다.'));return;}

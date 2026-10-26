@@ -269,7 +269,7 @@
   const floorplanVersionsFor=(floor)=>state.floorplanVersions.filter(v=>Number(v.floor_number)===Number(floor)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const floorplanKey=(floor)=>String(floorplanMeta(floor)?.key||'').trim();
   const floorAsset=(g)=>{const n=floorNumber(g);return n&&!!floorplanKey(n)?n:null;};
-  const floorplanTextCache=new Map();
+  const floorplanAssetCache=new Map();
   const zoneTypeLabel=(v)=>({treatment:'진료',consult:'상담',waiting:'대기',reception:'안내',support:'지원',office:'사무',common:'공용'})[v]||'공간';
   function zoneRoomsForBounds(bounds){
     const nums=String(bounds||'').split(',').map(Number);if(nums.length!==4||nums.some(Number.isNaN))return [];
@@ -283,7 +283,54 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.34.7'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{
+      const floor=Number(host.dataset.floorplanSvg);
+      if(!floor||host.dataset.loaded==='1')return;
+      try{
+        const key=floorplanKey(floor);
+        if(!key)throw new Error('FLOORPLAN_KEY_MISSING');
+        const cacheKey=`${state.currentSite?.id||''}:${floor}:${key}`;
+        let asset=floorplanAssetCache.get(cacheKey);
+        if(!asset||asset.expiresAt<=Date.now()){
+          const params=new URLSearchParams({floor:String(floor),key});
+          if(state.currentSite?.id)params.set('siteId',state.currentSite.id);
+          const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});
+          if(!response.ok)throw new Error(`HTTP ${response.status}`);
+          const data=await response.json();
+          if(!data?.url||!/^https:\/\//i.test(String(data.url)))throw new Error('INVALID_FLOORPLAN_RESPONSE');
+          asset={...data,expiresAt:Date.now()+240000};
+          floorplanAssetCache.set(cacheKey,asset);
+        }
+        if(document.contains(host)){
+          const img=document.createElement('img');
+          img.src=asset.url;
+          img.alt=`${floor}층 평면도`;
+          img.decoding='async';
+          img.loading='eager';
+          img.addEventListener('load',()=>{
+            host.dataset.loaded='1';
+            host.closest('.floor-plan-stage,.settings-map-stage')?.classList.remove('floorplan-load-error');
+          },{once:true});
+          img.addEventListener('error',()=>{
+            floorplanAssetCache.delete(cacheKey);
+            host.replaceChildren();
+            const error=document.createElement('span');
+            error.className='floor-plan-error';
+            error.textContent=`${floor}층 평면도를 불러오지 못했습니다.`;
+            host.appendChild(error);
+            host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');
+          },{once:true});
+          host.replaceChildren(img);
+        }
+      }catch(_){
+        host.replaceChildren();
+        const error=document.createElement('span');
+        error.className='floor-plan-error';
+        error.textContent=`${floor}층 평면도를 불러오지 못했습니다.`;
+        host.appendChild(error);
+        host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');
+      }
+    }));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -700,7 +747,7 @@
   async function saveFloorplanAssets(next){
     const sid=state.currentSite?.id;if(!sid)throw new Error('SITE_NOT_SELECTED');const {error}=await db.from('site_settings').upsert({site_id:sid,floorplan_assets:next,updated_at:new Date().toISOString()},{onConflict:'site_id'});
     if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.33.2 migration을 먼저 실행하세요.');throw error;}
-    state.settings.floorplan_assets=next;floorplanTextCache.clear();
+    state.settings.floorplan_assets=next;floorplanAssetCache.clear();
   }
   async function pruneFloorplanVersions(siteId,floor,keep=5){
     try{
