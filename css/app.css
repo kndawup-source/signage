@@ -2037,3 +2037,92 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .superadmin-inline-summary .superadmin-floor-row{grid-template-columns:60px minmax(0,1fr);gap:8px}.superadmin-inline-summary .superadmin-floor-row small{grid-column:2}
   .superadmin-inline-summary .superadmin-site-actions{align-items:stretch;flex-direction:column}.superadmin-inline-summary .superadmin-site-actions .btn,.superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{width:100%;min-width:0}
 }
+
+/* v2.34.14 · hospital layout containment + operating time rows */
+.hospital-page,
+.hospital-page main,
+.hospital-page .shell,
+.hospital-page .hospital-content-page,
+.hospital-page .hospital-admin-settings-page,
+.hospital-page .hospital-settings-primary,
+.hospital-page .hospital-settings-card,
+.hospital-page .hospital-settings-advanced,
+.hospital-page .hospital-settings-advanced-body,
+.hospital-page .hospital-admin-block,
+.hospital-page .hospital-playlist-layout,
+.hospital-page .hospital-playlist-list,
+.hospital-page .hospital-playlist-editor,
+.hospital-page .grid-2,
+.hospital-page .settings-card,
+.hospital-page .floorplan-admin-row,
+.hospital-page .group-admin-row,
+.hospital-page .room-admin,
+.hospital-page .room-admin-body{
+  min-width:0;
+  max-width:100%;
+}
+.hospital-page{overflow-x:clip}
+.hospital-page input,
+.hospital-page select,
+.hospital-page textarea{min-width:0;max-width:100%}
+.hospital-page .inline{min-width:0;max-width:100%}
+
+/* Operating hours are one compact row on desktop instead of five full-width controls. */
+.operating-list{display:grid;gap:10px;margin-bottom:18px}
+.operating-row{
+  display:grid;
+  grid-template-columns:34px minmax(68px,.42fr) minmax(150px,1fr) 14px minmax(150px,1fr);
+  align-items:center;
+  gap:10px;
+  width:100%;
+  min-width:0;
+  padding:11px 12px;
+  border:1px solid var(--ui-line,var(--line));
+  border-radius:11px;
+  background:#fafbfc;
+}
+.operating-row>.switch{width:34px;min-width:34px}
+.operating-row>b{min-width:0;font-size:12px;line-height:1.2;font-weight:800;white-space:nowrap}
+.operating-row>input[type="time"]{
+  width:100%;
+  min-width:0;
+  min-height:40px;
+  padding:7px 10px;
+  background:#fff;
+  font-variant-numeric:tabular-nums;
+}
+.operating-row>span{font-size:12px;color:var(--muted);text-align:center}
+.hospital-settings-card>.hospital-admin-block>.field{margin-top:2px}
+.hospital-settings-card>.hospital-admin-block>.inline{gap:8px;margin-top:14px;align-items:center}
+.hospital-settings-card>.hospital-admin-block>.inline .btn{margin:0;flex:0 0 auto}
+
+/* Advanced setup: prevent fixed child grids/actions from forcing page-wide scrolling. */
+.hospital-settings-advanced-body .grid-2,
+.hospital-settings-advanced-body .settings-split,
+.hospital-settings-advanced-body .site-manager-grid,
+.hospital-settings-advanced-body .access-grid,
+.hospital-settings-advanced-body .settings-system-grid{min-width:0;max-width:100%}
+.floorplan-admin-copy,
+.floorplan-admin-actions,
+.floor-space-toolbar,
+.display-setup-toolbar{min-width:0;max-width:100%}
+.floorplan-admin-actions{flex-wrap:wrap;justify-content:flex-end}
+.group-admin-row>*{min-width:0;max-width:100%}
+.room-admin-compact>summary>*{min-width:0}
+
+@media(max-width:900px){
+  .operating-row{grid-template-columns:34px minmax(64px,.45fr) minmax(0,1fr) 12px minmax(0,1fr);gap:8px}
+}
+@media(max-width:620px){
+  .operating-row{
+    grid-template-columns:34px minmax(0,1fr);
+    gap:8px 10px;
+    padding:11px;
+  }
+  .operating-row>b{white-space:normal}
+  .operating-row>input[type="time"]{grid-column:1/-1}
+  .operating-row>span{display:none}
+  .hospital-settings-card>.hospital-admin-block>.inline{display:grid;grid-template-columns:1fr;gap:8px}
+  .hospital-settings-card>.hospital-admin-block>.inline .btn{width:100%}
+  .floorplan-admin-actions{justify-content:flex-start}
+}
