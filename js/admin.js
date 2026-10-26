@@ -284,7 +284,7 @@
   }
   async function hydrateFloorplanImages(){
     const hosts=qsa('[data-floorplan-svg]');
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.34.1'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{let text=floorplanTextCache.get(floor);if(!text){const key=floorplanKey(floor);const params=new URLSearchParams({floor:String(floor),v:'2.34.2'});if(key)params.set('key',key);if(state.currentSite?.id)params.set('siteId',state.currentSite.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);text=await response.text();floorplanTextCache.set(floor,text);}if(document.contains(host)){host.innerHTML=text;host.dataset.loaded='1';bindFloorZoneInteractions(host.closest('.floor-plan-stage'));}}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 평면도를 불러오지 못했습니다.</span>`;host.closest('.floor-plan-stage,.settings-map-stage')?.classList.add('floorplan-load-error');}}));
   }
   function floorMapMarker(r,editor=false){
     if(!roomMapPlaced(r))return '';
@@ -561,12 +561,9 @@
   async function undoLatest(type,id){const h=state.history.find(x=>x.scope_type===type&&(!id||x.scope_id===id)&&x.before_state);if(!h)return toast('복귀 가능한 이전 상태가 없습니다.','error');await undoHistory(h.id);}
 
   function renderVideos(){
-    const ready=storageHealth?.ok===true;
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">MEDIA</span><h1>영상</h1><p class="page-intro">영상 파일과 플레이리스트만 관리합니다. 어느 공간에 무엇을 송출할지는 송출 메뉴에서 설정합니다.</p></div><div class="stat">영상 ${state.videos.length} · 플레이리스트 ${state.playlists.length}</div></div>
-    <section class="panel upload-panel"><div class="panel-head"><div><h2>영상 업로드</h2><p>업로드한 영상은 보관함에 저장됩니다. 공간별 송출 설정은 송출 메뉴에서 관리합니다.</p></div><label class="btn primary ${ready?'':'disabled'}">파일 선택<input id="videoUpload" type="file" accept="video/mp4" multiple hidden ${ready?'':'disabled'}></label></div><div id="uploadQueue" class="upload-queue"></div><div class="storage-line"><span class="dot ${ready?'on':''}"></span><b>영상 저장소</b><span>${ready?'연결됨':'설정 필요'}</span></div></section>
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">MEDIA</span><h1>영상</h1><p class="page-intro">등록된 영상과 플레이리스트를 관리합니다. 영상 파일 업로드는 이 시스템에서 제공하지 않습니다.</p></div><div class="stat">영상 ${state.videos.length} · 플레이리스트 ${state.playlists.length}</div></div>
     <section class="panel playlist-manager"><div class="panel-head"><div><span class="eyebrow">PLAYLISTS</span><h2>플레이리스트</h2><p>용도별 묶음 안에서 영상과 순서를 관리합니다.</p></div></div><div class="playlist-create"><input id="newPlaylistName" placeholder="플레이리스트 이름"><select id="newPlaylistKind"><option value="default">기본 재생</option><option value="patient">환자 맞춤</option></select><select id="newPlaylistTreatment"><option value="">공통</option>${TREATMENT_OPTIONS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button id="addPlaylist" class="btn primary">만들기</button></div>${playlistGroupsHtml()}</section>
     <section class="panel"><div class="panel-head"><div><span class="eyebrow">LIBRARY</span><h2>영상 보관함</h2><p>영상의 제목과 사용 여부만 관리합니다.</p></div>${state.videos.some(v=>v.url&&!v.thumbnail_data_url)?'<button id="backfillThumbs" class="btn">누락 썸네일 생성</button>':''}</div><div class="media-list">${state.videos.map(videoRow).join('')||'<p class="muted">등록된 영상이 없습니다.</p>'}</div></section>`;
-    qs('#videoUpload')?.addEventListener('change',e=>uploadVideos([...e.target.files]));
     qs('#addPlaylist')?.addEventListener('click',addPlaylist);
     qs('#backfillThumbs')?.addEventListener('click',backfillThumbnails);
     qsa('[data-thumbnail-regenerate]').forEach(b=>b.addEventListener('click',()=>regenerateThumbnail(b.dataset.thumbnailRegenerate)));
@@ -628,47 +625,6 @@
   function probeRemoteThumbnail(video){return new Promise((resolve,reject)=>{if(!video?.url)return reject(new Error('영상 주소 없음'));const v=document.createElement('video');v.crossOrigin='anonymous';v.preload='auto';v.muted=true;v.playsInline=true;let done=false;const finish=(fn,arg)=>{if(done)return;done=true;v.removeAttribute('src');try{v.load();}catch(_){}fn(arg);};const fail=()=>finish(reject,new Error(`${video.title}: 썸네일을 만들 수 없습니다.`));v.onloadedmetadata=()=>{try{v.currentTime=Math.min(Math.max(.1,(v.duration||1)*.1),2);}catch(_){fail();}};v.onseeked=()=>{try{const c=document.createElement('canvas'),w=320,h=Math.max(180,Math.round(320*(v.videoHeight/v.videoWidth)));c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);finish(resolve,c.toDataURL('image/jpeg',.62));}catch(_){fail();}};v.onerror=fail;v.src=video.url;});}
   async function backfillThumbnails(){if(uploadBusy)return;const targets=state.videos.filter(v=>v.url&&!v.thumbnail_data_url);if(!targets.length)return toast('누락된 썸네일이 없습니다.');uploadBusy=true;let done=0,failed=0;try{for(const v of targets){try{const thumbnail=await probeRemoteThumbnail(v);const {error}=await db.from('videos').update({thumbnail_data_url:thumbnail}).eq('id',v.id);if(error)throw error;done++;}catch(_){failed++;}}toast(`썸네일 ${done}개 생성${failed?` · 실패 ${failed}개`:''}`,failed?'error':'info');await load();}finally{uploadBusy=false;}}
   async function regenerateThumbnail(id){if(uploadBusy)return;const video=state.videos.find(v=>v.id===id);if(!video?.url)return toast('영상 주소가 없어 썸네일을 만들 수 없습니다.','error');uploadBusy=true;const button=qs(`[data-thumbnail-regenerate="${id}"]`);if(button){button.disabled=true;button.textContent='생성 중…';}try{const thumbnail=await probeRemoteThumbnail(video);const {error}=await db.from('videos').update({thumbnail_data_url:thumbnail}).eq('id',id);if(error)throw error;video.thumbnail_data_url=thumbnail;toast('썸네일을 생성했습니다.');renderVideos();}catch(e){toast(e?.message||'썸네일 생성에 실패했습니다.','error');}finally{uploadBusy=false;}}
-  async function inspectMp4Codecs(file){
-    const chunk=8*1024*1024;
-    const headBuf=await file.slice(0,Math.min(file.size,chunk)).arrayBuffer();
-    const tailBuf=file.size>chunk?await file.slice(Math.max(0,file.size-chunk),file.size).arrayBuffer():headBuf;
-    const toText=buf=>{const a=new Uint8Array(buf);let out='';for(let i=0;i<a.length;i+=32768)out+=String.fromCharCode(...a.subarray(i,Math.min(i+32768,a.length)));return out;};
-    const head=toText(headBuf),tail=tailBuf===headBuf?head:toText(tailBuf),text=head+tail;
-    const moovHead=head.indexOf('moov'),mdatHead=head.indexOf('mdat'),moovTail=tail.indexOf('moov');
-    const fastStart=moovHead>=0&&(mdatHead<0||moovHead<mdatHead);
-    const slowStart=!fastStart&&(moovTail>=0||(moovHead>=0&&mdatHead>=0&&moovHead>mdatHead));
-    return {h264:/avc1|avc3/.test(text),aac:/mp4a/.test(text),fastStart,slowStart};
-  }
-  function probeVideoFile(file){return new Promise((resolve,reject)=>{const url=URL.createObjectURL(file),v=document.createElement('video');v.preload='metadata';v.muted=true;v.playsInline=true;const cleanup=()=>URL.revokeObjectURL(url);const fail=(msg)=>{cleanup();reject(new Error(msg));};v.onloadedmetadata=()=>{if(!Number.isFinite(v.duration)||v.duration<1)return fail(`${file.name}: 영상 길이를 확인할 수 없습니다.`);if(!v.videoWidth||!v.videoHeight)return fail(`${file.name}: 영상 해상도를 확인할 수 없습니다.`);const t=Math.min(Math.max(.1,v.duration*.1),2);v.currentTime=t;};v.onseeked=()=>{try{const c=document.createElement('canvas'),w=320,h=Math.max(180,Math.round(320*(v.videoHeight/v.videoWidth)));c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(v,0,0,w,h);const thumbnail=c.toDataURL('image/jpeg',.62);const data={duration_sec:Math.round(v.duration*10)/10,width:v.videoWidth,height:v.videoHeight,thumbnail_data_url:thumbnail};cleanup();resolve(data);}catch(e){fail(`${file.name}: 썸네일 생성 실패`);}};v.onerror=()=>fail(`${file.name}: 브라우저에서 재생할 수 없는 영상입니다.`);v.src=url;});}
-  async function uploadVideos(files){
-    if(uploadBusy||!files.length)return;
-    const invalid=files.find(f=>f.type!=='video/mp4'&&!String(f.name).toLowerCase().endsWith('.mp4'));
-    if(invalid)return toast('안정적인 현장 재생을 위해 MP4 영상만 업로드할 수 있습니다.','error');
-    uploadBusy=true;
-    const queue=qs('#uploadQueue');
-    try{
-      for(const file of files){
-        const [meta,codecs]=await Promise.all([probeVideoFile(file),inspectMp4Codecs(file)]);
-        if(!codecs.h264||!codecs.aac)throw new Error(`${file.name}: MP4 / H.264 / AAC 표준 영상만 등록할 수 있습니다.`);
-        if(codecs.slowStart)throw new Error(`${file.name}: 빠른 자동재생을 위한 MP4 Fast Start가 적용되지 않았습니다. H.264 / AAC / Fast Start로 다시 저장해 주세요.`);
-        if(file.size>2*1024*1024*1024)throw new Error(`${file.name}: 2GB를 초과한 영상은 등록할 수 없습니다.`);
-        if(meta.duration_sec>7200)throw new Error(`${file.name}: 2시간을 초과한 영상은 등록할 수 없습니다.`);
-        if(meta.width>3840||meta.height>2160)throw new Error(`${file.name}: 4K(3840×2160)를 초과한 영상은 등록할 수 없습니다.`);
-        const validationNote=(meta.width<640||meta.height<360)?'낮은 해상도 · MP4/H.264/AAC/Fast Start 확인':'MP4 · H.264 · AAC · Fast Start · 브라우저 재생 확인';
-        const row=document.createElement('div');row.className='upload-row';row.innerHTML=`<span>${esc(file.name)}</span><div><i></i></div><b>0%</b>`;queue?.appendChild(row);
-        const contentType='video/mp4';
-        const info=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType,size:file.size})});
-        await uploadByXhr(info.uploadUrl,file,contentType,pct=>{const bar=row.querySelector('i'),label=row.querySelector('b');if(bar)bar.style.width=`${pct}%`;if(label)label.textContent=`${pct}%`;});
-        const max=state.videos.reduce((m,v)=>Math.max(m,Number(v.sort_order)||0),0);
-        const {error}=await db.from('videos').insert({title:titleFromPath(file.name)||file.name,source:'r2',storage_path:info.key,url:info.publicUrl,size_bytes:file.size,duration_sec:meta.duration_sec,width_px:meta.width,height_px:meta.height,validation_status:(meta.width<640||meta.height<360)?'warn':'ok',validation_note:validationNote,thumbnail_data_url:meta.thumbnail_data_url,available:true,active:true,sort_order:max+10,tags:[],target_age:[],target_gender:[],target_treatment:[]});
-        if(error){await apiJson('/api/r2-delete',{method:'POST',body:JSON.stringify({key:info.key})}).catch(()=>{});throw error;}
-        row.classList.add('done');row.querySelector('b').textContent='완료';
-        state.videos.push({id:'pending',sort_order:max+10});
-      }
-      toast(`${files.length}개 영상 업로드 완료`);await load();
-    }catch(e){toast(e.message||String(e),'error');load().catch(()=>{});}
-    finally{uploadBusy=false;}
-  }
 
   function groupKindLabel(kind){return GROUP_KINDS.find(([v])=>v===kind)?.[1]||'구역';}
   function groupAdminRow(g){
