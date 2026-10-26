@@ -1,8 +1,6 @@
 'use strict';
-const { requireMember, resolveSite, json } = require('./_lib/auth');
+const { requireMember, resolveSite, json, SUPABASE_URL, SUPABASE_ANON_KEY } = require('./_lib/auth');
 const { presignGet } = require('./_lib/r2');
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xtzchrpwgjvalvallfre.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 module.exports=async(req,res)=>{
   if(req.method!=='GET')return json(res,405,{error:'METHOD_NOT_ALLOWED'});
   try{

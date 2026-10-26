@@ -215,27 +215,37 @@
       return `<button type="button" class="${selected?'is-selected':''} ${g?'':'is-empty'}" ${g?`data-staff-select-floor="${g.id}"`:'disabled'}><span>${n}F</span></button>`;
     }).join('')}</div>`;
   }
+  // v2.34.24 · 14층 건물 이미지 전용 층 zone
+  // 옥상은 제외하고, 실제 TV가 보이는 중앙 실내 단면만 선택 영역으로 사용한다.
   const BUILDING_FLOOR_SHAPES={
-    14:{top:14.1,left:18.7,width:70.4,height:5.0,points:'0,18 90,0 100,67 7,100'},
-    13:{top:19.35,left:18.2,width:71.3,height:5.0,points:'0,17 90,0 100,68 7,100'},
-    12:{top:24.6,left:17.7,width:72.2,height:5.0,points:'0,16 91,0 100,69 7,100'},
-    11:{top:29.85,left:17.2,width:73.1,height:5.0,points:'0,15 91,0 100,70 7,100'},
-    10:{top:35.1,left:16.7,width:74.0,height:5.0,points:'0,14 92,0 100,71 7,100'},
-    9:{top:40.35,left:16.2,width:74.9,height:5.0,points:'0,13 92,0 100,72 7,100'},
-    8:{top:45.6,left:15.7,width:75.8,height:5.0,points:'0,12 93,0 100,73 7,100'},
-    7:{top:50.85,left:15.2,width:76.7,height:5.0,points:'0,11 93,0 100,74 7,100'},
-    6:{top:56.1,left:14.7,width:77.6,height:5.0,points:'0,10 94,0 100,75 7,100'},
-    5:{top:61.35,left:14.2,width:78.5,height:5.0,points:'0,9 94,0 100,76 7,100'},
-    4:{top:66.6,left:13.7,width:79.4,height:5.0,points:'0,8 95,0 100,77 7,100'},
-    3:{top:71.85,left:13.2,width:80.3,height:5.1,points:'0,7 95,0 100,78 7,100'},
-    2:{top:77.2,left:12.7,width:81.2,height:5.4,points:'0,6 96,0 100,80 7,100'},
-    1:{top:82.9,left:12.2,width:82.1,height:7.0,points:'0,4 96,0 100,86 6,100'}
+    14:{top:9.7,left:31.0,width:42.7,height:6.2,points:'0,12 94,0 100,88 3,100'},
+    13:{top:16.0,left:31.1,width:42.6,height:6.0,points:'0,10 95,0 100,90 3,100'},
+    12:{top:22.1,left:31.2,width:42.5,height:5.9,points:'0,9 95,0 100,91 3,100'},
+    11:{top:28.2,left:31.3,width:42.4,height:5.9,points:'0,8 96,0 100,92 3,100'},
+    10:{top:34.3,left:31.4,width:42.3,height:5.9,points:'0,8 96,0 100,92 3,100'},
+    9:{top:40.3,left:31.5,width:42.2,height:5.9,points:'0,7 96,0 100,93 3,100'},
+    8:{top:46.3,left:31.6,width:42.1,height:5.9,points:'0,7 97,0 100,93 3,100'},
+    7:{top:52.3,left:31.7,width:42.0,height:5.9,points:'0,6 97,0 100,94 3,100'},
+    6:{top:58.3,left:31.8,width:41.9,height:5.9,points:'0,6 97,0 100,94 3,100'},
+    5:{top:64.3,left:31.9,width:41.8,height:5.9,points:'0,5 98,0 100,95 3,100'},
+    4:{top:70.2,left:32.0,width:41.7,height:5.9,points:'0,5 98,0 100,95 3,100'},
+    3:{top:76.1,left:32.1,width:41.6,height:5.9,points:'0,4 98,0 100,96 3,100'},
+    2:{top:82.0,left:32.2,width:41.5,height:5.5,points:'0,4 98,0 100,96 3,100'},
+    1:{top:87.1,left:29.4,width:47.0,height:9.3,points:'0,2 100,0 100,96 0,100'}
   };
   function buildingSelectedFloorShape(floorNo){
     const shape=BUILDING_FLOOR_SHAPES[Number(floorNo)];
     if(!shape)return '';
-    const outline=shape.outline||'3,24 86,4 99,19 99,76 86,97 9,100 3,84 3,24';
-    return `<svg class="hospital-building-floor-shape" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon class="hospital-building-floor-fill" points="${shape.points}"></polygon><polyline class="hospital-building-floor-outline" points="${outline}"></polyline></svg>`;
+    return `<svg class="hospital-building-floor-shape" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon class="hospital-building-floor-fill" points="${shape.points}"></polygon><polygon class="hospital-building-floor-outline" points="${shape.points}"></polygon></svg>`;
+  }
+  function buildingFloorHitZones(floorGroups){
+    const byNo=new Map(floorGroups.map(g=>[floorNumber(g),g]));
+    return Object.entries(BUILDING_FLOOR_SHAPES).map(([floor,shape])=>{
+      const g=byNo.get(Number(floor)); if(!g)return '';
+      const selected=selectedFloorId===g.id;
+      const polygon=shape.points.split(' ').map(pair=>pair.split(',').map(v=>`${v}%`).join(' ')).join(',');
+      return `<button type="button" class="hospital-building-floor-hit${selected?' is-selected':''}" data-staff-select-floor="${g.id}" aria-label="${floor}층 선택" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%;clip-path:polygon(${polygon})"></button>`;
+    }).join('');
   }
   function staffBuildingOverview(groups){
     const floorGroups=groups.filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
@@ -251,7 +261,7 @@
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
         <div class="hospital-building-image-wrap">
-          ${state.buildingAsset?.key?`<div class="hospital-building-image-host" data-building-image><span>건물 이미지를 불러오는 중입니다.</span></div>${selectedNo?buildingSelectedFloorShape(selectedNo):''}`:`<div class="hospital-building-image-empty"><b>건물 이미지가 없습니다.</b><span>병원 설정에서 건물 이미지를 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>건물 이미지 등록</button></div>`}
+          ${state.buildingAsset?.key?`<div class="hospital-building-image-host" data-building-image><span>건물 이미지를 불러오는 중입니다.</span></div>${buildingFloorHitZones(floorGroups)}${selectedNo?buildingSelectedFloorShape(selectedNo):''}`:`<div class="hospital-building-image-empty"><b>건물 이미지가 없습니다.</b><span>병원 설정에서 건물 이미지를 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>건물 이미지 등록</button></div>`}
         </div>
       </aside>
       <div class="hospital-building-console">
@@ -287,7 +297,7 @@
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]];
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.34.11'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.34.23'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const floorplanWidth=meta?.width||meta?.source_width||0,floorplanHeight=meta?.height||meta?.source_height||0;if(floorplanWidth&&floorplanHeight){params.set('width',String(floorplanWidth));params.set('height',String(floorplanHeight));}const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
   }
   async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
   async function pruneFloorplanVersions(siteId,floor,keep=5){
@@ -313,23 +323,24 @@
     const MAX_EDGE=2600,TARGET_BYTES=1800*1024,SKIP_BYTES=1200*1024,ABSOLUTE_BYTES=4*1024*1024;
     const image=await imageSourceForFloorplan(file);
     try{
-      const maxEdge=Math.max(image.width,image.height);
-      if(file.size<=SKIP_BYTES&&maxEdge<=MAX_EDGE)return {file,optimized:false,originalSize:file.size};
-      const baseScale=Math.min(1,MAX_EDGE/maxEdge);let best=null;
+      const originalWidth=Number(image.width)||0,originalHeight=Number(image.height)||0;
+      const maxEdge=Math.max(originalWidth,originalHeight);
+      if(file.size<=SKIP_BYTES&&maxEdge<=MAX_EDGE)return {file,optimized:false,originalSize:file.size,width:originalWidth,height:originalHeight};
+      const baseScale=Math.min(1,MAX_EDGE/maxEdge);let best=null,bestWidth=originalWidth,bestHeight=originalHeight;
       for(let round=0;round<5;round++){
-        const scale=baseScale*Math.pow(.86,round),width=Math.max(1,Math.round(image.width*scale)),height=Math.max(1,Math.round(image.height*scale));
+        const scale=baseScale*Math.pow(.86,round),width=Math.max(1,Math.round(originalWidth*scale)),height=Math.max(1,Math.round(originalHeight*scale));
         const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
         const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('도면 압축을 지원하지 않는 브라우저입니다.');
         ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(image.source,0,0,width,height);
         for(const quality of [.9,.84,.78,.72]){
-          const blob=await canvasBlob(canvas,'image/webp',quality);if(!best||blob.size<best.size)best=blob;if(blob.size<=TARGET_BYTES){best=blob;round=99;break;}
+          const blob=await canvasBlob(canvas,'image/webp',quality);if(!best||blob.size<best.size){best=blob;bestWidth=width;bestHeight=height;}if(blob.size<=TARGET_BYTES){best=blob;bestWidth=width;bestHeight=height;round=99;break;}
         }
       }
       if(!best)throw new Error('도면 압축에 실패했습니다.');
-      if(best.size>=file.size&&file.size<=ABSOLUTE_BYTES)return {file,optimized:false,originalSize:file.size};
+      if(best.size>=file.size&&file.size<=ABSOLUTE_BYTES)return {file,optimized:false,originalSize:file.size,width:originalWidth,height:originalHeight};
       if(best.size>ABSOLUTE_BYTES)throw new Error('도면을 최적화했지만 용량이 너무 큽니다. 더 작은 이미지를 사용하세요.');
       const base=String(file.name||'floorplan').replace(/\.[^.]+$/,'').slice(0,80)||'floorplan';
-      return {file:new File([best],`${base}.webp`,{type:'image/webp',lastModified:Date.now()}),optimized:true,originalSize:file.size};
+      return {file:new File([best],`${base}.webp`,{type:'image/webp',lastModified:Date.now()}),optimized:true,originalSize:file.size,width:bestWidth,height:bestHeight,source_width:originalWidth,source_height:originalHeight};
     }finally{image.close?.();}
   }
   async function loadBuildingImages(root=qs('#hospitalRoot')){
@@ -340,7 +351,7 @@
   async function uploadBuildingImage(file){
     if(!state.site?.id)return toast('병원 정보가 없습니다.','error');
     const type=String(file.type||'').toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(type))return toast('PNG, JPG, WebP 이미지만 업로드할 수 있습니다.','error');if(file.size>12*1024*1024)return toast('원본 이미지는 12MB 이하 파일을 사용하세요.','error');
-    try{toast('건물 이미지를 최적화하고 있습니다.');const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();const signed=await apiJson('/api/building-presign',{method:'POST',body:JSON.stringify({filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,uploadFile,mime);const old=state.buildingAsset?.key||'';const next={key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,updated_at:new Date().toISOString()};await saveBuildingAsset(next);if(old&&old!==signed.key){try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] old image cleanup failed',e);}}toast('건물 이미지를 저장했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}
+    try{toast('건물 이미지를 최적화하고 있습니다.');const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();const signed=await apiJson('/api/building-presign',{method:'POST',body:JSON.stringify({filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,uploadFile,mime);const old=state.buildingAsset?.key||'';const next={key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,width:optimized.width||null,height:optimized.height||null,source_width:optimized.source_width||optimized.width||null,source_height:optimized.source_height||optimized.height||null,updated_at:new Date().toISOString()};await saveBuildingAsset(next);if(old&&old!==signed.key){try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] old image cleanup failed',e);}}toast('건물 이미지를 저장했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}
   }
   async function removeBuildingImage(){const old=state.buildingAsset?.key||'';if(!old)return;if(!confirm('건물 이미지를 삭제할까요?'))return;try{await saveBuildingAsset({});try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] R2 cleanup failed',e);}toast('건물 이미지를 삭제했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
   function buildingImageSettingsMarkup(){const a=state.buildingAsset||{};return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>건물 이미지</b><small>송출 현황의 왼쪽 건물 시각화에 사용합니다. 병원별로 따로 저장됩니다.</small></div></div><div class="building-image-settings">${a.key?`<div class="building-image-settings-preview" data-building-image><span>이미지 불러오는 중</span></div>`:`<div class="building-image-settings-empty">등록된 건물 이미지가 없습니다.</div>`}<div class="building-image-settings-actions"><label class="btn small"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-building-upload><span>${a.key?'교체':'업로드'}</span></label>${a.key?'<button type="button" class="btn small" data-staff-building-remove>삭제</button>':''}</div></div></div>`;}
@@ -352,7 +363,7 @@
       const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();
       const signed=await apiJson('/api/floorplan-presign',{method:'POST',body:JSON.stringify({floor,filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});
       await uploadByXhr(signed.uploadUrl,uploadFile,mime);
-      const next={...state.floorplanAssets,[String(floor)]:{key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,updated_at:new Date().toISOString()}};
+      const next={...state.floorplanAssets,[String(floor)]:{key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,width:optimized.width||null,height:optimized.height||null,source_width:optimized.source_width||optimized.width||null,source_height:optimized.source_height||optimized.height||null,updated_at:new Date().toISOString()}};
       await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);
       await db.from('floorplan_versions').insert({site_id:state.site.id,floor_number:floor,object_key:signed.key,filename:uploadFile.name,mime,size_bytes:uploadFile.size,active:true});
       await saveFloorplanAssets(next);await pruneFloorplanVersions(state.site.id,floor);

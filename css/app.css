@@ -2355,7 +2355,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-floor-detail .building-floorplan-wrap{border:1px solid #e7e9ee;border-radius:11px;background:#fafbfc;overflow:hidden}
 .hospital-floor-detail .building-floor-plan-stage{min-height:445px;background:#fafbfc}
 .hospital-floor-detail .floorplan-svg-host{display:grid;place-items:center;width:100%;height:100%;padding:14px}
-.hospital-floor-detail .floorplan-svg-host svg{max-width:100%;max-height:100%;filter:drop-shadow(0 10px 12px rgba(30,35,48,.06))}
+.hospital-floor-detail .floorplan-svg-host svg,.hospital-floor-detail .floorplan-svg-host img{display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;filter:drop-shadow(0 10px 12px rgba(30,35,48,.06))}
 .hospital-floor-detail .building-zone-inspector{border-top:1px solid #eceef1;background:#fff}
 .hospital-floor-detail-empty{display:grid;place-items:center;min-height:500px;text-align:center}.hospital-floor-detail-empty b{font-size:16px}.hospital-floor-detail-empty p{margin:6px 0 0;font-size:10px;color:#8b9099}
 .hospital-floor-empty{min-height:440px!important;display:grid!important;place-items:center;text-align:center;border:1px dashed #dfe2e7!important;background:#fafbfc!important}.hospital-floor-empty p{margin:5px 0 12px;font-size:10px;color:#888f99}
@@ -2479,3 +2479,14 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .building-image-settings-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .building-image-settings-actions input[type=file]{display:none}
 @media(max-width:760px){.hospital-building-image-wrap{min-height:0}.hospital-building-image-empty{min-height:220px}.building-image-settings{grid-template-columns:1fr}.building-image-settings-preview>img{height:220px}}
+
+
+/* v2.34.24 · 14층 건물 zone + upload image interaction */
+.hospital-building-image-wrap{isolation:isolate}
+.hospital-building-image-host{position:relative;z-index:1}
+.hospital-building-floor-hit{position:absolute;z-index:3;border:0;background:transparent;padding:0;cursor:pointer;border-radius:5px;transition:background .14s ease,box-shadow .14s ease}
+.hospital-building-floor-hit:hover{background:rgba(71,58,190,.055);box-shadow:inset 0 0 0 1px rgba(81,70,199,.28)}
+.hospital-building-floor-hit.is-selected{background:rgba(71,58,190,.04)}
+.hospital-building-floor-shape{z-index:4}
+.hospital-building-floor-fill{fill:rgba(71,58,190,.075)}
+.hospital-building-floor-outline{fill:none;stroke:#5146c7;stroke-width:2.2;vector-effect:non-scaling-stroke;stroke-linejoin:round}

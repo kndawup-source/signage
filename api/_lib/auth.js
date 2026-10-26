@@ -46,4 +46,4 @@ function parseBody(req) {
   if (typeof req.body === 'string' && req.body) { try { return JSON.parse(req.body); } catch {} }
   return {};
 }
-module.exports = { requireAdmin, requireMember, resolveSite, getSite, json, parseBody };
+module.exports = { requireAdmin, requireMember, resolveSite, getSite, json, parseBody, SUPABASE_URL, SUPABASE_ANON_KEY };
