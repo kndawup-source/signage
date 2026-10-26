@@ -267,7 +267,7 @@
   const floorplanAssets=()=>state.settings?.floorplan_assets&&typeof state.settings.floorplan_assets==='object'?state.settings.floorplan_assets:{};
   const floorplanMeta=(floor)=>floorplanAssets()?.[String(Math.trunc(Number(floor)))]||null;
   const floorplanVersionsFor=(floor)=>state.floorplanVersions.filter(v=>Number(v.floor_number)===Number(floor)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-  const floorplanKey=(floor)=>String(floorplanMeta(floor)?.key||'').trim();
+  const floorplanKey=(floor)=>{const meta=floorplanMeta(floor);return typeof meta==='string'?meta.trim():String(meta?.key||meta?.object_key||meta?.path||'').trim();};
   const floorAsset=(g)=>{const n=floorNumber(g);return n&&!!floorplanKey(n)?n:null;};
   const floorplanAssetCache=new Map();
   const zoneTypeLabel=(v)=>({treatment:'진료',consult:'상담',waiting:'대기',reception:'안내',support:'지원',office:'사무',common:'공용'})[v]||'공간';
@@ -295,7 +295,7 @@
           const params=new URLSearchParams({floor:String(floor),key});
           if(state.currentSite?.id)params.set('siteId',state.currentSite.id);
           const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});
-          if(!response.ok)throw new Error(`HTTP ${response.status}`);
+          if(!response.ok){let detail='';try{detail=(await response.json())?.error||'';}catch{}throw new Error(detail||`HTTP ${response.status}`);}
           const data=await response.json();
           if(!data?.url||!/^https:\/\//i.test(String(data.url)))throw new Error('INVALID_FLOORPLAN_RESPONSE');
           asset={...data,expiresAt:Date.now()+240000};
@@ -753,7 +753,7 @@
     try{
       const {data,error}=await db.from('floorplan_versions').select('*').eq('site_id',siteId).eq('floor_number',floor).order('created_at',{ascending:false});
       if(error)throw error;const stale=(data||[]).slice(keep).filter(v=>!v.active);
-      for(const v of stale){try{await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,key:v.object_key})});}catch(e){console.warn('[floorplan] old version R2 cleanup failed',e);}await db.from('floorplan_versions').delete().eq('id',v.id);}
+      for(const v of stale){try{await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,floor,key:v.object_key})});}catch(e){console.warn('[floorplan] old version R2 cleanup failed',e);}await db.from('floorplan_versions').delete().eq('id',v.id);}
     }catch(e){console.warn('[floorplan] version pruning skipped',e);}
   }
   async function uploadFloorplan(floor,file){

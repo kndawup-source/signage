@@ -307,6 +307,7 @@
   }
   function uploadByXhr(url,file,contentType,onProgress){return new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open('PUT',url,true);xhr.setRequestHeader('Content-Type',contentType);xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress?.(Math.round(e.loaded/e.total*100));};xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve():reject(new Error(`도면 업로드 실패 · HTTP ${xhr.status}`));xhr.onerror=()=>reject(new Error('도면 업로드 네트워크 오류'));xhr.send(file);});}
   const floorplanMeta=(floor)=>state.floorplanAssets?.[String(Math.trunc(Number(floor)))]||null;
+  const floorplanMetaKey=(meta)=>typeof meta==='string'?meta.trim():String(meta?.key||meta?.object_key||meta?.path||'').trim();
   const floorplanVersionsFor=(floor)=>state.floorplanVersions.filter(v=>Number(v.floor_number)===Number(floor)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const floorAsset=(g)=>{const n=floorNumber(g);return n&&floorplanMeta(n)?n:null;};
   const roomMapPlaced=(r)=>r?.map_x_pct!==null&&r?.map_x_pct!==undefined&&r?.map_y_pct!==null&&r?.map_y_pct!==undefined&&Number.isFinite(Number(r.map_x_pct))&&Number.isFinite(Number(r.map_y_pct));
@@ -323,7 +324,7 @@
     host.style.aspectRatio=`${w} / ${h}`;
   }
   async function getFloorplanImageUrl(floor,meta){
-    const key=String(meta?.key||'').trim();
+    const key=floorplanMetaKey(meta);
     if(!key)throw new Error('FLOORPLAN_KEY_MISSING');
     const cacheKey=`${state.site?.id||''}:${floor}:${key}`;
     const cached=floorplanUrlCache.get(cacheKey);
@@ -341,7 +342,7 @@
       const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;
       try{
         const meta=floorplanMeta(floor);
-        if(!meta?.key)throw new Error('FLOORPLAN_KEY_MISSING');
+        if(!floorplanMetaKey(meta))throw new Error('FLOORPLAN_KEY_MISSING');
         const url=await getFloorplanImageUrl(floor,meta);
         const img=document.createElement('img');
         img.src=url;
@@ -356,7 +357,7 @@
           img.onload=done;img.onerror=()=>reject(new Error('도면 이미지를 표시할 수 없습니다.'));
         });
         host.dataset.loaded='1';
-      }catch(e){console.error('[floorplan] load failed',floor,e);host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}
+      }catch(e){console.error('[floorplan] load failed',floor,e);host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.<br>${esc(e?.message||'FLOORPLAN_LOAD_FAILED')}</span>`;}
     }));
   }
   async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};revokeFloorplanCache();}
@@ -364,7 +365,7 @@
     try{
       const {data,error}=await db.from('floorplan_versions').select('*').eq('site_id',siteId).eq('floor_number',floor).order('created_at',{ascending:false});
       if(error)throw error;const stale=(data||[]).slice(keep).filter(v=>!v.active);
-      for(const v of stale){try{await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,key:v.object_key})});}catch(e){console.warn('[floorplan] old version R2 cleanup failed',e);}await db.from('floorplan_versions').delete().eq('id',v.id);}
+      for(const v of stale){try{await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,floor,key:v.object_key})});}catch(e){console.warn('[floorplan] old version R2 cleanup failed',e);}await db.from('floorplan_versions').delete().eq('id',v.id);}
     }catch(e){console.warn('[floorplan] version pruning skipped',e);}
   }
   async function imageSourceForFloorplan(file){

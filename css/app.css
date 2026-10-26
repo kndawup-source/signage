@@ -2715,3 +2715,26 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-state{font-size:10px}
   .hospital-floor-detail-stats span{font-size:10px}
 }
+
+/* v2.34.33 — floorplan stage must remain visible even before/while the image loads. */
+.hospital-floor-detail .building-floor-plan-stage{
+  min-height:clamp(190px,32vw,420px)!important;
+  width:100%;
+}
+.hospital-floor-detail .floorplan-svg-host{
+  min-width:0;
+  min-height:100%;
+}
+.hospital-floor-detail .floor-plan-error{
+  position:absolute;
+  inset:0;
+  z-index:4;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:#fafbfc;
+  color:var(--danger);
+  font-size:12px;
+  font-weight:800;
+  text-align:center;
+}
