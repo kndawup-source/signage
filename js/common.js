@@ -129,7 +129,7 @@
       throw new Error('AUTH_REQUIRED');
     }
     if (requiredRole && session.role !== requiredRole) {
-      location.replace(session.role === 'admin' ? '/admin.html' : '/staff.html');
+      location.replace(session.role === 'admin' ? '/admin.html' : '/hospital.html');
       throw new Error('ROLE_MISMATCH');
     }
     if (!window.__SIGNAGE_PIN_SESSION_WATCH__) {

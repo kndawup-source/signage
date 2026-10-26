@@ -126,7 +126,7 @@ async function serveVideo(req,res,file,urlObj) {
 async function serveWeb(req,res,urlPath) {
   if (!config.serveWebApp) return false;
   let rel=urlPath==='/'?'index.html':urlPath.replace(/^\//,'');
-  const allowedRoot=new Set(['index.html','admin.html','staff.html','player.html']);
+  const allowedRoot=new Set(['index.html','admin.html','hospital.html','player.html']);
   const allowed=allowedRoot.has(rel)||rel.startsWith('css/')||rel.startsWith('js/');
   if(!allowed)return false;
   const target=path.resolve(WEB_ROOT,rel);

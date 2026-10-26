@@ -11,7 +11,7 @@
 
   const existing = await Signage.getSession().catch(() => null);
   if (existing?.role) {
-    location.replace(existing.role === 'admin' ? '/admin.html' : '/staff.html');
+    location.replace(existing.role === 'admin' ? '/admin.html' : '/hospital.html');
     return;
   }
 
@@ -48,7 +48,7 @@
       }
       Signage.storePinSession(data);
       const next = safeNext(new URLSearchParams(location.search).get('next'));
-      const defaultPage = data.role === 'admin' ? '/admin.html' : '/staff.html';
+      const defaultPage = data.role === 'admin' ? '/admin.html' : '/hospital.html';
       location.replace(next || defaultPage);
     } catch (e2) {
       err.textContent = '로그인할 수 없습니다. 네트워크와 설정을 확인하세요.';

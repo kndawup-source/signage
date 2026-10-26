@@ -31,7 +31,7 @@
       if (entry) await loadScript(`/js/${entry}.js?v=${version}`);
     } catch (error) {
       console.error('[Clinic Signage] boot failed', error);
-      const root = document.querySelector('#adminRoot,#staffRoot,#playerRoot,.auth-panel');
+      const root = document.querySelector('#adminRoot,#hospitalRoot,#playerRoot,.auth-panel');
       if (root) root.innerHTML = '<div class="loading error">필수 모듈을 불러오지 못했습니다. 네트워크를 확인한 뒤 새로고침하세요.</div>';
     }
   })();

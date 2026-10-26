@@ -1,4 +1,4 @@
-CLINIC SIGNAGE v2.33.0 · SUPER ADMIN / HOSPITAL ADMIN · SITE-READY
+CLINIC SIGNAGE v2.33.19 · SUPER ADMIN / HOSPITAL ADMIN / PATIENT DISPLAY
 
 [배포 순서]
 1. 기존 v2.32.3 운영 DB라면 Supabase SQL Editor에서 아래 파일을 1회 실행
@@ -14,10 +14,10 @@ README는 사용하지 않습니다.
 [권한]
 - SUPER ADMIN (/admin.html)
   전체 병원/지점, 도면, 공간, 디스플레이, 공용 콘텐츠, 상태, 백업/감사 관리
-- HOSPITAL ADMIN (/staff.html)
+- HOSPITAL ADMIN (/hospital.html?site=병원슬러그)
   자신의 병원만 조회/수정. 병원명, 도면, 공간 구분, 디스플레이 위치/운영방식, 병원 전용 플레이리스트 관리
-- PLAYER (/player.html)
-  실제 REMOTE/HYBRID 디스플레이 플레이어
+- PATIENT DISPLAY (/player.html?key=디스플레이키)
+  실제 REMOTE/HYBRID 디스플레이에서 환자가 보는 영상 화면
 
 [기존 단일 병원 호환]
 - migration 실행 시 현재 운영 데이터는 자동으로 default site에 연결됩니다.
