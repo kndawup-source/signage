@@ -2698,3 +2698,20 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-name{font-size:12px}
   .hospital-floor-detail-head>div:first-child b{font-size:20px!important}
 }
+
+
+/* Hospital admin readability pass — preserve hierarchy while lifting small operational text. */
+.hospital-page #hospitalRoot{font-size:15px}
+.hospital-floor-state{font-size:10px}
+.hospital-floor-detail-stats span{font-size:10px}
+.hospital-floor-detail-stats b{font-size:12px}
+.hospital-floor-detail .floor-display-card>b{font-size:10px}
+.hospital-output-tools>summary small,.hospital-output-tools>summary em{font-size:11px}
+.hospital-admin-block-head small{font-size:12px!important}
+.hospital-page .muted,.hospital-page .empty-setting-message{font-size:11px}
+.hospital-page .floorplan-admin-copy small{font-size:10px!important}
+.hospital-page .floorplan-admin-copy span{font-size:11px!important}
+@media(max-width:700px){
+  .hospital-floor-state{font-size:10px}
+  .hospital-floor-detail-stats span{font-size:10px}
+}
