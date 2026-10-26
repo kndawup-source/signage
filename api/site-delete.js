@@ -1,8 +1,6 @@
 'use strict';
-const { requireAdmin, json, parseBody } = require('./_lib/auth');
+const { requireAdmin, json, parseBody, SUPABASE_URL, SUPABASE_ANON_KEY } = require('./_lib/auth');
 const { signedFetch } = require('./_lib/r2');
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xtzchrpwgjvalvallfre.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 function collectAssetKeys(value,siteId,out=new Set()){
   if(!value)return out;
   if(Array.isArray(value)){for(const x of value)collectAssetKeys(x,siteId,out);return out;}

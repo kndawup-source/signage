@@ -5,7 +5,7 @@
   if(!['admin','staff'].includes(auth.role)){location.replace('/');return;}
   qs('#signOut').addEventListener('click', Signage.signOut);
   const requestedSiteCode=new URLSearchParams(location.search).get('site')||'';
-  let targetSiteId=auth.site_id||null;
+  let targetSiteId=auth.session?.site_id||null;
   if(auth.role==='admin'){
     if(!requestedSiteCode){location.replace('/admin.html');return;}
     const {data:target,error:targetError}=await db.from('sites').select('id,code,name').eq('code',requestedSiteCode).maybeSingle();
@@ -467,7 +467,7 @@
   async function deleteHospitalPlaylist(){const id=qs('#staffPlaylistSelect')?.value;if(!id||!confirm('이 병원 플레이리스트를 삭제할까요?'))return;const {error}=await db.rpc('hospital_delete_site_playlist',{p_site:targetSiteId,p_id:id});if(error)return toast(error.message,'error');toast('병원 플레이리스트를 삭제했습니다.');await load();}
   const operatingConfig=()=>state.siteSettings||{};
   function operatingSettingsMarkup(){
-    const c=operatingConfig(), row=(key,label,defStart,defEnd,defEnabled)=>`<div class="operating-row"><label class="switch"><input type="checkbox" data-op-enabled="${key}" ${String(c[`${key}_enabled`]??defEnabled)==='true'||c[`${key}_enabled`]===true?'checked':''}><i></i></label><b>${label}</b><input type="time" data-op-start="${key}" value="${esc(c[`${key}_start`]||defStart)}"><span>–</span><input type="time" data-op-end="${key}" value="${esc(c[`${key}_end`]||defEnd)}"></div>`;
+    const c=operatingConfig(), row=(key,label,defStart,defEnd,defEnabled)=>`<div class="operating-row"><label class="switch"><input type="checkbox" data-op-enabled="${key}" ${String(c[`${key}_enabled`]??defEnabled)==='true'||c[`${key}_enabled`]===true?'checked':''}><i></i></label><b>${label}</b><input type="time" data-op-start="${key}" value="${esc(String(c[`${key}_start`]||defStart).slice(0,5))}"><span>–</span><input type="time" data-op-end="${key}" value="${esc(String(c[`${key}_end`]||defEnd).slice(0,5))}"></div>`;
     return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>운영시간</b><small>이 병원에만 적용됩니다.</small></div></div><div class="operating-list">${row('weekday','평일','09:00','20:00',true)}${row('saturday','토요일','09:00','17:00',true)}${row('sunday','일요일','09:00','17:00',false)}</div><label class="field"><span>비상 영상</span><select id="staffEmergencyVideo"><option value="">선택 안 함</option>${state.videos.map(v=>`<option value="${v.id}" ${String(c.emergency_video_id||'')===v.id?'selected':''}>${esc(v.title)}</option>`).join('')}</select></label><div class="inline"><button id="staffSaveOperating" class="btn primary" type="button">운영시간 저장</button><button id="staffCloseToday" class="btn" type="button">오늘 송출 종료</button><button id="staffReopenToday" class="btn" type="button">오늘 다시 열기</button></div></div>`;
   }
   async function saveOperatingConfig(){
@@ -519,7 +519,8 @@
 
 
 
-  function hospitalBroadcastCard(){const active=!!state.broadcast?.active;return `<section class="hospital-broadcast-card ${active?'is-active':''}"><div><small>병원 전체 송출</small><b>${active?'전체 디스플레이에 송출 중':'필요할 때만 전체 송출'}</b><p>선택한 병원 플레이리스트를 모든 원격 디스플레이에 우선 송출합니다.</p></div><div class="hospital-broadcast-actions"><select id="hospitalBroadcastPlaylist" ${active?'disabled':''}><option value="">플레이리스트 선택</option>${state.playlists.filter(p=>p.active!==false).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>${active?'<button class="btn danger" id="hospitalBroadcastStop">전체 송출 종료</button>':'<button class="btn primary" id="hospitalBroadcastStart">전체 송출 시작</button>'}</div></section>`;}
+  function broadcastPlaylistId(){const ids=(state.broadcast?.video_ids||[]).map(String);if(!ids.length)return '';return state.playlists.filter(p=>p.active!==false&&p.site_id===targetSiteId).find(p=>{const pids=state.playlistItems.filter(x=>x.playlist_id===p.id).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>String(x.video_id));return pids.length===ids.length&&pids.every((id,i)=>id===ids[i]);})?.id||'';}
+  function hospitalBroadcastCard(){const active=!!state.broadcast?.active,selected=broadcastPlaylistId(),own=state.playlists.filter(p=>p.active!==false&&p.site_id===targetSiteId);return `<section class="hospital-broadcast-card ${active?'is-active':''}"><div><small>병원 전체 송출</small><b>${active?'전체 디스플레이에 송출 중':'필요할 때만 전체 송출'}</b><p>선택한 병원 플레이리스트를 모든 원격 디스플레이에 우선 송출합니다.</p></div><div class="hospital-broadcast-actions"><select id="hospitalBroadcastPlaylist" ${active?'disabled':''}><option value="">${active&&selected?'송출 중인 플레이리스트':'플레이리스트 선택'}</option>${own.map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}</option>`).join('')}</select>${active?'<button class="btn danger" id="hospitalBroadcastStop">전체 송출 종료</button>':'<button class="btn primary" id="hospitalBroadcastStart">전체 송출 시작</button>'}</div></section>`;}
   async function setHospitalBroadcast(active){const playlist=qs('#hospitalBroadcastPlaylist')?.value||null;if(active&&!playlist)return toast('전체 송출할 플레이리스트를 선택하세요.','error');if(!confirm(active?'이 병원의 모든 원격 디스플레이에 전체 송출할까요?':'병원 전체 송출을 종료할까요?'))return;const {error}=await db.rpc('hospital_set_broadcast',{p_site:targetSiteId,p_active:active,p_playlist:playlist,p_notice:null});if(error)return toast(error.message||'전체 송출을 변경하지 못했습니다.','error');toast(active?'병원 전체 송출을 시작했습니다.':'병원 전체 송출을 종료했습니다.');await load();}
 
   function render(){
