@@ -215,6 +215,27 @@
       return `<button type="button" class="${selected?'is-selected':''} ${g?'':'is-empty'}" ${g?`data-staff-select-floor="${g.id}"`:'disabled'}><span>${n}F</span></button>`;
     }).join('')}</div>`;
   }
+  const BUILDING_FLOOR_SHAPES={
+    14:{top:11.2,left:12.8,width:83.4,height:6.0,points:'4,14 94,0 100,73 8,100'},
+    13:{top:17.1,left:13.2,width:82.8,height:6.0,points:'4,12 94,0 100,74 8,100'},
+    12:{top:23.0,left:13.7,width:82.2,height:6.0,points:'4,11 94,0 100,75 8,100'},
+    11:{top:28.9,left:14.1,width:81.6,height:6.0,points:'4,10 94,0 100,76 8,100'},
+    10:{top:34.8,left:14.6,width:81.0,height:6.0,points:'4,9 94,0 100,77 8,100'},
+    9:{top:40.7,left:15.0,width:80.4,height:6.0,points:'4,8 94,0 100,78 8,100'},
+    8:{top:46.6,left:15.5,width:79.8,height:6.0,points:'4,7 94,0 100,79 8,100'},
+    7:{top:52.5,left:15.9,width:79.2,height:6.0,points:'4,6 94,0 100,80 8,100'},
+    6:{top:58.4,left:16.4,width:78.6,height:6.0,points:'4,5 94,0 100,81 8,100'},
+    5:{top:64.3,left:16.8,width:78.0,height:6.0,points:'4,4 94,0 100,82 8,100'},
+    4:{top:70.2,left:17.3,width:77.4,height:6.0,points:'4,3 94,0 100,83 8,100'},
+    3:{top:76.1,left:17.7,width:76.8,height:6.0,points:'4,2 94,0 100,84 8,100'},
+    2:{top:82.0,left:18.2,width:76.2,height:6.2,points:'4,1 94,0 100,85 8,100'},
+    1:{top:88.0,left:18.8,width:75.4,height:7.0,points:'3,0 95,0 100,87 7,100'}
+  };
+  function buildingSelectedFloorShape(floorNo){
+    const shape=BUILDING_FLOOR_SHAPES[Number(floorNo)];
+    if(!shape)return '';
+    return `<svg class="hospital-building-floor-shape" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${shape.points}"></polygon></svg>`;
+  }
   function staffBuildingOverview(groups){
     const floorGroups=groups.filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
     if(selectedFloorId&&!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=null;
@@ -226,13 +247,13 @@
     const selected=floorGroups.find(g=>g.id===selectedFloorId)||null;
     const statuses=state.rooms.map(roomDisplayStatus),offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
     const selectedNo=selected?floorNumber(selected):null;
-    const slabTop=selectedNo?Math.max(14,Math.min(87,15+(14-selectedNo)*5.45)):null;
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
         <div class="hospital-building-image-wrap">
-          <img src="/assets/building/hospital-cutaway.png?v=2.34.18" alt="병원 건물 층별 이미지">
-          ${selectedNo?`<span class="hospital-building-selected-slab" style="top:${slabTop}%"></span>`:''}
-          <span class="hospital-building-nameplate">${esc(state.site?.name||'CLINIC')}</span>
+          <img src="/assets/building/hospital-cutaway.png?v=2.34.19" alt="병원 건물 단면 이미지">
+          ${selectedNo?buildingSelectedFloorShape(selectedNo):''}
+          <span class="hospital-building-ground-mask is-left" aria-hidden="true"></span>
+          <span class="hospital-building-ground-mask is-right" aria-hidden="true"></span>
           ${buildingFloorRail(floorGroups)}
         </div>
       </aside>

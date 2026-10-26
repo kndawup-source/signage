@@ -2224,7 +2224,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-page .hospital-settings-card .grid-2{grid-template-columns:1fr}
 }
 
-/* v2.34.18 — one hospital-admin content width across every tab */
+/* v2.34.19 — one hospital-admin content width across every tab */
 .hospital-page{
   --hospital-content-width:920px;
   --hospital-shell-width:988px;
@@ -2282,7 +2282,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-page .operating-row{max-width:none}
 }
 
-/* v2.34.18 · hospital output progressive disclosure */
+/* v2.34.19 · hospital output progressive disclosure */
 .hospital-building-overview{border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden}
 .hospital-building-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:20px 22px 16px;border-bottom:1px solid #eceef1}
 .hospital-building-head>div{display:grid;gap:4px}.hospital-building-head h2{margin:0;font-size:21px!important}.hospital-building-head small{font-size:10px;color:var(--muted);font-weight:650}
@@ -2294,7 +2294,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-output-tools{margin-top:16px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden}.hospital-output-tools>summary{list-style:none;cursor:pointer;padding:15px 18px;font-size:11px;font-weight:850;color:#555b66}.hospital-output-tools>summary::-webkit-details-marker{display:none}.hospital-output-tools[open]>summary{border-bottom:1px solid #eceef1;color:var(--ink)}.hospital-output-tools-body{display:grid;gap:14px;padding:16px}.hospital-output-tools .hospital-broadcast-card{margin:0}.hospital-output-tools .staff-space-detail-drawer{margin:0}
 @media(max-width:700px){.hospital-building-head{display:grid;align-items:start;padding:16px}.hospital-floor-row{grid-template-columns:46px minmax(0,1fr) 20px;gap:10px;min-height:56px;padding:0 14px}.hospital-floor-state{display:none}.hospital-floor-detail{padding:0 14px 16px}.hospital-floor-detail .building-floor-plan-stage{min-height:280px}.hospital-output-tools-body{padding:12px}.hospital-floor-detail-head>div{display:grid;gap:3px}}
 
-/* v2.34.18 — building-first hospital command center */
+/* v2.34.19 — building-first hospital command center */
 .hospital-page{
   --hospital-content-width:1360px;
   --hospital-shell-width:1428px;
@@ -2390,3 +2390,33 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-building-selected-slab{position:absolute;z-index:2;left:44px;right:2px;height:5.6%;border:2px solid #5b50c8;border-radius:8px;box-shadow:0 0 0 1px rgba(91,80,200,.12),0 8px 20px rgba(62,51,151,.08);pointer-events:none;transform:translateY(-50%)}
 .hospital-building-nameplate{position:absolute;z-index:3;left:37%;bottom:13.4%;width:43%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:9px;font-weight:900;letter-spacing:.01em;color:#30354a;pointer-events:none}
 @media(max-width:1180px){.hospital-building-nameplate{font-size:8px}.hospital-building-selected-slab{left:42px}}
+
+/* v2.34.19 — clean building asset + perspective-correct selected floor */
+.hospital-building-image-wrap{overflow:hidden;border-radius:16px}
+.hospital-building-image-wrap>img{
+  position:relative;z-index:1;
+  object-position:center top;
+  filter:drop-shadow(0 16px 22px rgba(24,35,54,.07));
+}
+.hospital-building-selected-slab,.hospital-building-nameplate{display:none!important}
+.hospital-building-floor-shape{
+  position:absolute;z-index:4;pointer-events:none;overflow:visible;
+  filter:drop-shadow(0 7px 10px rgba(53,45,153,.12));
+}
+.hospital-building-floor-shape polygon{
+  fill:rgba(65,54,181,.035);
+  stroke:#564bc4;
+  stroke-width:2.4;
+  vector-effect:non-scaling-stroke;
+  stroke-linejoin:round;
+}
+/* The source render still contains landscaping near the ground floor. These soft masks
+   keep the dashboard visually architectural without covering the entrance itself. */
+.hospital-building-ground-mask{position:absolute;z-index:2;bottom:0;pointer-events:none;background:linear-gradient(180deg,rgba(248,251,253,0),#f6f9fb 46%,#f6f9fb 100%)}
+.hospital-building-ground-mask.is-left{left:34px;width:86px;height:155px}
+.hospital-building-ground-mask.is-right{right:0;width:92px;height:190px}
+.hospital-building-floor-rail{z-index:5}
+@media(max-width:1180px){
+  .hospital-building-ground-mask.is-left{left:36px;width:70px;height:135px}
+  .hospital-building-ground-mask.is-right{width:76px;height:165px}
+}
