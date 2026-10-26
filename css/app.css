@@ -1650,3 +1650,35 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-room-actions .floor-room-preview-open{grid-column:1/-1;justify-self:start;padding:3px 0!important;min-width:0}
 @media(max-width:900px){.floor-room-actions{grid-column:1/-1;grid-template-columns:minmax(0,1fr) auto}}
 @media(max-width:700px){.hospital-issue-notice{align-items:flex-start;flex-direction:column}.floor-room-actions{grid-template-columns:1fr}.floor-room-actions .btn{width:100%}.floor-room-actions .floor-room-preview-open{width:auto}}
+\n/* v2.33.20 — super admin hospital overview first */
+.hospital-overview-shell{display:grid;gap:14px;margin:0 0 var(--ui-space-5)}
+.hospital-overview-head{display:flex;align-items:end;justify-content:space-between;gap:18px}
+.hospital-overview-head h1{margin:3px 0 4px;font-size:28px!important;letter-spacing:-.035em}
+.hospital-overview-head p{margin:0;color:var(--muted)}
+.hospital-overview-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--ui-line);border-radius:var(--ui-radius);overflow:hidden;background:var(--ui-line);gap:1px}
+.hospital-overview-summary>span{min-height:78px;padding:14px;background:#fff;display:grid;align-content:center;gap:4px}
+.hospital-overview-summary b{font-size:24px;line-height:1;letter-spacing:-.03em}
+.hospital-overview-summary small{font-size:10px;color:var(--muted);font-weight:800}
+.hospital-overview-summary .has-issue b{color:#b42318}
+.hospital-overview-list{border:1px solid var(--ui-line);border-radius:var(--ui-radius);overflow:hidden;background:#fff}
+.hospital-overview-row{width:100%;min-height:64px;display:grid;grid-template-columns:minmax(180px,1fr) 90px 90px 24px;align-items:center;gap:12px;padding:12px 16px;border:0;background:#fff;color:var(--ink);text-align:left;cursor:pointer}
+.hospital-overview-row+.hospital-overview-row{border-top:1px solid var(--ui-line)}
+.hospital-overview-row:hover{background:#fafafe}
+.hospital-overview-identity{display:grid;gap:3px;min-width:0}
+.hospital-overview-identity b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hospital-overview-identity small{font-size:10px;color:var(--muted);font-weight:750}
+.hospital-overview-row.has-issue .hospital-overview-identity small{color:#b42318}
+.hospital-overview-stat{display:grid;gap:2px;text-align:right}
+.hospital-overview-stat b{font-size:14px;line-height:1}
+.hospital-overview-stat small{font-size:9px;color:var(--muted)}
+.hospital-overview-arrow{font-size:22px;color:var(--muted);text-align:right}
+.hospital-focus-bar{display:grid;grid-template-columns:38px minmax(0,1fr) 78px 78px;align-items:center;gap:10px;min-height:58px;padding:8px 12px;margin:0 0 18px;border:1px solid var(--ui-line);border-radius:var(--ui-radius);background:#fff}
+.hospital-focus-back{width:34px;height:34px;border:1px solid var(--ui-line);border-radius:9px;background:#fff;cursor:pointer;font-size:18px}
+.hospital-focus-name{display:grid;gap:2px;min-width:0}
+.hospital-focus-name b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hospital-focus-name small{font-size:10px;color:var(--muted);font-weight:800}
+.hospital-focus-bar.has-issue .hospital-focus-name small{color:#b42318}
+.hospital-focus-metric{display:grid;gap:2px;text-align:right}
+.hospital-focus-metric b{font-size:14px;line-height:1}
+.hospital-focus-metric small{font-size:9px;color:var(--muted)}
+@media(max-width:720px){.hospital-overview-summary>span{min-height:68px;padding:12px}.hospital-overview-summary b{font-size:20px}.hospital-overview-row{grid-template-columns:minmax(0,1fr) 64px 22px;padding:12px}.hospital-overview-row>.hospital-overview-stat:nth-of-type(2){display:none}.hospital-focus-bar{grid-template-columns:38px minmax(0,1fr) 62px}.hospital-focus-bar>.hospital-focus-metric:nth-of-type(2){display:none}}
