@@ -1917,3 +1917,123 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .superadmin-inline-summary .superadmin-site-summary{padding:16px}
   .superadmin-inline-summary .superadmin-site-metrics{grid-template-columns:repeat(2,1fr)}
 }
+
+/* v2.34.13 · superadmin visual hierarchy unification */
+.superadmin-page{--sa-radius:14px;--sa-line:#e6e7ea;--sa-soft:#f7f8fa;--sa-text:#111216;--sa-muted:#747982}
+.superadmin-page .shell{max-width:1480px;padding:34px 32px 56px}
+.superadmin-home{gap:28px}
+.superadmin-home .hospital-overview-head{align-items:flex-end;gap:24px}
+.superadmin-home .hospital-overview-head h1{margin:5px 0 6px;font-size:32px!important;line-height:1.08;letter-spacing:-.04em}
+.superadmin-home .hospital-overview-head p{max-width:620px;margin:0;font-size:12px;line-height:1.55;color:var(--sa-muted)}
+.superadmin-head-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.superadmin-head-actions .btn{height:42px;padding:0 16px;border-radius:10px;font-size:11px;font-weight:800}
+.btn.quiet{background:#fff;color:var(--ink);border:1px solid var(--sa-line)}
+.btn.quiet:hover{background:#f8f8fa}
+
+.superadmin-summary{border:1px solid var(--sa-line);border-radius:var(--sa-radius);gap:0;background:#fff;overflow:hidden}
+.superadmin-summary>span{min-height:92px;padding:18px 20px;border-left:1px solid var(--sa-line);background:#fff;gap:6px}
+.superadmin-summary>span:first-child{border-left:0}
+.superadmin-summary b{font-size:28px;line-height:1;letter-spacing:-.035em}
+.superadmin-summary small{font-size:11px;line-height:1.2;color:var(--sa-muted);font-weight:750}
+
+.superadmin-hospital-section{gap:12px}
+.superadmin-list-head{min-height:42px;margin:0;align-items:center}
+.superadmin-list-head h2{margin:0;font-size:20px;line-height:1.2;letter-spacing:-.035em}
+.superadmin-search{width:260px;max-width:38%}
+.superadmin-search input{width:100%;height:42px;padding:0 14px;border:1px solid var(--sa-line);border-radius:10px;background:#fff;font-size:12px;color:var(--sa-text);outline:none}
+.superadmin-search input::placeholder{color:#9a9da3}
+.superadmin-search input:focus{border-color:#aaaeb6;box-shadow:0 0 0 3px rgba(35,31,91,.05)}
+
+.superadmin-home .hospital-overview-list{border:1px solid var(--sa-line);border-radius:var(--sa-radius);background:#fff;overflow:hidden}
+.superadmin-home .hospital-overview-item{background:#fff;border-top:1px solid var(--sa-line)}
+.superadmin-home .hospital-overview-item:first-child{border-top:0}
+.superadmin-home .hospital-overview-item.is-selected{background:#fbfbfc}
+.superadmin-home .hospital-overview-row{min-height:72px;grid-template-columns:minmax(320px,1fr) 120px 120px 90px 26px;gap:22px;padding:14px 20px;border:0;background:transparent}
+.superadmin-home .hospital-overview-row:hover{background:#fafafb}
+.superadmin-home .hospital-overview-item.is-selected>.hospital-overview-row{background:#f7f7f9}
+.superadmin-home .hospital-overview-identity{gap:4px}
+.superadmin-home .hospital-overview-identity b{font-size:15px;line-height:1.3;letter-spacing:-.02em}
+.superadmin-home .hospital-overview-identity small{font-size:10px;line-height:1.3;color:var(--sa-muted)}
+.superadmin-home .hospital-overview-item.has-issue .hospital-overview-identity small{color:#b42318}
+.superadmin-home .hospital-overview-stat{gap:4px;text-align:right}
+.superadmin-home .hospital-overview-stat b{font-size:16px;line-height:1}
+.superadmin-home .hospital-overview-stat small{font-size:9px;line-height:1.2;color:var(--sa-muted);font-weight:750}
+.superadmin-home .hospital-overview-stat.has-issue b{color:#b42318}
+.superadmin-home .hospital-overview-risk{justify-self:end;min-width:46px;padding:6px 9px;border-radius:999px;font-size:9px;font-weight:850;text-align:center}
+.superadmin-home .hospital-overview-arrow{font-size:17px;color:#8a8d94;transition:transform .18s ease;transform:rotate(-90deg)}
+.superadmin-home .hospital-overview-item.is-selected .hospital-overview-arrow{transform:rotate(0deg)}
+
+.superadmin-inline-summary{padding:0 20px 20px;background:#fbfbfc}
+.superadmin-inline-summary .superadmin-site-summary{position:static;display:grid;grid-template-columns:1fr;gap:0;padding:22px;border:1px solid var(--sa-line);border-radius:var(--sa-radius);background:#fff}
+.superadmin-site-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding-bottom:20px;border-bottom:1px solid var(--sa-line)}
+.superadmin-site-summary-head h2{margin:4px 0 5px;font-size:23px;line-height:1.15;letter-spacing:-.035em}
+.superadmin-site-summary-head p{margin:0;font-size:11px;line-height:1.5;color:var(--sa-muted)}
+.superadmin-summary-status{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.superadmin-status-pill,.superadmin-load-pill{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 10px;border-radius:999px;font-size:9px;font-weight:850;white-space:nowrap}
+.superadmin-load-pill{background:#f1f2f4;color:#60646d}
+.superadmin-load-pill.risk-low{background:#edf8f2;color:#26734c}.superadmin-load-pill.risk-high{background:#fff7df;color:#8a5a00}.superadmin-load-pill.risk-alert{background:#fff0ef;color:#b42318}
+
+.superadmin-inline-summary .superadmin-site-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:18px;border:1px solid var(--sa-line);border-radius:11px;overflow:hidden;background:#fff;gap:0}
+.superadmin-inline-summary .superadmin-site-metrics>div{min-height:76px;padding:15px 16px;border-left:1px solid var(--sa-line);background:#fff;display:grid;align-content:center;gap:6px}
+.superadmin-inline-summary .superadmin-site-metrics>div:first-child{border-left:0}
+.superadmin-inline-summary .superadmin-site-metrics small{font-size:9px;line-height:1.2;color:var(--sa-muted);font-weight:800}
+.superadmin-inline-summary .superadmin-site-metrics b{font-size:22px;line-height:1}
+.superadmin-inline-summary .superadmin-site-metrics .has-issue b{color:#b42318}
+
+.superadmin-inline-summary .superadmin-attention{margin-top:14px;padding:13px 15px;border:1px solid #ececef;border-radius:10px;background:#fafafb;display:grid;gap:5px}
+.superadmin-inline-summary .superadmin-attention.has-issue{border-color:#f0d6d2;background:#fff8f7}
+.superadmin-inline-summary .superadmin-attention small{font-size:9px;line-height:1.2;color:var(--sa-muted);font-weight:800}
+.superadmin-inline-summary .superadmin-attention b{font-size:12px;line-height:1.4}
+.superadmin-inline-summary .superadmin-attention.has-issue b{color:#b42318}
+
+.superadmin-inline-summary .superadmin-floor-summary{margin-top:20px;padding-top:18px;border-top:1px solid var(--sa-line)}
+.superadmin-inline-summary .superadmin-subhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
+.superadmin-inline-summary .superadmin-subhead b{font-size:13px;line-height:1.3}
+.superadmin-inline-summary .superadmin-subhead small{font-size:9px;color:var(--sa-muted)}
+.superadmin-inline-summary .superadmin-floor-row{display:grid;grid-template-columns:86px minmax(0,1fr) auto;align-items:center;gap:14px;min-height:42px;padding:8px 0;border-top:1px solid #f0f1f2}
+.superadmin-inline-summary .superadmin-floor-row:first-of-type{border-top:0}
+.superadmin-inline-summary .superadmin-floor-row b{font-size:11px}
+.superadmin-inline-summary .superadmin-floor-row span{font-size:10px;color:var(--sa-muted)}
+.superadmin-inline-summary .superadmin-floor-row.has-issue span{color:#b42318;font-weight:800}
+.superadmin-inline-summary .superadmin-floor-row small{font-size:9px;color:var(--sa-muted)}
+
+.superadmin-inline-summary .superadmin-site-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px;padding-top:18px;border-top:1px solid var(--sa-line)}
+.superadmin-inline-summary .superadmin-site-actions .btn,.superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{width:auto;min-width:150px;height:42px;margin:0}
+.superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{min-width:220px}
+.superadmin-inline-summary .superadmin-maintenance{margin-top:16px;padding-top:0;border-top:0}
+.superadmin-inline-summary .superadmin-maintenance summary{min-height:44px;padding:0 2px;border-top:1px solid var(--sa-line)}
+.superadmin-inline-summary .superadmin-maintenance summary span{gap:2px}
+.superadmin-inline-summary .superadmin-maintenance summary b{font-size:12px}
+.superadmin-inline-summary .superadmin-maintenance summary small{font-size:9px;color:var(--sa-muted)}
+.superadmin-inline-summary .superadmin-maintenance-body{gap:14px;padding:16px 0 2px}
+.superadmin-inline-summary .superadmin-maintenance-body .field>span{font-size:10px}
+.superadmin-inline-summary .superadmin-maintenance-body input{height:42px}
+.superadmin-inline-summary .superadmin-maintenance-body .btn{height:42px}
+
+@media(max-width:980px){
+  .superadmin-page .shell{padding-left:20px;padding-right:20px}
+  .superadmin-home .hospital-overview-row{grid-template-columns:minmax(220px,1fr) 88px 88px 72px 24px;gap:12px}
+}
+@media(max-width:720px){
+  .superadmin-page .shell{padding:22px 14px 40px}
+  .superadmin-home{gap:20px}
+  .superadmin-home .hospital-overview-head{align-items:flex-start;flex-direction:column}
+  .superadmin-home .hospital-overview-head h1{font-size:29px!important}
+  .superadmin-head-actions{width:100%}.superadmin-head-actions .btn{flex:1}
+  .superadmin-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .superadmin-summary>span{min-height:76px;padding:14px 15px;border-top:1px solid var(--sa-line)}
+  .superadmin-summary>span:nth-child(-n+2){border-top:0}.superadmin-summary>span:nth-child(odd){border-left:0}
+  .superadmin-summary b{font-size:24px}
+  .superadmin-list-head{align-items:stretch;flex-direction:column;gap:10px}
+  .superadmin-search{width:100%;max-width:none}
+  .superadmin-home .hospital-overview-row{min-height:68px;grid-template-columns:minmax(0,1fr) 64px 24px;padding:12px 14px;gap:10px}
+  .superadmin-home .hospital-overview-row>.hospital-overview-stat:nth-of-type(2),.superadmin-home .hospital-overview-risk{display:none}
+  .superadmin-inline-summary{padding:0 12px 12px}
+  .superadmin-inline-summary .superadmin-site-summary{padding:16px}
+  .superadmin-site-summary-head{align-items:flex-start;flex-direction:column;padding-bottom:16px}.superadmin-summary-status{justify-content:flex-start}
+  .superadmin-inline-summary .superadmin-site-metrics{grid-template-columns:repeat(3,1fr)}
+  .superadmin-inline-summary .superadmin-site-metrics>div{min-height:68px;padding:12px 10px}
+  .superadmin-inline-summary .superadmin-site-metrics b{font-size:19px}
+  .superadmin-inline-summary .superadmin-floor-row{grid-template-columns:60px minmax(0,1fr);gap:8px}.superadmin-inline-summary .superadmin-floor-row small{grid-column:2}
+  .superadmin-inline-summary .superadmin-site-actions{align-items:stretch;flex-direction:column}.superadmin-inline-summary .superadmin-site-actions .btn,.superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{width:100%;min-width:0}
+}
