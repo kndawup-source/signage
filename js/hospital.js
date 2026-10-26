@@ -229,7 +229,7 @@
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r);return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(r.name)} · ${esc(displayControlLabel(r))}" aria-label="${esc(r.name)} · ${esc(displayControlLabel(r))}"><i></i></button>`;}
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-floorplan-svg]')||[]];
-    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.34.9'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
+    await Promise.all(hosts.map(async host=>{const floor=Number(host.dataset.floorplanSvg);if(!floor||host.dataset.loaded==='1')return;try{const meta=floorplanMeta(floor),params=new URLSearchParams({floor:String(floor),v:'2.34.10'});if(meta?.key)params.set('key',meta.key);if(state.site?.id)params.set('siteId',state.site.id);const response=await fetch(`/api/floorplan?${params}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);host.innerHTML=await response.text();host.dataset.loaded='1';}catch(_){host.innerHTML=`<span class="floor-plan-error">${floor}층 도면을 불러오지 못했습니다.</span>`;}}));
   }
   async function saveFloorplanAssets(next){const {error}=await db.rpc('hospital_set_floorplan_assets',{p_site:targetSiteId,p_assets:next});if(error)throw error;state.floorplanAssets=next;state.siteSettings={...state.siteSettings,floorplan_assets:next};floorplanTextCache.clear();}
   async function pruneFloorplanVersions(siteId,floor,keep=5){
@@ -239,13 +239,59 @@
       for(const v of stale){try{await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,key:v.object_key})});}catch(e){console.warn('[floorplan] old version R2 cleanup failed',e);}await db.from('floorplan_versions').delete().eq('id',v.id);}
     }catch(e){console.warn('[floorplan] version pruning skipped',e);}
   }
+  async function imageSourceForFloorplan(file){
+    if(typeof createImageBitmap==='function'){
+      const bitmap=await createImageBitmap(file);
+      return {source:bitmap,width:bitmap.width,height:bitmap.height,close:()=>bitmap.close?.()};
+    }
+    const url=URL.createObjectURL(file),img=new Image();
+    try{
+      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('도면 이미지를 읽을 수 없습니다.'));img.src=url;});
+      return {source:img,width:img.naturalWidth,height:img.naturalHeight,close:()=>URL.revokeObjectURL(url)};
+    }catch(e){URL.revokeObjectURL(url);throw e;}
+  }
+  function canvasBlob(canvas,type,quality){return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('도면 압축에 실패했습니다.')),type,quality));}
+  async function optimizeFloorplanFile(file){
+    const MAX_EDGE=2600,TARGET_BYTES=1800*1024,SKIP_BYTES=1200*1024,ABSOLUTE_BYTES=4*1024*1024;
+    const image=await imageSourceForFloorplan(file);
+    try{
+      const maxEdge=Math.max(image.width,image.height);
+      if(file.size<=SKIP_BYTES&&maxEdge<=MAX_EDGE)return {file,optimized:false,originalSize:file.size};
+      const baseScale=Math.min(1,MAX_EDGE/maxEdge);let best=null;
+      for(let round=0;round<5;round++){
+        const scale=baseScale*Math.pow(.86,round),width=Math.max(1,Math.round(image.width*scale)),height=Math.max(1,Math.round(image.height*scale));
+        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+        const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('도면 압축을 지원하지 않는 브라우저입니다.');
+        ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(image.source,0,0,width,height);
+        for(const quality of [.9,.84,.78,.72]){
+          const blob=await canvasBlob(canvas,'image/webp',quality);if(!best||blob.size<best.size)best=blob;if(blob.size<=TARGET_BYTES){best=blob;round=99;break;}
+        }
+      }
+      if(!best)throw new Error('도면 압축에 실패했습니다.');
+      if(best.size>=file.size&&file.size<=ABSOLUTE_BYTES)return {file,optimized:false,originalSize:file.size};
+      if(best.size>ABSOLUTE_BYTES)throw new Error('도면을 최적화했지만 용량이 너무 큽니다. 더 작은 이미지를 사용하세요.');
+      const base=String(file.name||'floorplan').replace(/\.[^.]+$/,'').slice(0,80)||'floorplan';
+      return {file:new File([best],`${base}.webp`,{type:'image/webp',lastModified:Date.now()}),optimized:true,originalSize:file.size};
+    }finally{image.close?.();}
+  }
   async function uploadFloorplan(floor,file){
     if(!state.site?.id)return toast('병원 정보가 없습니다.','error');
-    const mime=String(file.type||'').toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(mime))return toast('PNG, JPG, WebP 도면만 업로드할 수 있습니다.','error');if(file.size>12*1024*1024)return toast('도면은 12MB 이하로 업로드하세요.','error');
-    try{const signed=await apiJson('/api/floorplan-presign',{method:'POST',body:JSON.stringify({floor,filename:file.name,contentType:mime,size:file.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,file,mime);const next={...state.floorplanAssets,[String(floor)]:{key:signed.key,filename:file.name,mime,size:file.size,updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);await db.from('floorplan_versions').insert({site_id:state.site.id,floor_number:floor,object_key:signed.key,filename:file.name,mime,size_bytes:file.size,active:true});await saveFloorplanAssets(next);await pruneFloorplanVersions(state.site.id,floor);toast(`${floor}층 도면을 저장했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}
+    const originalMime=String(file.type||'').toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(originalMime))return toast('PNG, JPG, WebP 도면만 업로드할 수 있습니다.','error');if(file.size>12*1024*1024)return toast('원본 도면은 12MB 이하 파일을 사용하세요.','error');
+    try{
+      toast('도면을 최적화하고 있습니다.');
+      const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();
+      const signed=await apiJson('/api/floorplan-presign',{method:'POST',body:JSON.stringify({floor,filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});
+      await uploadByXhr(signed.uploadUrl,uploadFile,mime);
+      const next={...state.floorplanAssets,[String(floor)]:{key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,updated_at:new Date().toISOString()}};
+      await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);
+      await db.from('floorplan_versions').insert({site_id:state.site.id,floor_number:floor,object_key:signed.key,filename:uploadFile.name,mime,size_bytes:uploadFile.size,active:true});
+      await saveFloorplanAssets(next);await pruneFloorplanVersions(state.site.id,floor);
+      const saved=Math.max(0,optimized.originalSize-uploadFile.size),rate=optimized.originalSize?Math.round(saved/optimized.originalSize*100):0;
+      toast(optimized.optimized?`${floor}층 도면을 최적화해 저장했습니다. · ${rate}% 절감`:`${floor}층 도면을 저장했습니다.`);await load();
+    }catch(e){toast(e.message||String(e),'error');}
   }
   async function resetFloorplan(floor){const old=floorplanMeta(floor);if(!old)return;if(!confirm(`${floor}층 업로드 도면을 기본/미등록 상태로 되돌릴까요?`))return;try{const next={...state.floorplanAssets};delete next[String(floor)];await saveFloorplanAssets(next);await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);toast('현재 도면을 해제했습니다. 이전 버전은 보관됩니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
-  function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>등록된 도면만 표시됩니다. 기본 도면은 제공하지 않습니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'필요하면 직접 업로드하세요.'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">도면 제거</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
+  function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>등록된 도면만 표시됩니다. 업로드 시 화면용 크기로 자동 최적화합니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'PNG, JPG, WebP · 업로드 시 자동 압축'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">도면 제거</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
   function displaySetupMarkup(){
     const floors=[...state.groups].filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));
     return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>디스플레이 위치</b><small>운영 방식을 고르고 도면을 클릭하면 점으로 저장됩니다. 점을 드래그해 다시 옮길 수 있습니다.</small></div></div><div class="display-setup-list">${floors.map(g=>{const rooms=state.rooms.filter(r=>r.group_id===g.id),asset=floorAsset(g);if(!rooms.length)return '';return `<details class="display-setup-floor"><summary><span><b>${esc(g.name)}</b><small>디스플레이 ${rooms.length}대 · 위치 미설정 ${rooms.filter(r=>!roomMapPlaced(r)).length}대</small></span></summary><div class="display-setup-body"><div class="display-setup-toolbar"><label><span>디스플레이</span><select data-staff-map-room="${g.id}">${rooms.map(r=>`<option value="${r.id}">${esc(r.name)} · ${esc(displayControlLabel(r))}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label><label><span>운영 방식</span><select data-staff-map-mode="${g.id}">${CONTROL_MODES.map(([v,l])=>`<option value="${v}" ${displayControlMode(rooms[0])===v?'selected':''}>${l}</option>`).join('')}</select></label><button class="btn small" type="button" data-staff-map-clear="${g.id}">선택 위치 지우기</button></div>${asset?`<div class="settings-map-stage display-setup-stage" data-staff-map-stage="${g.id}"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(r=>displayMarker(r,true)).join('')}</div>`:'<div class="floor-plan-empty">도면을 먼저 업로드하세요.</div>'}</div></details>`;}).join('')}</div></div>`;
