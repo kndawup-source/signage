@@ -2490,3 +2490,156 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-building-floor-shape{z-index:4}
 .hospital-building-floor-fill{fill:rgba(71,58,190,.075)}
 .hospital-building-floor-outline{fill:none;stroke:#5146c7;stroke-width:2.2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+
+/* v2.34.26 — hospital output layout stabilization */
+.hospital-page{--hospital-content-width:1280px;--hospital-shell-width:1348px}
+.hospital-building-dashboard{
+  display:grid;
+  grid-template-columns:minmax(280px,340px) minmax(0,1fr);
+  gap:24px;
+  align-items:start;
+}
+.hospital-building-visual{
+  position:sticky;
+  top:86px;
+  width:100%;
+  max-width:340px;
+  min-width:0;
+  min-height:0;
+  align-self:start;
+  overflow:hidden;
+  background:transparent;
+}
+.hospital-building-image-wrap{
+  position:relative;
+  width:100%;
+  min-height:0;
+  padding:0;
+  display:block;
+  overflow:hidden;
+  border-radius:16px;
+  background:#fff;
+}
+.hospital-building-image-host{
+  position:relative;
+  width:100%;
+  height:auto;
+  display:block;
+  overflow:hidden;
+  color:var(--muted);
+  font-size:10px;
+  background:#fff;
+}
+.hospital-building-image-host>[data-building-loading],
+.hospital-building-image-host>.floor-plan-error{
+  position:absolute;inset:0;display:grid;place-items:center;z-index:1
+}
+.hospital-building-image-host>.hospital-building-image{
+  position:absolute;
+  inset:0;
+  z-index:1;
+  display:block;
+  width:100%;
+  height:100%;
+  max-width:none;
+  max-height:none;
+  object-fit:contain;
+  object-position:center center;
+  filter:none;
+  user-select:none;
+  pointer-events:none;
+}
+.hospital-building-floor-layer{position:absolute;inset:0;z-index:2;pointer-events:none}
+.hospital-building-floor-hit{pointer-events:auto;z-index:2}
+.hospital-building-floor-shape{z-index:3;filter:drop-shadow(0 4px 8px rgba(53,45,153,.14))}
+.hospital-building-floor-fill{fill:rgba(71,58,190,.055)}
+.hospital-building-floor-outline{stroke:#5146c7;stroke-width:1.8}
+
+.hospital-building-console{min-width:0;width:100%;display:grid;gap:12px}
+.hospital-floor-console-card{min-width:0;overflow:hidden}
+.hospital-floor-console-grid{
+  display:grid;
+  grid-template-columns:158px minmax(0,1fr);
+  min-width:0;
+  min-height:0;
+}
+.hospital-floor-list{min-width:0;overflow:hidden}
+.hospital-floor-row{grid-template-columns:36px minmax(0,1fr) auto;min-height:44px;padding:0 10px;gap:7px}
+.hospital-floor-number{font-size:11px}.hospital-floor-name{font-size:9px}.hospital-floor-state{font-size:7px}
+.hospital-floor-detail{min-width:0;overflow:hidden;padding:16px 14px 14px}
+.hospital-floor-detail-head{min-width:0;margin-bottom:10px}
+.hospital-floor-detail-head>div:first-child b{font-size:17px!important}
+.hospital-floor-detail-stats{gap:9px}
+.hospital-floor-detail .building-floorplan-wrap{min-width:0;overflow:hidden}
+.hospital-floor-detail .building-floor-plan-stage{
+  min-height:0!important;
+  height:auto;
+  aspect-ratio:2.278/1;
+  overflow:hidden;
+}
+.hospital-floor-detail .floorplan-svg-host{position:absolute;inset:0;padding:10px;overflow:hidden}
+.hospital-floor-detail .floorplan-svg-host svg,
+.hospital-floor-detail .floorplan-svg-host img{width:100%;height:100%;object-fit:contain}
+
+/* TV pins stay readable without covering the floor plan. */
+.hospital-floor-detail .floor-display-pin{
+  width:72px;
+  height:46px;
+  margin-left:-36px;
+  margin-top:-23px;
+  border-radius:8px;
+  box-shadow:0 4px 12px rgba(27,32,44,.13);
+}
+.hospital-floor-detail .floor-display-card{padding:4px 5px;gap:3px}
+.hospital-floor-detail .floor-display-card>b{font-size:7px}
+.hospital-floor-detail .floor-display-card>b i{width:5px;height:5px}
+.hospital-floor-detail .floor-display-preview{border-radius:3px}
+
+/* Selected TV detail: one readable block, no crushed vertical text. */
+.hospital-floor-detail .building-zone-inspector{min-width:0;overflow:hidden}
+.hospital-floor-detail .floor-room-focus{
+  display:grid;
+  grid-template-columns:minmax(120px,.75fr) minmax(180px,1fr) minmax(220px,1.35fr);
+  grid-template-areas:
+    "head current why"
+    "patient actions actions";
+  gap:12px 14px;
+  align-items:center;
+  padding:13px 14px;
+}
+.hospital-floor-detail .floor-room-focus-head{grid-area:head}
+.hospital-floor-detail .floor-room-current{grid-area:current;grid-template-columns:58px minmax(0,1fr);gap:8px}
+.hospital-floor-detail .floor-room-current-thumb{width:58px}
+.hospital-floor-detail .floor-room-why{grid-area:why;padding-left:12px}
+.hospital-floor-detail .floor-room-patient-link{grid-area:patient;border-top:1px solid #eceef1;padding:10px 0 0}
+.hospital-floor-detail .floor-room-actions{grid-area:actions;border-top:1px solid #eceef1;padding-top:10px;grid-template-columns:minmax(150px,1fr) auto auto}
+.hospital-floor-detail .floor-room-actions .floor-room-preview-open{grid-column:auto;justify-self:end}
+.hospital-floor-detail .floor-room-current-copy b{white-space:normal;line-height:1.35}
+.hospital-floor-detail .floor-room-why p{font-size:9px;line-height:1.45}
+
+/* Old layout remnants must never escape below/over the command center. */
+.hospital-building-dashboard,.hospital-building-visual,.hospital-building-console,.hospital-floor-console-card{contain:layout paint}
+.hospital-building-floor-rail,.hospital-building-selected-slab,.hospital-building-nameplate,.hospital-building-cleanup{display:none!important}
+
+@media(max-width:1180px){
+  .hospital-page{--hospital-content-width:1040px;--hospital-shell-width:1100px}
+  .hospital-building-dashboard{grid-template-columns:280px minmax(0,1fr);gap:18px}
+  .hospital-building-visual{max-width:280px}
+  .hospital-floor-console-grid{grid-template-columns:138px minmax(0,1fr)}
+  .hospital-floor-detail .floor-room-focus{grid-template-columns:1fr 1fr;grid-template-areas:"head current" "why why" "patient patient" "actions actions"}
+  .hospital-floor-detail .floor-room-why{padding-left:0;border-left:0}
+}
+@media(max-width:980px){
+  .hospital-building-dashboard{grid-template-columns:1fr}
+  .hospital-building-visual{position:relative;top:auto;max-width:360px;margin:0 auto}
+  .hospital-floor-console-grid{grid-template-columns:150px minmax(0,1fr)}
+}
+@media(max-width:700px){
+  .hospital-building-visual{max-width:300px}
+  .hospital-floor-console-grid{grid-template-columns:1fr}
+  .hospital-floor-list{grid-template-columns:1fr 1fr;border-right:0;border-bottom:1px solid #e7e9ed}
+  .hospital-floor-detail .floor-room-focus{grid-template-columns:1fr;grid-template-areas:"head" "current" "why" "patient" "actions"}
+  .hospital-floor-detail .floor-room-actions{grid-template-columns:1fr}
+  .hospital-floor-detail .floor-room-actions .floor-room-preview-open{justify-self:start}
+  .hospital-floor-detail .floor-display-pin{width:62px;height:42px;margin-left:-31px;margin-top:-21px}
+}

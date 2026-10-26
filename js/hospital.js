@@ -218,20 +218,20 @@
   // v2.34.24 · 14층 건물 이미지 전용 층 zone
   // 옥상은 제외하고, 실제 TV가 보이는 중앙 실내 단면만 선택 영역으로 사용한다.
   const BUILDING_FLOOR_SHAPES={
-    14:{top:9.7,left:31.0,width:42.7,height:6.2,points:'0,12 94,0 100,88 3,100'},
-    13:{top:16.0,left:31.1,width:42.6,height:6.0,points:'0,10 95,0 100,90 3,100'},
-    12:{top:22.1,left:31.2,width:42.5,height:5.9,points:'0,9 95,0 100,91 3,100'},
-    11:{top:28.2,left:31.3,width:42.4,height:5.9,points:'0,8 96,0 100,92 3,100'},
-    10:{top:34.3,left:31.4,width:42.3,height:5.9,points:'0,8 96,0 100,92 3,100'},
-    9:{top:40.3,left:31.5,width:42.2,height:5.9,points:'0,7 96,0 100,93 3,100'},
-    8:{top:46.3,left:31.6,width:42.1,height:5.9,points:'0,7 97,0 100,93 3,100'},
-    7:{top:52.3,left:31.7,width:42.0,height:5.9,points:'0,6 97,0 100,94 3,100'},
-    6:{top:58.3,left:31.8,width:41.9,height:5.9,points:'0,6 97,0 100,94 3,100'},
-    5:{top:64.3,left:31.9,width:41.8,height:5.9,points:'0,5 98,0 100,95 3,100'},
-    4:{top:70.2,left:32.0,width:41.7,height:5.9,points:'0,5 98,0 100,95 3,100'},
-    3:{top:76.1,left:32.1,width:41.6,height:5.9,points:'0,4 98,0 100,96 3,100'},
-    2:{top:82.0,left:32.2,width:41.5,height:5.5,points:'0,4 98,0 100,96 3,100'},
-    1:{top:87.1,left:29.4,width:47.0,height:9.3,points:'0,2 100,0 100,96 0,100'}
+    14:{top:9.6,left:30.4,width:41.7,height:5.7,points:'0,8 97,0 100,92 2,100'},
+    13:{top:15.3,left:30.4,width:41.7,height:6.9,points:'0,6 98,0 100,94 2,100'},
+    12:{top:22.2,left:30.4,width:41.7,height:5.6,points:'0,5 98,0 100,95 2,100'},
+    11:{top:27.8,left:30.4,width:41.7,height:6.5,points:'0,5 98,0 100,95 2,100'},
+    10:{top:34.3,left:30.4,width:41.7,height:6.0,points:'0,4 98,0 100,96 2,100'},
+    9:{top:40.3,left:30.4,width:41.7,height:5.8,points:'0,4 98,0 100,96 2,100'},
+    8:{top:46.1,left:30.4,width:41.7,height:5.9,points:'0,4 98,0 100,96 2,100'},
+    7:{top:52.0,left:30.4,width:41.7,height:5.9,points:'0,3 99,0 100,97 2,100'},
+    6:{top:57.9,left:30.4,width:41.7,height:5.8,points:'0,3 99,0 100,97 2,100'},
+    5:{top:63.7,left:30.4,width:41.7,height:5.9,points:'0,3 99,0 100,97 2,100'},
+    4:{top:69.6,left:30.4,width:41.7,height:5.8,points:'0,2 99,0 100,98 2,100'},
+    3:{top:75.4,left:30.4,width:41.7,height:6.0,points:'0,2 99,0 100,98 2,100'},
+    2:{top:81.4,left:30.4,width:41.7,height:4.7,points:'0,2 99,0 100,98 2,100'},
+    1:{top:86.1,left:28.7,width:45.2,height:7.8,points:'0,1 100,0 100,98 0,100'}
   };
   function buildingSelectedFloorShape(floorNo){
     const shape=BUILDING_FLOOR_SHAPES[Number(floorNo)];
@@ -261,7 +261,7 @@
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
         <div class="hospital-building-image-wrap">
-          ${state.buildingAsset?.key?`<div class="hospital-building-image-host" data-building-image><span>건물 이미지를 불러오는 중입니다.</span></div>${buildingFloorHitZones(floorGroups)}${selectedNo?buildingSelectedFloorShape(selectedNo):''}`:`<div class="hospital-building-image-empty"><b>건물 이미지가 없습니다.</b><span>병원 설정에서 건물 이미지를 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>건물 이미지 등록</button></div>`}
+          ${state.buildingAsset?.key?`<div class="hospital-building-image-host" data-building-image style="aspect-ratio:${Number(state.buildingAsset?.width||state.buildingAsset?.source_width||948)}/${Number(state.buildingAsset?.height||state.buildingAsset?.source_height||1659)}"><span data-building-loading>건물 이미지를 불러오는 중입니다.</span><div class="hospital-building-floor-layer">${buildingFloorHitZones(floorGroups)}${selectedNo?buildingSelectedFloorShape(selectedNo):''}</div></div>`:`<div class="hospital-building-image-empty"><b>건물 이미지가 없습니다.</b><span>병원 설정에서 건물 이미지를 등록하세요.</span><button type="button" class="btn small" data-staff-open-settings>건물 이미지 등록</button></div>`}
         </div>
       </aside>
       <div class="hospital-building-console">
@@ -345,7 +345,7 @@
   }
   async function loadBuildingImages(root=qs('#hospitalRoot')){
     const hosts=[...(root||document).querySelectorAll?.('[data-building-image]')||[]];
-    await Promise.all(hosts.map(async host=>{if(host.dataset.loaded==='1')return;try{const response=await fetch(`/api/building-image?siteId=${encodeURIComponent(state.site?.id||'')}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);const blob=await response.blob(),url=URL.createObjectURL(blob);host.innerHTML=`<img src="${url}" alt="병원 건물 이미지">`;host.dataset.loaded='1';host.dataset.objectUrl=url;}catch(_){host.innerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';}}));
+    await Promise.all(hosts.map(async host=>{if(host.dataset.loaded==='1')return;try{const response=await fetch(`/api/building-image?siteId=${encodeURIComponent(state.site?.id||'')}`,{headers:apiHeaders(),cache:'no-store'});if(!response.ok)throw new Error(`HTTP ${response.status}`);const blob=await response.blob(),url=URL.createObjectURL(blob),img=new Image();img.alt='병원 건물 이미지';img.decoding='async';img.src=url;img.className='hospital-building-image';host.prepend(img);host.querySelector('[data-building-loading]')?.remove();host.dataset.loaded='1';host.dataset.objectUrl=url;}catch(_){const loading=host.querySelector('[data-building-loading]');if(loading)loading.outerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';}}));
   }
   async function saveBuildingAsset(asset){const {error}=await db.rpc('hospital_set_building_asset',{p_site:targetSiteId,p_asset:asset||{}});if(error)throw error;state.buildingAsset=asset||{};state.siteSettings={...state.siteSettings,building_asset:asset||{}};}
   async function uploadBuildingImage(file){
