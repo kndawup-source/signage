@@ -2126,3 +2126,100 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-settings-card>.hospital-admin-block>.inline .btn{width:100%}
   .floorplan-admin-actions{justify-content:flex-start}
 }
+
+
+/* v2.34.15 — hospital admin clarity + readable work width */
+.hospital-page .hospital-content-page{
+  width:100%;
+  max-width:980px;
+  margin:0 auto;
+}
+.hospital-page .hospital-admin-settings-page{
+  width:100%;
+  max-width:920px;
+  margin:0 auto;
+}
+.hospital-page .hospital-settings-primary,
+.hospital-page .hospital-settings-advanced,
+.hospital-page .hospital-playlist-layout,
+.hospital-page .hospital-video-overview{
+  width:100%;
+  min-width:0;
+}
+.hospital-output-head{
+  margin-bottom:20px;
+}
+.hospital-output-head>div{
+  min-width:0;
+}
+.hospital-output-head h1{
+  margin:5px 0 8px;
+  font-size:36px!important;
+  line-height:1.04!important;
+  letter-spacing:-.045em!important;
+}
+.hospital-output-head p{
+  max-width:720px;
+  margin:0;
+  font-size:13px!important;
+  line-height:1.55!important;
+  color:var(--muted);
+}
+.hospital-output-summary{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:6px 18px;
+  margin-top:16px;
+  padding-top:14px;
+  border-top:1px solid var(--line);
+}
+.hospital-output-summary span{
+  display:flex;
+  align-items:baseline;
+  gap:5px;
+  font-size:11px;
+  color:var(--muted);
+  white-space:nowrap;
+}
+.hospital-output-summary b{
+  font-size:17px;
+  line-height:1;
+  color:var(--text);
+}
+.hospital-output-summary .is-alert,
+.hospital-output-summary .is-alert b{
+  color:#b42318;
+}
+.hospital-page .hospital-settings-card{
+  width:100%;
+}
+.hospital-page .operating-row{
+  max-width:760px;
+}
+.hospital-page .hospital-settings-card select,
+.hospital-page .hospital-settings-card input,
+.hospital-page .hospital-settings-card textarea{
+  max-width:100%;
+}
+.hospital-page .hospital-settings-card .grid-2{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+.hospital-page .hospital-playlist-layout{
+  grid-template-columns:minmax(280px,.78fr) minmax(0,1.22fr);
+}
+.hospital-page .hospital-playlist-list,
+.hospital-page .hospital-playlist-editor{
+  min-width:0;
+}
+@media(max-width:900px){
+  .hospital-page .hospital-content-page,
+  .hospital-page .hospital-admin-settings-page{max-width:none}
+  .hospital-page .hospital-playlist-layout{grid-template-columns:1fr}
+  .hospital-page .operating-row{max-width:none}
+}
+@media(max-width:700px){
+  .hospital-output-head h1{font-size:30px!important}
+  .hospital-output-summary{gap:8px 14px}
+  .hospital-page .hospital-settings-card .grid-2{grid-template-columns:1fr}
+}
