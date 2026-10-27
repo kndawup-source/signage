@@ -509,7 +509,7 @@
           <span class="floor-layout-help">공간명을 입력하고 도면에서 영역을 드래그하세요.</span>
         </div>
         <div class="floor-layout-display-controls">
-          <label><span>디스플레이</span><select data-staff-map-room="${current.id}">${rooms.map(r=>`<option value="${r.id}" ${selectedRoom?.id===r.id?'selected':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label>
+          <label class="layout-display-select"><select aria-label="디스플레이 선택" data-staff-map-room="${current.id}">${rooms.length?rooms.map(r=>`<option value="${r.id}" ${selectedRoom?.id===r.id?'selected':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join(''):'<option value="">디스플레이 선택</option>'}</select></label>
           <label><span>공간</span><select data-staff-map-space="${current.id}">${displaySpaceOptions(spaces,selectedRoom)}</select></label>
           <label><span>운영 방식</span><select data-staff-map-mode="${current.id}">${CONTROL_MODES.map(([v,l])=>`<option value="${v}" ${displayControlMode(selectedRoom)===v?'selected':''}>${l}</option>`).join('')}</select></label>
           <button class="btn small" type="button" data-staff-map-clear="${current.id}">선택 위치 지우기</button>
