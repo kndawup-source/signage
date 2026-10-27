@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.47 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.48 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.47 배포
+2. 프런트/서버 v2.34.48 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -15,9 +15,16 @@ CLINIC SIGNAGE v2.34.47 · CANONICAL SETUP
 6. supabase/v2.34.43-floor-layout-copy-display-fix.sql 실행(미적용 시)
 7. supabase/v2.34.44-floor-layout-name-map.sql 실행(미적용 시)
 8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행(미적용 시)
-9. supabase/v2.34.46-display-space-link.sql 실행
-10. v2.34.47 코드 배포
-11. 관리자 화면 강력 새로고침
+9. supabase/v2.34.46-display-space-link.sql 실행(미적용 시)
+10. supabase/v2.34.48-display-position-save-fix.sql 실행
+11. v2.34.48 코드 배포
+12. 관리자 화면 강력 새로고침
+
+[v2.34.48 핵심]
+- 디스플레이 위치 저장이 `staff_set_display_setup(... p_space ...)` RPC 부재로 실패하던 문제를 정식 수정했습니다.
+- DB의 구형 5인자/신형 6인자 RPC를 하나의 6인자 함수로 정상화하고, p_note/p_space는 기본값을 허용합니다.
+- 기존 DB가 아직 마이그레이션 전이어도 프런트가 구형 5인자 RPC로 한 번 자동 재시도해 위치 좌표 저장 자체가 막히지 않습니다.
+- 신규 설치용 schema.sql에서도 구형 중복 RPC 정의를 제거했습니다.
 
 [v2.34.47 핵심]
 - 송출현황의 현재 영상 썸네일과 송출 영상 목록 썸네일을 클릭하면 실제 영상 URL을 새 창에서 엽니다.
@@ -37,6 +44,6 @@ CLINIC SIGNAGE v2.34.47 · CANONICAL SETUP
 
 [중요]
 - 신규 설치는 schema.sql만 실행하면 최신 구조가 포함됩니다.
-- 기존 운영 DB는 v2.34.46-display-space-link.sql 실행이 필요합니다.
+- 기존 운영 DB는 v2.34.48-display-position-save-fix.sql까지 실행해야 디스플레이 위치와 공간 연결이 모두 정상 저장됩니다.
 - README는 사용하지 않습니다.
 - .vercelignore로 supabase/, SETUP/QA, 구 도면 원본 등 운영에 불필요한 파일을 공개 배포에서 제외합니다.

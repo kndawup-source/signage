@@ -1955,7 +1955,7 @@ end $$;
 drop trigger if exists rooms_floor_space_guard on public.rooms;
 create trigger rooms_floor_space_guard before insert or update of site_id,group_id,floor_space_id on public.rooms for each row execute function public.enforce_room_floor_space();
 
-create or replace function public.staff_set_display_setup(p_room uuid,p_mode text,p_x numeric,p_y numeric,p_note text,p_space uuid)
+create or replace function public.staff_set_display_setup(p_room uuid,p_mode text,p_x numeric,p_y numeric,p_note text default null,p_space uuid default null)
 returns void language plpgsql security definer set search_path=public as $$
 declare v_site uuid:=coalesce(public.pin_session_site_id(),public.default_site_id()); v_before jsonb; v_after jsonb; v_group uuid;
 begin
@@ -2089,21 +2089,8 @@ end $$;
 revoke all on function public.staff_set_floorplan_assets(jsonb) from public;
 grant execute on function public.staff_set_floorplan_assets(jsonb) to anon,authenticated;
 
-create or replace function public.staff_set_display_setup(p_room uuid,p_mode text,p_x numeric,p_y numeric,p_note text default null)
-returns void language plpgsql security definer set search_path=public as $$
-declare v_site uuid:=coalesce(public.pin_session_site_id(),public.default_site_id()); v_before jsonb; v_after jsonb;
-begin
-  if public.pin_session_role() not in ('admin','staff') or p_mode not in ('remote','manual','hybrid') then raise exception 'not allowed'; end if;
-  select to_jsonb(r) into v_before from public.rooms r where r.id=p_room and r.site_id=v_site;
-  if v_before is null and public.is_admin() then select to_jsonb(r) into v_before from public.rooms r where r.id=p_room; end if;
-  if v_before is null then raise exception '공간을 찾을 수 없습니다'; end if;
-  update public.rooms set display_control_mode=p_mode,map_x_pct=case when p_x is null then null else greatest(0,least(100,p_x)) end,map_y_pct=case when p_y is null then null else greatest(0,least(100,p_y)) end,display_note=nullif(trim(coalesce(p_note,'')),'') where id=p_room;
-  update public.rooms set manual_check_status=case when display_control_mode='manual' and manual_check_status='not_required' then 'needs_check' when display_control_mode<>'manual' then 'not_required' else manual_check_status end where id=p_room;
-  select to_jsonb(r) into v_after from public.rooms r where r.id=p_room;
-  perform public.audit_event((v_after->>'site_id')::uuid,'update','display',p_room::text,'디스플레이 설정 변경',v_before,v_after);
-end $$;
-revoke all on function public.staff_set_display_setup(uuid,text,numeric,numeric,text) from public;
-grant execute on function public.staff_set_display_setup(uuid,text,numeric,numeric,text) to anon,authenticated;
+-- v2.34.48: legacy 5-argument staff_set_display_setup overload removed; canonical RPC is defined above.
+
 
 create or replace function public.staff_mark_manual_display_checked(p_room uuid,p_checked boolean default true)
 returns void language plpgsql security definer set search_path=public as $$
@@ -4205,3 +4192,7 @@ values('2.34.45',clock_timestamp())
 on conflict(version) do update set applied_at=excluded.applied_at;
 
 notify pgrst,'reload schema';
+
+
+-- v2.34.48 schema marker
+insert into public.schema_version(version,applied_at) values('2.34.48',clock_timestamp()) on conflict(version) do update set applied_at=excluded.applied_at;
