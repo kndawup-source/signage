@@ -1,53 +1,33 @@
-CLINIC SIGNAGE v2.34.44 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.45 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.44 배포
+2. 프런트/서버 v2.34.45 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
 [기존 v2.34.x 운영 DB 업그레이드]
 1. DB 백업
-2. supabase/v2.34.8-launch-fixes.sql 실행
-3. supabase/v2.34.9-site-lifecycle.sql 실행
-4. supabase/v2.34.11-launch-blockers.sql 실행
-5. supabase/v2.34.22-building-asset.sql 실행
-6. supabase/v2.34.32-runtime-fixes.sql 실행
-7. supabase/v2.34.44-floor-layout-copy.sql 실행
-8. v2.34.44 코드 배포
-9. 관리자/플레이어 강력 새로고침
+2. 이미 적용하지 않은 과거 필수 마이그레이션을 schema_version 기준으로 순서대로 실행
+3. supabase/v2.34.32-runtime-fixes.sql 실행(미적용 시)
+4. supabase/v2.34.41-floor-layout-copy.sql 실행(미적용 시)
+5. supabase/v2.34.42-floor-layout-copy-fix.sql 실행(미적용 시)
+6. supabase/v2.34.43-floor-layout-copy-display-fix.sql 실행(미적용 시)
+7. supabase/v2.34.44-floor-layout-name-map.sql 실행(미적용 시)
+8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행
+9. v2.34.45 코드 배포
+10. 관리자 화면 강력 새로고침
+
+[v2.34.45 핵심]
+- 같은 도면 층의 디스플레이 위치 복사 시 단순 문자열/정렬 순서가 아니라 정규화된 위치 키로 매칭합니다.
+- 10F_01, 9F-01, 9층 01, 9F_1은 같은 위치 코드 01로 인식합니다.
+- 대상층에 같은 위치 키가 있으면 좌표만 업데이트합니다.
+- 같은 위치 키가 없을 때만 대상층 이름으로 새 디스플레이를 생성합니다.
+- 공간 복사는 디스플레이 위치 복사와 독립적으로 동작합니다.
+- 적용 후 화면에 실제 업데이트/생성된 디스플레이 개수를 표시합니다.
 
 [중요]
-- 위 SQL은 순서대로 실행합니다. 이미 schema_version에 기록된 단계는 재실행해도 안전하도록 작성되어 있습니다.
-- v2.34.32-runtime-fixes.sql은 기존 HH:MM:SS 운영시간 값을 HH:MM으로 정규화하고 건물 이미지 스키마 누락도 보완합니다.
-- v2.34.44-floor-layout-copy.sql은 같은 도면 층 사이의 공간/디스플레이 위치 복사를 하나의 DB 트랜잭션으로 처리합니다.
-- 각 마이그레이션은 transaction으로 감싸져 있어 중간 실패 시 전체 롤백됩니다.
-- v2.33.22-player-state-rpc-restore.sql 등 과거 복구 SQL은 실행하지 않습니다.
-- schema_version에서 2.34.44 적용 여부를 확인합니다.
-
-[병원 삭제]
-- 병원은 먼저 비활성화해야 합니다.
-- 병원명 확인과 DB 삭제가 성공한 뒤에만 R2 파일을 삭제합니다.
-- 현재 도면, 이전 floorplan_versions, 건물 이미지, 병원 전용 R2 영상 파일을 정리 대상으로 수집합니다.
-
-[영상]
-- 영상 파일 업로드 UI는 제공하지 않습니다.
-- 이미 등록된 공용/병원 영상 자산을 플레이리스트에 연결합니다.
-
-[병원 전체 송출]
-- 병원 관리자 > 송출에서는 해당 병원 전용 플레이리스트만 선택할 수 있습니다.
-- 병원별 site_broadcasts만 변경되며 다른 병원에는 영향이 없습니다.
-
-[비활성 병원]
-- 관리자 세션이 종료되고 환자 화면이 닫힙니다.
-- 비활성 상태에서는 병원 관리자 PIN 변경/재활성화가 되지 않습니다. 슈퍼어드민이 병원을 활성화한 뒤 PIN을 변경합니다.
-
-[배포 제외]
-- .vercelignore로 supabase/, SETUP/SUPABASE 설정 문서, QA 문서, 구 도면 원본, 미사용 건물 이미지를 공개 배포에서 제외합니다.
-
-- v2.34.44-floor-layout-copy-fix.sql은 디스플레이 수가 달라도 공간 복사를 독립 적용하도록 수정합니다.
-
-
-[v2.34.44]
-- 기존 DB 업그레이드: supabase/v2.34.44-floor-layout-name-map.sql 실행
-- 디스플레이 위치 복사는 정렬 순서가 아니라 이름의 위치 코드(예: 10F_01 → 9F_01)로 매칭합니다.
+- 신규 설치는 schema.sql만 실행하면 최신 구조가 포함됩니다.
+- 기존 운영 DB는 v2.34.45-floor-layout-display-key-fix.sql 실행이 필요합니다.
+- README는 사용하지 않습니다.
+- .vercelignore로 supabase/, SETUP/QA, 구 도면 원본 등 운영에 불필요한 파일을 공개 배포에서 제외합니다.
