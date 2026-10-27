@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.50 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.51 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.50 배포
+2. 프런트/서버 v2.34.51 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -59,3 +59,8 @@ CLINIC SIGNAGE v2.34.50 · CANONICAL SETUP
 - 층 선택 화면은 kind=floor + floor_number가 있는 정식 층만 표시
 - 같은 floor_number를 가진 레거시 구역 그룹은 정식 층으로 디스플레이/도면공간/송출설정을 이관 후 제거
 - supabase/v2.34.50-floor-canonicalization.sql 실행 후 코드 배포
+
+[v2.34.51]
+- 설정 > 디스플레이 공간 및 위치의 층 선택을 `10F · 미니쉬 진료층` 형식으로 통일
+- 배치 복사 대상 및 디스플레이 추가 층 선택도 동일 표기
+- DB/SQL 변경 없음
