@@ -24,7 +24,7 @@
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',selectedFloorId=null,tab='output';
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,selectedFloorId=null,tab='output';
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanUrlCache=new Map();
   const buildingImageUrlCache=new Map();
@@ -451,6 +451,31 @@
   }
   async function resetFloorplan(floor){const old=floorplanMeta(floor);if(!old)return;if(!confirm(`${floor}층 업로드 도면을 기본/미등록 상태로 되돌릴까요?`))return;try{const next={...state.floorplanAssets};delete next[String(floor)];await saveFloorplanAssets(next);await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);toast('현재 도면을 해제했습니다. 이전 버전은 보관됩니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
   function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>등록된 도면만 표시됩니다. 업로드 시 화면용 크기로 자동 최적화합니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'PNG, JPG, WebP · 업로드 시 자동 압축'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">도면 제거</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
+  function floorAssetFingerprint(group){
+    const meta=floorplanMeta(floorNumber(group));if(!meta)return '';
+    const w=Number(meta.source_width||meta.width||0),h=Number(meta.source_height||meta.height||0);
+    return w>0&&h>0?`${w}x${h}`:'';
+  }
+  function floorLayoutCopyMarkup(current,floors){
+    const sourceRooms=state.rooms.filter(r=>r.group_id===current.id);
+    const sourceFingerprint=floorAssetFingerprint(current);
+    const targets=floors.filter(g=>g.id!==current.id);
+    if(!targets.length)return `<div class="floor-layout-copy-panel"><span class="muted">적용할 다른 층이 없습니다.</span></div>`;
+    return `<div class="floor-layout-copy-panel">
+      <div class="floor-layout-copy-head"><div><b>${esc(current.name)} 배치 복사</b><small>같은 구조의 도면을 사용하는 층만 선택하세요. 공간과 디스플레이 위치만 복사합니다.</small></div><button type="button" class="text-action" id="staffLayoutCopyClose">닫기</button></div>
+      <div class="floor-layout-copy-targets">${targets.map(g=>{const targetRooms=state.rooms.filter(r=>r.group_id===g.id),fp=floorAssetFingerprint(g),sameSize=!!sourceFingerprint&&fp===sourceFingerprint,countOk=targetRooms.length===sourceRooms.length;return `<label class="floor-layout-copy-target"><input type="checkbox" value="${g.id}" data-layout-copy-target><span><b>${esc(g.name)}</b><small>${targetRooms.length}개 디스플레이${sameSize?' · 도면 크기 일치':''}${countOk?'':' · 위치 복사 시 개수 불일치'}</small></span></label>`;}).join('')}</div>
+      <div class="floor-layout-copy-options"><label><input type="checkbox" id="staffCopySpaces" checked> 공간</label><label><input type="checkbox" id="staffCopyDisplays" checked> 디스플레이 위치</label></div>
+      <div class="floor-layout-copy-actions"><span>대상층의 기존 공간/위치는 선택한 항목에 한해 덮어씁니다.</span><button type="button" class="btn" id="staffApplyLayoutCopy">선택한 층에 적용</button></div>
+    </div>`;
+  }
+  const layoutRoomSort=(a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||String(a.name||'').localeCompare(String(b.name||''),'ko',{numeric:true});
+  async function applyFloorLayoutCopy(sourceGroupId,targetGroupIds,{copySpaces=true,copyDisplays=true}={}){
+    const {data,error}=await db.rpc('hospital_copy_floor_layout',{p_site:state.site.id,p_source_group:sourceGroupId,p_target_groups:targetGroupIds,p_copy_spaces:copySpaces,p_copy_displays:copyDisplays});
+    if(error)throw error;
+    const applied=Array.isArray(data?.applied)?data.applied:[],skipped=Array.isArray(data?.skipped)?data.skipped:[];
+    return {applied,skipped};
+  }
+
   function floorLayoutEditorMarkup(){
     const floors=[...state.groups].filter(g=>floorNumber(g)>0).sort((a,b)=>floorNumber(b)-floorNumber(a));if(!floors.length)return '';
     const current=floors.find(g=>g.id===spaceEditorGroupId)||floors[0];spaceEditorGroupId=current.id;
@@ -465,7 +490,9 @@
           <button type="button" class="${layoutEditMode==='space'?'is-active':''}" data-layout-mode="space">공간 그리기</button>
           <button type="button" class="${layoutEditMode==='display'?'is-active':''}" data-layout-mode="display">디스플레이 배치</button>
         </div>
+        <button type="button" class="btn small floor-layout-copy-toggle" id="staffLayoutCopyToggle">같은 도면 층에 적용</button>
       </div>
+      ${layoutCopyOpen?floorLayoutCopyMarkup(current,floors):''}
       <div class="floor-layout-controls ${layoutEditMode==='space'?'is-space':'is-display'}">
         <div class="floor-layout-space-controls">
           <label><span>공간명</span><input id="staffSpaceName" maxlength="40" placeholder="예: 진료실 1" value="${editing?esc(editing.name):''}"></label>
@@ -534,6 +561,14 @@
   }
   function clearDisplaySnapGuides(stage){stage?.querySelectorAll('.display-snap-guide').forEach(x=>x.remove());}
   function bindDisplaySetup(){
+    qs('#staffLayoutCopyToggle')?.addEventListener('click',()=>{layoutCopyOpen=!layoutCopyOpen;renderPreservingUi(true);});
+    qs('#staffLayoutCopyClose')?.addEventListener('click',()=>{layoutCopyOpen=false;renderPreservingUi(true);});
+    qs('#staffApplyLayoutCopy')?.addEventListener('click',async()=>{
+      const targets=qsa('[data-layout-copy-target]:checked').map(x=>x.value),copySpaces=!!qs('#staffCopySpaces')?.checked,copyDisplays=!!qs('#staffCopyDisplays')?.checked;
+      if(!targets.length)return toast('적용할 층을 선택하세요.','error');if(!copySpaces&&!copyDisplays)return toast('복사할 항목을 하나 이상 선택하세요.','error');
+      if(!confirm(`선택한 ${targets.length}개 층의 ${copySpaces&&copyDisplays?'공간과 디스플레이 위치':copySpaces?'공간':'디스플레이 위치'}를 현재 층 기준으로 덮어쓸까요?`))return;
+      const btn=qs('#staffApplyLayoutCopy');if(btn)btn.disabled=true;try{const result=await applyFloorLayoutCopy(spaceEditorGroupId,targets,{copySpaces,copyDisplays});const applied=result.applied.map(x=>`${x.name||'대상층'} 적용 완료`),skipped=result.skipped.map(x=>`${x.name||'대상층'} 제외 · ${x.reason==='DISPLAY_COUNT_MISMATCH'?'디스플레이 수 불일치':x.reason||'조건 불일치'}`);toast([...applied,...skipped].join(' · ')||'변경 사항이 없습니다.');layoutCopyOpen=false;await load();}catch(e){toast(e.message||String(e),'error');if(btn)btn.disabled=false;}
+    });
     qsa('[data-layout-mode]').forEach(b=>b.addEventListener('click',()=>{layoutEditMode=b.dataset.layoutMode||'display';if(layoutEditMode==='display')spaceRedrawId=null;renderPreservingUi(true);}));
     qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',e=>{if(layoutEditMode!=='display')return;if(e.target.closest('[data-display-marker]'))return;const gid=stage.dataset.staffMapStage,select=qs(`[data-staff-map-room="${gid}"]`),mode=qs(`[data-staff-map-mode="${gid}"]`)?.value,roomId=select?.value;if(!roomId)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);saveDisplaySetup(roomId,p.x,p.y,mode);}));
     qsa('[data-staff-map-room]').forEach(sel=>sel.addEventListener('change',()=>{sel.dataset.dirty='1';const r=roomById(sel.value),gid=sel.dataset.staffMapRoom,m=qs(`[data-staff-map-mode="${gid}"]`);if(r&&m){m.value=displayControlMode(r);m.dataset.dirty='1';}}));
@@ -542,7 +577,7 @@
     qsa('[data-display-marker]').forEach(marker=>marker.addEventListener('pointerdown',e=>{if(layoutEditMode!=='display')return;e.preventDefault();e.stopPropagation();const stage=marker.closest('[data-staff-map-stage]');if(!stage)return;const roomId=marker.dataset.displayMarker;marker.setPointerCapture?.(e.pointerId);const move=ev=>{const rect=stage.getBoundingClientRect(),rawX=(ev.clientX-rect.left)/rect.width*100,rawY=(ev.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);marker.style.left=`${p.x}%`;marker.style.top=`${p.y}%`;showDisplaySnapGuides(stage,p);};const up=ev=>{marker.removeEventListener('pointermove',move);marker.removeEventListener('pointerup',up);const rect=stage.getBoundingClientRect(),rawX=(ev.clientX-rect.left)/rect.width*100,rawY=(ev.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);clearDisplaySnapGuides(stage);saveDisplaySetup(roomId,p.x,p.y,displayControlMode(roomById(roomId)));};marker.addEventListener('pointermove',move);marker.addEventListener('pointerup',up);}));
   }
   function bindFloorSpaceManager(){
-    qs('#staffSpaceFloor')?.addEventListener('change',e=>{spaceEditorGroupId=e.target.value;spaceRedrawId=null;settingsOpen=true;renderPreservingUi(false);});
+    qs('#staffSpaceFloor')?.addEventListener('change',e=>{spaceEditorGroupId=e.target.value;spaceRedrawId=null;layoutCopyOpen=false;settingsOpen=true;renderPreservingUi(false);});
     qsa('[data-staff-redraw-space]').forEach(b=>b.addEventListener('click',()=>{const space=state.floorSpaces.find(x=>x.id===b.dataset.staffRedrawSpace);if(!space)return;spaceEditorGroupId=space.group_id;spaceRedrawId=space.id;layoutEditMode='space';settingsOpen=true;renderPreservingUi(false);requestAnimationFrame(()=>qs('[data-staff-space-stage]')?.scrollIntoView({behavior:'smooth',block:'center'}));}));
     qs('#staffCancelSpaceRedraw')?.addEventListener('click',()=>{spaceRedrawId=null;renderPreservingUi(false);});
     qsa('[data-staff-delete-space]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('공간 구분을 삭제할까요?'))return;const {error}=await db.from('floor_spaces').delete().eq('id',b.dataset.staffDeleteSpace);if(error)return toast(error.message,'error');if(spaceRedrawId===b.dataset.staffDeleteSpace)spaceRedrawId=null;await load();}));

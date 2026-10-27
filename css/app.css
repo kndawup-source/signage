@@ -2857,3 +2857,17 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .display-snap-guide.is-vertical{top:0;bottom:0;width:1px;transform:translateX(-.5px)}
 .display-snap-guide.is-horizontal{left:0;right:0;height:1px;transform:translateY(-.5px)}
 @media(max-width:760px){.floor-layout-stage.mode-display::after{background-size:1% 1%,1% 1%,5% 5%,5% 5%}}
+
+/* v2.34.41 · copy a finished floor layout to matching floors */
+.floor-layout-topbar{flex-wrap:wrap}
+.floor-layout-copy-toggle{margin-left:auto;white-space:nowrap}
+.floor-layout-copy-panel{display:grid;gap:12px;padding:14px;border:1px solid #e5e7eb;border-radius:12px;background:#fff}
+.floor-layout-copy-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.floor-layout-copy-head>div{display:grid;gap:4px}.floor-layout-copy-head b{font-size:13px}.floor-layout-copy-head small{font-size:11px;line-height:1.45;color:var(--muted)}
+.floor-layout-copy-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
+.floor-layout-copy-target{display:flex;align-items:flex-start;gap:9px;padding:10px 11px;border:1px solid #e7e9ed;border-radius:10px;background:#fafbfc;cursor:pointer}
+.floor-layout-copy-target input{margin-top:2px}.floor-layout-copy-target span{display:grid;gap:2px;min-width:0}.floor-layout-copy-target b{font-size:12px}.floor-layout-copy-target small{font-size:10px;line-height:1.35;color:var(--muted)}
+.floor-layout-copy-target:has(input:checked){border-color:#bbbcc7;background:#f5f5f8}.floor-layout-copy-target.is-disabled{opacity:.48;cursor:not-allowed}
+.floor-layout-copy-options{display:flex;gap:18px;flex-wrap:wrap;padding:2px 0}.floor-layout-copy-options label{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:750}
+.floor-layout-copy-actions{display:flex;align-items:center;justify-content:space-between;gap:14px}.floor-layout-copy-actions>span{font-size:10px;color:var(--muted)}
+@media(max-width:760px){.floor-layout-copy-toggle{width:100%;margin-left:0}.floor-layout-copy-head,.floor-layout-copy-actions{align-items:stretch;flex-direction:column}.floor-layout-copy-targets{grid-template-columns:1fr}.floor-layout-copy-actions .btn{width:100%}}
