@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.45 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.46 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.45 배포
+2. 프런트/서버 v2.34.46 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -14,20 +14,22 @@ CLINIC SIGNAGE v2.34.45 · CANONICAL SETUP
 5. supabase/v2.34.42-floor-layout-copy-fix.sql 실행(미적용 시)
 6. supabase/v2.34.43-floor-layout-copy-display-fix.sql 실행(미적용 시)
 7. supabase/v2.34.44-floor-layout-name-map.sql 실행(미적용 시)
-8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행
-9. v2.34.45 코드 배포
-10. 관리자 화면 강력 새로고침
+8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행(미적용 시)
+9. supabase/v2.34.46-display-space-link.sql 실행
+10. v2.34.46 코드 배포
+11. 관리자 화면 강력 새로고침
 
-[v2.34.45 핵심]
-- 같은 도면 층의 디스플레이 위치 복사 시 단순 문자열/정렬 순서가 아니라 정규화된 위치 키로 매칭합니다.
-- 10F_01, 9F-01, 9층 01, 9F_1은 같은 위치 코드 01로 인식합니다.
-- 대상층에 같은 위치 키가 있으면 좌표만 업데이트합니다.
-- 같은 위치 키가 없을 때만 대상층 이름으로 새 디스플레이를 생성합니다.
-- 공간 복사는 디스플레이 위치 복사와 독립적으로 동작합니다.
-- 적용 후 화면에 실제 업데이트/생성된 디스플레이 개수를 표시합니다.
+[v2.34.46 핵심]
+- rooms.floor_space_id를 추가해 디스플레이와 도면 공간의 실제 관계를 저장합니다.
+- 여러 디스플레이가 하나의 floor_space_id를 공유할 수 있습니다.
+- 디스플레이 배치 화면에서 디스플레이별 공간을 직접 선택할 수 있습니다.
+- 공간을 선택하지 않고 점을 찍으면 점이 포함된 공간을 자동 연결합니다.
+- 공간 목록에서 해당 공간에 연결된 디스플레이 수와 이름을 확인할 수 있습니다.
+- 다른 병원/다른 층의 공간 연결은 DB에서 거부합니다.
+- 같은 도면 층에 배치를 복사할 때 디스플레이의 공간 소속도 대상 공간으로 함께 매핑합니다.
 
 [중요]
 - 신규 설치는 schema.sql만 실행하면 최신 구조가 포함됩니다.
-- 기존 운영 DB는 v2.34.45-floor-layout-display-key-fix.sql 실행이 필요합니다.
+- 기존 운영 DB는 v2.34.46-display-space-link.sql 실행이 필요합니다.
 - README는 사용하지 않습니다.
 - .vercelignore로 supabase/, SETUP/QA, 구 도면 원본 등 운영에 불필요한 파일을 공개 배포에서 제외합니다.
