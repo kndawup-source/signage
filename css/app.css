@@ -2596,7 +2596,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-floor-detail .floor-room-focus{
   display:grid;
   grid-template-columns:minmax(160px,.75fr) minmax(230px,1.15fr) minmax(240px,1.3fr) minmax(250px,1fr);
-  grid-template-areas:"head current why controls";
+  grid-template-areas:"head current why controls" "head next next controls";
   gap:16px;
   align-items:stretch;
   padding:16px 18px;
@@ -2604,7 +2604,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-floor-detail .floor-room-focus-head{grid-area:head}
 .hospital-floor-detail .floor-room-current{grid-area:current;grid-template-columns:76px minmax(0,1fr);gap:11px}
 .hospital-floor-detail .floor-room-current-thumb{width:76px}
-.hospital-floor-detail .floor-room-why{grid-area:why;padding-left:0}
+.hospital-floor-detail .floor-room-next{grid-area:next;min-width:0}.hospital-floor-detail .floor-room-why{grid-area:why;padding-left:0}
 .hospital-floor-detail .floor-room-controls{grid-area:controls}
 .hospital-floor-detail .floor-room-actions{display:flex;border-top:0;padding-top:0;grid-template-columns:none}
 .hospital-floor-detail .floor-room-current-copy b{white-space:normal;line-height:1.35}
@@ -2619,7 +2619,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-building-dashboard{grid-template-columns:260px minmax(0,1fr);gap:18px}
   .hospital-building-visual{max-width:260px}
   .hospital-floor-console-grid{grid-template-columns:210px minmax(0,1fr)}
-  .hospital-floor-detail .floor-room-focus{grid-template-columns:1fr 1fr;grid-template-areas:"head current" "why why" "controls controls"}
+  .hospital-floor-detail .floor-room-focus{grid-template-columns:1fr 1fr;grid-template-areas:"head current" "next next" "why why" "controls controls"}
   .hospital-floor-detail .floor-room-why{padding-left:0;border-left:0}
 }
 @media(max-width:980px){
@@ -2631,7 +2631,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-building-visual{max-width:300px}
   .hospital-floor-console-grid{grid-template-columns:1fr}
   .hospital-floor-list{grid-template-columns:1fr 1fr;border-right:0;border-bottom:1px solid #e7e9ed}
-  .hospital-floor-detail .floor-room-focus{grid-template-columns:1fr;grid-template-areas:"head" "current" "why" "controls"}
+  .hospital-floor-detail .floor-room-focus{grid-template-columns:1fr;grid-template-areas:"head" "current" "next" "why" "controls"}
   .hospital-floor-detail .floor-room-actions{flex-direction:column;align-items:stretch}
   .hospital-floor-detail .floor-display-pin{width:auto;min-width:58px;height:26px;margin:0}
 }
@@ -2871,3 +2871,19 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-layout-copy-options{display:flex;gap:18px;flex-wrap:wrap;padding:2px 0}.floor-layout-copy-options label{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:750}
 .floor-layout-copy-actions{display:flex;align-items:center;justify-content:space-between;gap:14px}.floor-layout-copy-actions>span{font-size:10px;color:var(--muted)}
 @media(max-width:760px){.floor-layout-copy-toggle{width:100%;margin-left:0}.floor-layout-copy-head,.floor-layout-copy-actions{align-items:stretch;flex-direction:column}.floor-layout-copy-targets{grid-template-columns:1fr}.floor-layout-copy-actions .btn{width:100%}}
+
+/* v2.34.47 — clickable video previews + clearer live context */
+.video-thumb-link{display:grid;text-decoration:none;color:inherit;cursor:pointer;position:relative}
+.video-thumb-link:not(.is-disabled):hover{filter:brightness(.94)}
+.video-thumb-link:not(.is-disabled):focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.video-thumb-link.is-disabled{cursor:default}
+.floor-room-current-thumb.video-thumb-link{overflow:hidden}
+.floor-room-current-copy>span{display:block;margin-top:4px;font-size:9px;font-weight:750;color:var(--muted)}
+.floor-room-next{min-width:0;display:grid;gap:5px}
+.floor-room-next>small{font-size:9px;font-weight:850;color:var(--muted)}
+.floor-video-thumb-media{width:72px;aspect-ratio:16/9;overflow:hidden;border-radius:6px;background:#eef0f3;place-items:center;font-size:9px;color:var(--muted)}
+.floor-video-thumb-media img{width:100%;height:100%;object-fit:cover;display:block}
+.staff-output-thumb.video-thumb-link{overflow:hidden}
+.monitor-current-thumb-link{width:100%;height:100%;overflow:hidden}
+.monitor-current-thumb-link img{width:100%;height:100%;object-fit:cover;display:block}
+@media(max-width:700px){.floor-room-next{grid-column:1/-1}.floor-room-current-copy>span{font-size:8px}}

@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.46 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.47 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.46 배포
+2. 프런트/서버 v2.34.47 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -16,8 +16,15 @@ CLINIC SIGNAGE v2.34.46 · CANONICAL SETUP
 7. supabase/v2.34.44-floor-layout-name-map.sql 실행(미적용 시)
 8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행(미적용 시)
 9. supabase/v2.34.46-display-space-link.sql 실행
-10. v2.34.46 코드 배포
+10. v2.34.47 코드 배포
 11. 관리자 화면 강력 새로고침
+
+[v2.34.47 핵심]
+- 송출현황의 현재 영상 썸네일과 송출 영상 목록 썸네일을 클릭하면 실제 영상 URL을 새 창에서 엽니다.
+- 도면에서 디스플레이를 선택하면 현재 재생 상태·재생 시간·적용 재생목록·다음 영상을 한 화면에서 확인합니다.
+- 영상 URL이 없는 항목은 썸네일을 비활성 상태로 표시합니다.
+- 기존 “화면 열기” 문구를 “실제 화면 보기”로 명확히 했습니다.
+- DB/SQL 추가 변경은 없습니다. 기존 v2.34.46 스키마를 그대로 사용합니다.
 
 [v2.34.46 핵심]
 - rooms.floor_space_id를 추가해 디스플레이와 도면 공간의 실제 관계를 저장합니다.
