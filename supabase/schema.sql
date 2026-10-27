@@ -3740,8 +3740,7 @@ on conflict(version) do update set applied_at=excluded.applied_at;
 notify pgrst,'reload schema';
 
 -- Clinic Signage v2.34.42
--- Copy floor-space geometry and display map positions independently per target floor.
-
+-- Copy floor-space geometry and display map positions. Positioned source displays map by order; missing target displays are auto-created.
 create or replace function public.hospital_copy_floor_layout(
   p_site uuid,
   p_source_group uuid,
@@ -3756,13 +3755,20 @@ set search_path=public
 as $$
 declare
   v_target uuid;
-  v_source_count integer;
-  v_target_count integer;
   v_target_name text;
   v_spaces_copied boolean;
   v_displays_copied boolean;
+  v_displays_created integer;
+  v_displays_updated integer;
   v_applied jsonb := '[]'::jsonb;
   v_skipped jsonb := '[]'::jsonb;
+  v_prefix text;
+  v_source_count integer;
+  v_source record;
+  v_target_room_id uuid;
+  v_target_match_count integer;
+  v_target_display_name text;
+  v_duplicate_key text;
 begin
   if p_site is null or p_source_group is null or coalesce(array_length(p_target_groups,1),0)=0 then
     raise exception 'INVALID_ARGUMENT';
@@ -3777,9 +3783,28 @@ begin
     raise exception 'NOTHING_TO_COPY';
   end if;
 
-  select count(*) into v_source_count
-  from public.rooms r
-  where r.site_id=p_site and r.group_id=p_source_group;
+  if p_copy_displays then
+    select count(*) into v_source_count
+    from public.rooms r
+    where r.site_id=p_site and r.group_id=p_source_group
+      and r.map_x_pct is not null and r.map_y_pct is not null;
+
+    select x.slot_key into v_duplicate_key
+    from (
+      select regexp_replace(lower(trim(r.name)), '^[^_]+_', '') as slot_key, count(*) as cnt
+      from public.rooms r
+      where r.site_id=p_site and r.group_id=p_source_group
+        and r.map_x_pct is not null and r.map_y_pct is not null
+      group by 1
+      having count(*)>1
+      limit 1
+    ) x;
+    if v_duplicate_key is not null then
+      raise exception 'DUPLICATE_SOURCE_DISPLAY_KEY:%',v_duplicate_key;
+    end if;
+  else
+    v_source_count:=0;
+  end if;
 
   foreach v_target in array p_target_groups loop
     if v_target=p_source_group then continue; end if;
@@ -3797,8 +3822,9 @@ begin
 
     v_spaces_copied:=false;
     v_displays_copied:=false;
+    v_displays_created:=0;
+    v_displays_updated:=0;
 
-    -- Space geometry is independent from display count. Always copy when requested.
     if p_copy_spaces then
       delete from public.floor_spaces
       where site_id=p_site and group_id=v_target;
@@ -3814,38 +3840,70 @@ begin
       v_spaces_copied:=true;
     end if;
 
-    -- Display positions require a strict one-to-one room count match.
     if p_copy_displays then
-      select count(*) into v_target_count
-      from public.rooms r
-      where r.site_id=p_site and r.group_id=v_target;
-
-      if v_target_count=v_source_count then
-        with src as (
-          select r.map_x_pct,r.map_y_pct,
-                 row_number() over(order by r.sort_order,r.name,r.created_at,r.id) rn
-          from public.rooms r
-          where r.site_id=p_site and r.group_id=p_source_group
-        ), dst as (
-          select r.id,
-                 row_number() over(order by r.sort_order,r.name,r.created_at,r.id) rn
-          from public.rooms r
-          where r.site_id=p_site and r.group_id=v_target
-        )
-        update public.rooms r
-        set map_x_pct=src.map_x_pct,map_y_pct=src.map_y_pct
-        from src join dst on dst.rn=src.rn
-        where r.id=dst.id;
-
-        v_displays_copied:=true;
-      else
+      if v_source_count=0 then
         v_skipped:=v_skipped||jsonb_build_array(
           jsonb_build_object(
-            'id',v_target,'name',v_target_name,'reason','DISPLAY_COUNT_MISMATCH',
-            'source_count',v_source_count,'target_count',v_target_count,
+            'id',v_target,'name',v_target_name,'reason','SOURCE_HAS_NO_POSITIONED_DISPLAYS',
             'spaces_copied',v_spaces_copied,'displays_copied',false
           )
         );
+      else
+        v_prefix:=regexp_replace(v_target_name,'[[:space:]]+','','g');
+
+        select x.slot_key into v_duplicate_key
+        from (
+          select regexp_replace(lower(trim(r.name)), '^[^_]+_', '') as slot_key, count(*) as cnt
+          from public.rooms r
+          where r.site_id=p_site and r.group_id=v_target
+          group by 1
+          having count(*)>1
+          limit 1
+        ) x;
+        if v_duplicate_key is not null then
+          raise exception 'DUPLICATE_TARGET_DISPLAY_KEY:%:%',v_target_name,v_duplicate_key;
+        end if;
+
+        for v_source in
+          select r.id,r.name,r.sort_order,r.map_x_pct,r.map_y_pct,r.display_control_mode,
+                 regexp_replace(lower(trim(r.name)), '^[^_]+_', '') as slot_key,
+                 regexp_replace(trim(r.name), '^[^_]+_', '') as slot_label
+          from public.rooms r
+          where r.site_id=p_site and r.group_id=p_source_group
+            and r.map_x_pct is not null and r.map_y_pct is not null
+          order by r.name,r.created_at,r.id
+        loop
+          select count(*),min(r.id) into v_target_match_count,v_target_room_id
+          from public.rooms r
+          where r.site_id=p_site and r.group_id=v_target
+            and regexp_replace(lower(trim(r.name)), '^[^_]+_', '')=v_source.slot_key;
+
+          if v_target_match_count>1 then
+            raise exception 'DUPLICATE_TARGET_DISPLAY_KEY:%:%',v_target_name,v_source.slot_key;
+          elsif v_target_match_count=0 then
+            v_target_display_name:=case
+              when position('_' in trim(v_source.name))>0 then v_prefix||'_'||v_source.slot_label
+              else v_prefix||'_'||trim(v_source.name)
+            end;
+
+            insert into public.rooms(
+              site_id,group_id,name,sort_order,display_control_mode,manual_check_status,map_x_pct,map_y_pct
+            ) values(
+              p_site,v_target,v_target_display_name,v_source.sort_order,
+              coalesce(v_source.display_control_mode,'remote'),
+              case when coalesce(v_source.display_control_mode,'remote')='manual' then 'needs_check' else 'not_required' end,
+              v_source.map_x_pct,v_source.map_y_pct
+            ) returning id into v_target_room_id;
+            v_displays_created:=v_displays_created+1;
+          else
+            update public.rooms r
+            set map_x_pct=v_source.map_x_pct,map_y_pct=v_source.map_y_pct
+            where r.id=v_target_room_id;
+            v_displays_updated:=v_displays_updated+1;
+          end if;
+        end loop;
+
+        v_displays_copied:=true;
       end if;
     end if;
 
@@ -3854,13 +3912,17 @@ begin
         p_site,'update','floor_layout',v_target::text,'층 도면 배치 복사',
         null,jsonb_build_object(
           'source_group',p_source_group,'target_group',v_target,
-          'spaces_copied',v_spaces_copied,'displays_copied',v_displays_copied
+          'spaces_copied',v_spaces_copied,'displays_copied',v_displays_copied,
+          'displays_created',v_displays_created,'displays_updated',v_displays_updated,
+          'display_match','name_slot_key'
         )
       );
       v_applied:=v_applied||jsonb_build_array(
         jsonb_build_object(
           'id',v_target,'name',v_target_name,
-          'spaces_copied',v_spaces_copied,'displays_copied',v_displays_copied
+          'spaces_copied',v_spaces_copied,'displays_copied',v_displays_copied,
+          'displays_created',v_displays_created,'displays_updated',v_displays_updated,
+          'display_match','name_slot_key'
         )
       );
     end if;
@@ -3878,3 +3940,8 @@ values('2.34.42',clock_timestamp())
 on conflict(version) do update set applied_at=excluded.applied_at;
 
 notify pgrst,'reload schema';
+
+
+insert into public.schema_version(version,applied_at)
+values('2.34.44',clock_timestamp())
+on conflict(version) do update set applied_at=excluded.applied_at;

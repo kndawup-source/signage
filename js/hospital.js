@@ -462,10 +462,10 @@
     const targets=floors.filter(g=>g.id!==current.id);
     if(!targets.length)return `<div class="floor-layout-copy-panel"><span class="muted">적용할 다른 층이 없습니다.</span></div>`;
     return `<div class="floor-layout-copy-panel">
-      <div class="floor-layout-copy-head"><div><b>${esc(current.name)} 배치 복사</b><small>같은 구조의 도면을 사용하는 층만 선택하세요. 공간과 디스플레이 위치만 복사합니다.</small></div><button type="button" class="text-action" id="staffLayoutCopyClose">닫기</button></div>
-      <div class="floor-layout-copy-targets">${targets.map(g=>{const targetRooms=state.rooms.filter(r=>r.group_id===g.id),fp=floorAssetFingerprint(g),sameSize=!!sourceFingerprint&&fp===sourceFingerprint,countOk=targetRooms.length===sourceRooms.length;return `<label class="floor-layout-copy-target"><input type="checkbox" value="${g.id}" data-layout-copy-target><span><b>${esc(g.name)}</b><small>${targetRooms.length}개 디스플레이${sameSize?' · 도면 크기 일치':''}${countOk?'':' · 위치 복사 시 개수 불일치'}</small></span></label>`;}).join('')}</div>
+      <div class="floor-layout-copy-head"><div><b>${esc(current.name)} 배치 복사</b><small>같은 구조의 도면을 사용하는 층만 선택하세요. 공간과 디스플레이 위치만 복사합니다. 디스플레이는 이름의 위치 코드로 매칭합니다.</small></div><button type="button" class="text-action" id="staffLayoutCopyClose">닫기</button></div>
+      <div class="floor-layout-copy-targets">${targets.map(g=>{const targetRooms=state.rooms.filter(r=>r.group_id===g.id),fp=floorAssetFingerprint(g),sameSize=!!sourceFingerprint&&fp===sourceFingerprint,countOk=targetRooms.length===sourceRooms.length;return `<label class="floor-layout-copy-target"><input type="checkbox" value="${g.id}" data-layout-copy-target><span><b>${esc(g.name)}</b><small>${targetRooms.length}개 디스플레이${sameSize?' · 도면 크기 일치':''} · 이름 기준 매칭</small></span></label>`;}).join('')}</div>
       <div class="floor-layout-copy-options"><label><input type="checkbox" id="staffCopySpaces" checked> 공간</label><label><input type="checkbox" id="staffCopyDisplays" checked> 디스플레이 위치</label></div>
-      <div class="floor-layout-copy-actions"><span>공간과 디스플레이 위치는 독립 적용됩니다. 디스플레이 수가 달라도 공간은 복사됩니다.</span><button type="button" class="btn" id="staffApplyLayoutCopy">선택한 층에 적용</button></div>
+      <div class="floor-layout-copy-actions"><span>공간과 디스플레이 위치를 함께 적용할 수 있습니다. 예: 10F_01 → 9F_01. 같은 위치 코드가 없을 때만 자동 생성합니다.</span><button type="button" class="btn" id="staffApplyLayoutCopy">선택한 층에 적용</button></div>
     </div>`;
   }
   const layoutRoomSort=(a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||String(a.name||'').localeCompare(String(b.name||''),'ko',{numeric:true});
