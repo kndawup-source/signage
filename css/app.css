@@ -2898,3 +2898,38 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-content-topics.compact{margin:0 0 16px;padding:12px 14px;border:1px solid #e5e5e5;border-radius:10px;background:#fafafa}
 .group-admin-editor textarea[data-group-topics]{min-height:116px;resize:vertical;line-height:1.55}
 @media(max-width:720px){.floor-content-topics ul{grid-template-columns:1fr}.floor-role-chip{font-size:11px}}
+
+/* v2.34.52 · display placement markers are always visible as red location dots */
+.floor-layout-stage.mode-display .display-map-marker,
+.settings-map-stage .display-map-marker{
+  width:16px!important;
+  height:16px!important;
+  min-width:16px!important;
+  min-height:16px!important;
+  padding:0!important;
+  border:3px solid #fff!important;
+  border-radius:50%!important;
+  background:#df2f2f!important;
+  box-shadow:0 1px 6px rgba(18,22,31,.26)!important;
+  opacity:1!important;
+  z-index:12!important;
+}
+.floor-layout-stage.mode-display .display-map-marker.control-manual,
+.floor-layout-stage.mode-display .display-map-marker.control-hybrid,
+.settings-map-stage .display-map-marker.control-manual,
+.settings-map-stage .display-map-marker.control-hybrid{
+  background:#df2f2f!important;
+  border-color:#fff!important;
+  box-shadow:0 1px 6px rgba(18,22,31,.26)!important;
+}
+.floor-layout-stage.mode-display .display-map-marker:hover,
+.floor-layout-stage.mode-display .display-map-marker:focus-visible,
+.settings-map-stage .display-map-marker:hover,
+.settings-map-stage .display-map-marker:focus-visible{
+  transform:translate(-50%,-50%) scale(1.25)!important;
+  box-shadow:0 0 0 4px rgba(223,47,47,.16),0 1px 7px rgba(18,22,31,.28)!important;
+}
+@media(max-width:760px){
+  .floor-layout-stage.mode-display .display-map-marker,
+  .settings-map-stage .display-map-marker{width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important}
+}
