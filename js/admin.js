@@ -371,7 +371,7 @@
     </section>`;
   }
   function buildingDashboardMarkup(){
-    const groupsByFloor=new Map(state.groups.filter(g=>floorNumber(g)>=1&&floorNumber(g)<=14).map(g=>[floorNumber(g),g]));
+    const groupsByFloor=new Map(state.groups.filter(g=>g.kind==='floor'&&Number(g.floor_number)>=1&&Number(g.floor_number)<=14).map(g=>[Number(g.floor_number),g]));
     const managed=[...groupsByFloor.values()];
     const issueFloors=managed.filter(g=>{const s=groupStatusSummary(state.rooms.filter(r=>r.group_id===g.id));return s.issues>0||s.offline>0;}).length;
     const current=groupById(selectedFloorId);
@@ -797,7 +797,7 @@
   }
 
   function displayPositionSetupMarkup(){
-    const floors=state.groups.filter(g=>floorAsset(g)).sort((a,b)=>floorNumber(a)-floorNumber(b));
+    const floors=state.groups.filter(g=>g.kind==='floor'&&Number(g.floor_number)>0&&floorAsset(g)).sort((a,b)=>Number(a.floor_number)-Number(b.floor_number));
     const total=state.rooms.filter(r=>r.group_id&&floorAsset(groupById(r.group_id))).length;
     const unplaced=state.rooms.filter(r=>r.group_id&&floorAsset(groupById(r.group_id))&&!roomMapPlaced(r)).length;
     const cards=floors.map((g,idx)=>{
