@@ -2887,3 +2887,14 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .monitor-current-thumb-link{width:100%;height:100%;overflow:hidden}
 .monitor-current-thumb-link img{width:100%;height:100%;object-fit:cover;display:block}
 @media(max-width:700px){.floor-room-next{grid-column:1/-1}.floor-room-current-copy>span{font-size:8px}}
+
+/* v2.34.49 — editable floor content strategy */
+.floor-role-chip{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:5px 9px;border:1px solid #d7d7d7;border-radius:999px;font-size:12px;font-style:normal;font-weight:700;color:#222;background:#fff}
+.floor-content-topics{margin-top:16px;padding-top:14px;border-top:1px solid #e7e7e7}
+.floor-content-topics>small{display:block;margin-bottom:8px;font-size:11px;font-weight:800;letter-spacing:.04em;color:#777}
+.floor-content-topics ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 16px;margin:0;padding:0;list-style:none}
+.floor-content-topics li{position:relative;padding-left:12px;font-size:13px;line-height:1.45;color:#303030}
+.floor-content-topics li:before{content:"";position:absolute;left:0;top:.62em;width:4px;height:4px;border-radius:50%;background:#111}
+.floor-content-topics.compact{margin:0 0 16px;padding:12px 14px;border:1px solid #e5e5e5;border-radius:10px;background:#fafafa}
+.group-admin-editor textarea[data-group-topics]{min-height:116px;resize:vertical;line-height:1.55}
+@media(max-width:720px){.floor-content-topics ul{grid-template-columns:1fr}.floor-role-chip{font-size:11px}}

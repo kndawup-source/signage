@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.48 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.49 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.48 배포
+2. 프런트/서버 v2.34.49 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -17,8 +17,15 @@ CLINIC SIGNAGE v2.34.48 · CANONICAL SETUP
 8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행(미적용 시)
 9. supabase/v2.34.46-display-space-link.sql 실행(미적용 시)
 10. supabase/v2.34.48-display-position-save-fix.sql 실행
-11. v2.34.48 코드 배포
+11. supabase/v2.34.49-floor-content-strategy.sql 실행
+12. v2.34.49 코드 배포
 12. 관리자 화면 강력 새로고침
+
+[v2.34.49 핵심]
+- 층/구역 이름 저장을 운영 정보 저장 버튼으로 통합
+- 같은 이름의 층 허용, 층 번호는 병원별 고유
+- 층 설명 / 주요 콘텐츠 / 영상 역할을 DB 필드로 관리
+- 미니쉬 1F·2F·4F·5F·6F·7F·8~10F·13F·14F 및 엘리베이터 앞 초기 콘텐츠 반영
 
 [v2.34.48 핵심]
 - 디스플레이 위치 저장이 `staff_set_display_setup(... p_space ...)` RPC 부재로 실패하던 문제를 정식 수정했습니다.
