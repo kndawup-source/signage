@@ -61,3 +61,4 @@ CLINIC SIGNAGE v2.34.62 · CANONICAL SETUP
 - 기존 DB는 supabase/v2.34.62-video-link-url.sql 실행
 
 - v2.34.67: hospital_reception_state() rooms 응답에 floor_space_id 복구, 도면 복원 기능 제거 및 교체 시 이전 도면 정리
+- v2.34.68: hospital.js의 누락된 loadBuildingImages() 정의 복구

@@ -394,6 +394,28 @@
     for(const v of old){await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,floor,key:v.object_key})});}
     if(old.length){const ids=old.map(v=>v.id);const {error:deleteError}=await db.from('floorplan_versions').delete().in('id',ids);if(deleteError)throw deleteError;}
   }
+  async function getBuildingImageUrl(){
+    const key=String(state.buildingAsset?.key||'');if(!key)return '';
+    const cached=buildingImageUrlCache.get(key);if(cached&&cached.expiresAt>Date.now())return cached.url;
+    const params=new URLSearchParams({siteId:state.site?.id||'',key,mode:'url'}),data=await apiJson(`/api/building-image?${params}`);
+    if(!data?.url)throw new Error('BUILDING_IMAGE_URL_MISSING');
+    buildingImageUrlCache.set(key,{url:data.url,expiresAt:Date.now()+240000});return data.url;
+  }
+  async function loadBuildingImages(root=qs('#hospitalRoot')){
+    const hosts=[...(root||document).querySelectorAll?.('[data-building-image]')||[]];if(!hosts.length||!state.buildingAsset?.key)return;
+    try{
+      const url=await getBuildingImageUrl();
+      hosts.forEach(host=>{if(host.dataset.loaded==='1')return;const img=new Image();img.alt='병원 건물 이미지';img.decoding='async';img.loading='eager';img.fetchPriority='high';img.className='hospital-building-image';img.onload=()=>host.querySelector('[data-building-loading]')?.remove();img.onerror=()=>{const loading=host.querySelector('[data-building-loading]');if(loading)loading.outerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';};img.src=url;host.prepend(img);host.dataset.loaded='1';});
+    }catch(_){hosts.forEach(host=>{const loading=host.querySelector('[data-building-loading]');if(loading)loading.outerHTML='<span class="floor-plan-error">건물 이미지를 불러오지 못했습니다.</span>';});}
+  }
+  async function saveBuildingAsset(asset){const {error}=await db.rpc('hospital_set_building_asset',{p_site:targetSiteId,p_asset:asset||{}});if(error)throw error;state.buildingAsset=asset||{};state.siteSettings={...state.siteSettings,building_asset:asset||{}};}
+  async function uploadBuildingImage(file){
+    if(!state.site?.id)return toast('병원 정보가 없습니다.','error');
+    const type=String(file.type||'').toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(type))return toast('PNG, JPG, WebP 이미지만 업로드할 수 있습니다.','error');if(file.size>12*1024*1024)return toast('원본 이미지는 12MB 이하 파일을 사용하세요.','error');
+    try{toast('건물 이미지를 최적화하고 있습니다.');const optimized=await optimizeFloorplanFile(file),uploadFile=optimized.file,mime=String(uploadFile.type||'').toLowerCase();const signed=await apiJson('/api/building-presign',{method:'POST',body:JSON.stringify({filename:uploadFile.name,contentType:mime,size:uploadFile.size,siteId:state.site.id})});await uploadByXhr(signed.uploadUrl,uploadFile,mime);const old=state.buildingAsset?.key||'';const next={key:signed.key,filename:uploadFile.name,mime,size:uploadFile.size,original_size:optimized.originalSize,optimized:optimized.optimized,width:optimized.width||null,height:optimized.height||null,source_width:optimized.source_width||optimized.width||null,source_height:optimized.source_height||optimized.height||null,updated_at:new Date().toISOString()};await saveBuildingAsset(next);buildingImageUrlCache.clear();if(old&&old!==signed.key){try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] old image cleanup failed',e);}}toast('건물 이미지를 저장했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}
+  }
+  async function removeBuildingImage(){const old=state.buildingAsset?.key||'';if(!old)return;if(!confirm('건물 이미지를 삭제할까요?'))return;try{await saveBuildingAsset({});buildingImageUrlCache.clear();try{await apiJson('/api/building-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,key:old})});}catch(e){console.warn('[building] R2 cleanup failed',e);}toast('건물 이미지를 삭제했습니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
+  function buildingImageSettingsMarkup(){const a=state.buildingAsset||{};return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>건물 이미지</b><small>송출 현황의 왼쪽 건물 시각화에 사용합니다. 병원별로 따로 저장됩니다.</small></div></div><div class="building-image-settings">${a.key?`<div class="building-image-settings-preview" data-building-image><span>이미지 불러오는 중</span></div>`:`<div class="building-image-settings-empty">등록된 건물 이미지가 없습니다.</div>`}<div class="building-image-settings-actions"><label class="btn small"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-building-upload><span>${a.key?'교체':'업로드'}</span></label>${a.key?'<button type="button" class="btn small" data-staff-building-remove>삭제</button>':''}</div></div></div>`;}
   async function uploadFloorplan(floor,file){
     if(!state.site?.id)return toast('병원 정보가 없습니다.','error');
     const originalMime=String(file.type||'').toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(originalMime))return toast('PNG, JPG, WebP 도면만 업로드할 수 있습니다.','error');if(file.size>12*1024*1024)return toast('원본 도면은 12MB 이하 파일을 사용하세요.','error');
