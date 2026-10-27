@@ -477,7 +477,7 @@
           <label><span>디스플레이</span><select data-staff-map-room="${current.id}">${rooms.map(r=>`<option value="${r.id}" ${selectedRoom?.id===r.id?'selected':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label>
           <label><span>운영 방식</span><select data-staff-map-mode="${current.id}">${CONTROL_MODES.map(([v,l])=>`<option value="${v}" ${displayControlMode(selectedRoom)===v?'selected':''}>${l}</option>`).join('')}</select></label>
           <button class="btn small" type="button" data-staff-map-clear="${current.id}">선택 위치 지우기</button>
-          <span class="floor-layout-help">디스플레이를 선택하고 도면을 클릭하세요. 2.5% 그리드와 기존 점의 가로·세로 라인에 자동 정렬됩니다.</span>
+          <span class="floor-layout-help">디스플레이를 선택하고 도면을 클릭하세요. 1% 그리드와 기존 점의 가로·세로 라인에 자동 정렬됩니다.</span>
         </div>
       </div>
       ${editing?`<div class="floor-space-redraw-note"><b>${esc(editing.name)}</b><span>새 영역을 드래그하면 기존 공간의 좌표만 다시 저장됩니다.</span></div>`:''}
@@ -517,7 +517,7 @@
   function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="hospital-page-intro"><span class="eyebrow">PLAYLIST</span><h2>플레이리스트</h2><p>이미 등록된 영상 중 이 병원에서 사용할 재생 순서만 정합니다.</p></div>${hospitalPlaylistManagerMarkup()}</section>`;}
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   async function saveDisplaySetup(roomId,x,y,mode){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const useMode=mode||displayControlMode(r);const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});if(error)return toast(error.message,'error');r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';renderPreservingUi(true);}
-  const DISPLAY_GRID_STEP=2.5,DISPLAY_ALIGN_THRESHOLD=1.5;
+  const DISPLAY_GRID_STEP=1,DISPLAY_ALIGN_THRESHOLD=1;
   const clampPct=v=>Math.max(0,Math.min(100,Number(v)||0));
   function snapDisplayPoint(stage,roomId,rawX,rawY){
     const gid=stage?.dataset?.staffMapStage,x0=clampPct(rawX),y0=clampPct(rawY);
