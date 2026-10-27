@@ -748,9 +748,9 @@
 
   function floorplanManagerMarkup(){
     const rows=Array.from({length:14},(_,i)=>i+1).map(floor=>{
-      const meta=floorplanMeta(floor),versions=floorplanVersionsFor(floor),status=meta?'업로드 도면':'도면 없음';
+      const meta=floorplanMeta(floor),status=meta?'업로드 도면':'도면 없음';
       const detail=meta?`${esc(meta.filename||'업로드 이미지')} · ${formatBytes(meta.size||0)}`:(hasFallback?'기본 제공 도면을 사용 중입니다.':'도면을 업로드하세요.');
-      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">완전 삭제</button>`:''}${versions.length>1?`<select class="compact-select" data-floorplan-version="${floor}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===meta?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" type="button" data-floorplan-restore="${floor}">선택 버전 복원</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
+      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">완전 삭제</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
     }).join('');
     return `<section class="settings-section floorplan-manager"><div class="settings-section-head"><div><span class="eyebrow">FLOOR PLAN</span><h2>층별 도면</h2><p>각 층의 실제 도면을 직접 업로드합니다. PNG·JPG·WebP, 최대 12MB. 업로드한 도면은 내부 관제에서만 표시됩니다.</p></div></div><div class="floorplan-admin-list">${rows}</div></section>`;
   }
@@ -759,12 +759,12 @@
     if(error){const msg=String(error.message||'');if(/floorplan_assets|schema cache|column/i.test(msg))throw new Error('층별 도면 저장용 DB 컬럼이 아직 적용되지 않았습니다. v2.33.2 migration을 먼저 실행하세요.');throw error;}
     state.settings.floorplan_assets=next;floorplanAssetCache.clear();
   }
-  async function pruneFloorplanVersions(siteId,floor,keep=5){
-    try{
-      const {data,error}=await db.from('floorplan_versions').select('*').eq('site_id',siteId).eq('floor_number',floor).order('created_at',{ascending:false});
-      if(error)throw error;const stale=(data||[]).slice(keep).filter(v=>!v.active);
-      for(const v of stale){try{await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,floor,key:v.object_key})});}catch(e){console.warn('[floorplan] old version R2 cleanup failed',e);}await db.from('floorplan_versions').delete().eq('id',v.id);}
-    }catch(e){console.warn('[floorplan] version pruning skipped',e);}
+  async function deleteSupersededFloorplans(siteId,floor,keepKey){
+    const {data,error}=await db.from('floorplan_versions').select('*').eq('site_id',siteId).eq('floor_number',floor).order('created_at',{ascending:false});
+    if(error)throw error;
+    const old=(data||[]).filter(v=>String(v.object_key||'').trim()&&String(v.object_key).trim()!==String(keepKey||'').trim());
+    for(const v of old){await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,floor,key:v.object_key})});}
+    if(old.length){const ids=old.map(v=>v.id);const {error:deleteError}=await db.from('floorplan_versions').delete().in('id',ids);if(deleteError)throw deleteError;}
   }
   async function uploadFloorplan(floor,file){
     if(!file)return;
@@ -777,8 +777,9 @@
       await uploadByXhr(signed.uploadUrl,file,mime,pct=>{if(bar)bar.style.width=`${pct}%`;});
       const old=floorplanMeta(floor),next={...floorplanAssets(),[String(floor)]:{key:signed.key,filename:file.name,mime,size:file.size,updated_at:new Date().toISOString()}};
       await db.from('floorplan_versions').update({active:false}).eq('site_id',state.currentSite.id).eq('floor_number',floor);
-      await db.from('floorplan_versions').insert({site_id:state.currentSite.id,floor_number:floor,object_key:signed.key,filename:file.name,mime,size_bytes:file.size,active:true});
-      await saveFloorplanAssets(next);await pruneFloorplanVersions(state.currentSite.id,floor);
+      const {error:insertVersionError}=await db.from('floorplan_versions').insert({site_id:state.currentSite.id,floor_number:floor,object_key:signed.key,filename:file.name,mime,size_bytes:file.size,active:true});if(insertVersionError)throw insertVersionError;
+      await saveFloorplanAssets(next);
+      await deleteSupersededFloorplans(state.currentSite.id,floor,signed.key);
       toast(`${floor}층 도면을 저장했습니다.`);await load();
     }catch(e){toast(e.message||'도면 업로드에 실패했습니다.','error');}
     finally{progress?.classList.remove('is-active');if(bar)bar.style.width='0%';}
@@ -795,11 +796,9 @@
       toast(`${floor}층 도면을 완전히 삭제했습니다.`);await load();
     }catch(e){toast(`도면 삭제에 실패했습니다. ${e.message||String(e)}`,'error');}
   }
-  async function restoreFloorplanVersion(floor){const id=qs(`[data-floorplan-version="${floor}"]`)?.value,v=state.floorplanVersions.find(x=>x.id===id);if(!v)return;try{const next={...floorplanAssets(),[String(floor)]:{key:v.object_key,filename:v.filename,mime:v.mime,size:Number(v.size_bytes||0),updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.currentSite.id).eq('floor_number',floor);await db.from('floorplan_versions').update({active:true}).eq('id',v.id);await saveFloorplanAssets(next);toast(`${floor}층 도면 이전 버전을 복원했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}}
   function bindFloorplanManager(){
     qsa('[data-floorplan-upload]').forEach(input=>input.addEventListener('change',()=>{const file=input.files?.[0];if(file)uploadFloorplan(Number(input.dataset.floorplanUpload),file);input.value='';}));
     qsa('[data-floorplan-reset]').forEach(btn=>btn.addEventListener('click',()=>resetFloorplan(Number(btn.dataset.floorplanReset))));
-    qsa('[data-floorplan-restore]').forEach(btn=>btn.addEventListener('click',()=>restoreFloorplanVersion(Number(btn.dataset.floorplanRestore))));
   }
 
   function displayPositionSetupMarkup(){
