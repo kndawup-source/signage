@@ -47,7 +47,8 @@ set name=cfg.name, content_intro=cfg.content_intro, content_topics=cfg.content_t
     target_audience=cfg.target_audience, waiting_area_note=cfg.waiting_area_note,
     signage_reason=cfg.signage_reason, care_type=cfg.care_type
 from cfg,target
-where g.site_id=target.id and g.kind='floor' and g.floor_number=cfg.floor_number;
+where g.site_id=target.id and g.kind='floor' and g.floor_number=cfg.floor_number
+  and not exists(select 1 from public.schema_version sv where sv.version='2.34.49');
 
 with cfg(floor_number,name,content_intro,content_topics,role_label,signage_purpose,target_audience,waiting_area_note,signage_reason,care_type) as (
   values
@@ -74,7 +75,8 @@ set content_intro='짧은 대기 시간에 신뢰를 쌓는 콘텐츠',
     content_topics=array['미니쉬 전후 영상','셀럽 직접 작성 편지','실제 고객 메시지','브랜드 필름']::text[],
     role_label='신뢰', signage_purpose='이동 대기 시간의 브랜드 신뢰 형성',
     target_audience='병원 내 이동 고객', signage_reason='짧은 이동 대기 시간에도 신뢰를 쌓는 콘텐츠를 송출'
-from target where g.site_id=target.id and g.kind='zone' and lower(g.name)=lower('엘리베이터 앞');
+from target where g.site_id=target.id and g.kind='zone' and lower(g.name)=lower('엘리베이터 앞')
+  and not exists(select 1 from public.schema_version sv where sv.version='2.34.49');
 
 with target as (select id from public.sites where code='minish' limit 1)
 insert into public.signage_groups(site_id,name,kind,floor_number,care_type,content_intro,content_topics,role_label,signage_purpose,target_audience,signage_reason,sort_order)

@@ -173,7 +173,7 @@ begin
             order by t.created_at,t.id
             limit 1;
           end if;
-          select count(*),min(r.id) into v_target_match_count,v_target_room_id
+          select count(*),(array_agg(r.id order by r.id))[1] into v_target_match_count,v_target_room_id
           from public.rooms r
           where r.site_id=p_site and r.group_id=v_target
             and public.hospital_display_slot_key(r.name)=v_source_key;

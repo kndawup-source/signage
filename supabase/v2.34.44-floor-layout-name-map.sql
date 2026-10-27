@@ -132,7 +132,7 @@ begin
             and r.map_x_pct is not null and r.map_y_pct is not null
           order by r.name,r.created_at,r.id
         loop
-          select count(*),min(r.id) into v_target_match_count,v_target_room_id
+          select count(*),(array_agg(r.id order by r.id))[1] into v_target_match_count,v_target_room_id
           from public.rooms r
           where r.site_id=p_site and r.group_id=v_target
             and regexp_replace(lower(trim(r.name)), '^[^_]+_', '')=v_source.slot_key;

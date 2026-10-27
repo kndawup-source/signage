@@ -1,66 +1,55 @@
-CLINIC SIGNAGE v2.34.51 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.61 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.51 배포
+2. 프런트/서버 v2.34.61 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
 [기존 v2.34.x 운영 DB 업그레이드]
 1. DB 백업
-2. 이미 적용하지 않은 과거 필수 마이그레이션을 schema_version 기준으로 순서대로 실행
-3. supabase/v2.34.32-runtime-fixes.sql 실행(미적용 시)
-4. supabase/v2.34.41-floor-layout-copy.sql 실행(미적용 시)
-5. supabase/v2.34.42-floor-layout-copy-fix.sql 실행(미적용 시)
-6. supabase/v2.34.43-floor-layout-copy-display-fix.sql 실행(미적용 시)
-7. supabase/v2.34.44-floor-layout-name-map.sql 실행(미적용 시)
-8. supabase/v2.34.45-floor-layout-display-key-fix.sql 실행(미적용 시)
-9. supabase/v2.34.46-display-space-link.sql 실행(미적용 시)
-10. supabase/v2.34.48-display-position-save-fix.sql 실행
-11. supabase/v2.34.50-floor-content-strategy.sql 실행
-12. v2.34.50 코드 배포
-12. 관리자 화면 강력 새로고침
+2. schema_version 기준으로 미적용 마이그레이션을 버전 순서대로 실행
+3. v2.34.32-runtime-fixes.sql
+4. v2.34.41-floor-layout-copy.sql
+5. v2.34.42-floor-layout-copy-fix.sql
+6. v2.34.43-floor-layout-copy-display-fix.sql
+7. v2.34.44-floor-layout-name-map.sql
+8. v2.34.45-floor-layout-display-key-fix.sql
+9. v2.34.46-display-space-link.sql
+10. v2.34.48-display-position-save-fix.sql
+11. v2.34.49-floor-content-strategy.sql
+12. v2.34.50-floor-canonicalization.sql
+13. v2.34.56-physical-floor-integrity.sql
+14. v2.34.61-release-blockers.sql
+15. v2.34.61 코드 배포 후 강력 새로고침
 
-[v2.34.50 핵심]
-- 층/구역 이름 저장을 운영 정보 저장 버튼으로 통합
-- 같은 이름의 층 허용, 층 번호는 병원별 고유
-- 층 설명 / 주요 콘텐츠 / 영상 역할을 DB 필드로 관리
-- 미니쉬 1F·2F·4F·5F·6F·7F·8~10F·13F·14F 및 엘리베이터 앞 초기 콘텐츠 반영
+[2.34.61 필수 수정]
+- 병원 관리자 공간 추가: enforce_floor_space_group_site()를 SECURITY DEFINER로 실행해 RLS 오판 제거
+- 층 배치 복사: UUID에 지원되지 않는 min(uuid)를 deterministic array_agg 방식으로 교체
+- v2.34.49 초기 콘텐츠: 최초 적용 때만 채우고 schema.sql 재실행 시 사용자 편집값을 덮어쓰지 않음
+- staff_set_display_setup: 6인자 구형 오버로드 제거, 7인자 정식 RPC만 유지
+- 패키지 버전 표기 2.34.61로 통일
 
-[v2.34.48 핵심]
-- 디스플레이 위치 저장이 `staff_set_display_setup(... p_space ...)` RPC 부재로 실패하던 문제를 정식 수정했습니다.
-- DB의 구형 5인자/신형 6인자 RPC를 하나의 6인자 함수로 정상화하고, p_note/p_space는 기본값을 허용합니다.
-- 기존 DB가 아직 마이그레이션 전이어도 프런트가 구형 5인자 RPC로 한 번 자동 재시도해 위치 좌표 저장 자체가 막히지 않습니다.
-- 신규 설치용 schema.sql에서도 구형 중복 RPC 정의를 제거했습니다.
+[2.34.56]
+- 미니쉬 1F~14F 정식 물리 층을 보장하며 3F/11F/12F 누락 복원
+- 디스플레이 위치 저장 시 정식 층 group_id + 공간 + 좌표를 한 번에 저장
 
-[v2.34.47 핵심]
-- 송출현황의 현재 영상 썸네일과 송출 영상 목록 썸네일을 클릭하면 실제 영상 URL을 새 창에서 엽니다.
-- 도면에서 디스플레이를 선택하면 현재 재생 상태·재생 시간·적용 재생목록·다음 영상을 한 화면에서 확인합니다.
-- 영상 URL이 없는 항목은 썸네일을 비활성 상태로 표시합니다.
-- 기존 “화면 열기” 문구를 “실제 화면 보기”로 명확히 했습니다.
-- DB/SQL 추가 변경은 없습니다. 기존 v2.34.46 스키마를 그대로 사용합니다.
+[2.34.50]
+- 물리 층은 kind=floor + floor_number 한 행만 사용
+- 레거시 동일 층 그룹의 디스플레이/공간/송출 설정을 정식 층으로 이관
 
-[v2.34.46 핵심]
-- rooms.floor_space_id를 추가해 디스플레이와 도면 공간의 실제 관계를 저장합니다.
-- 여러 디스플레이가 하나의 floor_space_id를 공유할 수 있습니다.
-- 디스플레이 배치 화면에서 디스플레이별 공간을 직접 선택할 수 있습니다.
-- 공간을 선택하지 않고 점을 찍으면 점이 포함된 공간을 자동 연결합니다.
-- 공간 목록에서 해당 공간에 연결된 디스플레이 수와 이름을 확인할 수 있습니다.
-- 다른 병원/다른 층의 공간 연결은 DB에서 거부합니다.
-- 같은 도면 층에 배치를 복사할 때 디스플레이의 공간 소속도 대상 공간으로 함께 매핑합니다.
+[2.34.49]
+- 층 설명, 주요 콘텐츠, 영상 역할 DB 필드 추가
+- 미니쉬 전용 초기 콘텐츠는 최초 적용 때만 입력
+
+[배포 제외]
+.vercelignore가 포함되어 있으며 다음 항목을 공개 배포에서 제외합니다.
+- supabase/
+- SETUP.txt / SUPABASE-CONFIG.txt / QA-*.txt / DELETE_FILES.txt
+- floorplans_clean/ / floorplans_source/ / floorplans_svg/
+- assets/building/
 
 [중요]
-- 신규 설치는 schema.sql만 실행하면 최신 구조가 포함됩니다.
-- 기존 운영 DB는 v2.34.48-display-position-save-fix.sql까지 실행해야 디스플레이 위치와 공간 연결이 모두 정상 저장됩니다.
+- 신규 설치는 schema.sql 하나만 실행합니다.
+- 기존 DB에는 schema.sql 전체를 덮어 실행하지 말고 schema_version 기준 미적용 migration만 실행합니다.
 - README는 사용하지 않습니다.
-- .vercelignore로 supabase/, SETUP/QA, 구 도면 원본 등 운영에 불필요한 파일을 공개 배포에서 제외합니다.
-
-[v2.34.50]
-- 층 선택 화면은 kind=floor + floor_number가 있는 정식 층만 표시
-- 같은 floor_number를 가진 레거시 구역 그룹은 정식 층으로 디스플레이/도면공간/송출설정을 이관 후 제거
-- supabase/v2.34.50-floor-canonicalization.sql 실행 후 코드 배포
-
-[v2.34.51]
-- 설정 > 디스플레이 공간 및 위치의 층 선택을 `10F · 미니쉬 진료층` 형식으로 통일
-- 배치 복사 대상 및 디스플레이 추가 층 선택도 동일 표기
-- DB/SQL 변경 없음
