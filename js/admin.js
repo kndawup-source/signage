@@ -750,7 +750,7 @@
     const rows=Array.from({length:14},(_,i)=>i+1).map(floor=>{
       const meta=floorplanMeta(floor),versions=floorplanVersionsFor(floor),status=meta?'업로드 도면':'도면 없음';
       const detail=meta?`${esc(meta.filename||'업로드 이미지')} · ${formatBytes(meta.size||0)}`:(hasFallback?'기본 제공 도면을 사용 중입니다.':'도면을 업로드하세요.');
-      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">도면 제거</button>`:''}${versions.length>1?`<select class="compact-select" data-floorplan-version="${floor}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===meta?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" type="button" data-floorplan-restore="${floor}">선택 버전 복원</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
+      return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${floor}F</b><span>${status}</span><small>${detail}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button class="btn small" type="button" data-floorplan-reset="${floor}">완전 삭제</button>`:''}${versions.length>1?`<select class="compact-select" data-floorplan-version="${floor}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===meta?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" type="button" data-floorplan-restore="${floor}">선택 버전 복원</button>`:''}</div><div class="floorplan-upload-progress" data-floorplan-progress="${floor}"><i></i></div></article>`;
     }).join('');
     return `<section class="settings-section floorplan-manager"><div class="settings-section-head"><div><span class="eyebrow">FLOOR PLAN</span><h2>층별 도면</h2><p>각 층의 실제 도면을 직접 업로드합니다. PNG·JPG·WebP, 최대 12MB. 업로드한 도면은 내부 관제에서만 표시됩니다.</p></div></div><div class="floorplan-admin-list">${rows}</div></section>`;
   }
@@ -785,12 +785,15 @@
   }
   async function resetFloorplan(floor){
     const old=floorplanMeta(floor);if(!old)return;
-    if(!confirm(`${floor}층 업로드 도면을 제거할까요?`))return;
+    if(!confirm(`${floor}층 도면을 완전히 삭제할까요?\n현재 도면과 이전 버전 파일까지 모두 삭제되며 복원할 수 없습니다.`))return;
     try{
+      const versions=(state.floorplanVersions||[]).filter(v=>Number(v.floor_number)===Number(floor));
+      const keys=[...new Set([floorplanMetaKey(old),...versions.map(v=>String(v.object_key||'').trim())].filter(Boolean))];
+      for(const key of keys){await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId:state.currentSite.id,floor,key})});}
+      const {error:versionDeleteError}=await db.from('floorplan_versions').delete().eq('site_id',state.currentSite.id).eq('floor_number',floor);if(versionDeleteError)throw versionDeleteError;
       const next={...floorplanAssets()};delete next[String(floor)];await saveFloorplanAssets(next);
-      await db.from('floorplan_versions').update({active:false}).eq('site_id',state.currentSite.id).eq('floor_number',floor);
-      toast(`${floor}층 도면을 제거했습니다.`);await load();
-    }catch(e){toast(e.message||'도면을 제거하지 못했습니다.','error');}
+      toast(`${floor}층 도면을 완전히 삭제했습니다.`);await load();
+    }catch(e){toast(`도면 삭제에 실패했습니다. ${e.message||String(e)}`,'error');}
   }
   async function restoreFloorplanVersion(floor){const id=qs(`[data-floorplan-version="${floor}"]`)?.value,v=state.floorplanVersions.find(x=>x.id===id);if(!v)return;try{const next={...floorplanAssets(),[String(floor)]:{key:v.object_key,filename:v.filename,mime:v.mime,size:Number(v.size_bytes||0),updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.currentSite.id).eq('floor_number',floor);await db.from('floorplan_versions').update({active:true}).eq('id',v.id);await saveFloorplanAssets(next);toast(`${floor}층 도면 이전 버전을 복원했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}}
   function bindFloorplanManager(){
@@ -921,16 +924,34 @@
     const spaces=state.floorSpaces.filter(x=>x.group_id===current.id),asset=floorAsset(current);
     return `<section class="settings-section floor-space-manager"><div class="settings-section-head"><div><span class="eyebrow">SPACE MAP</span><h2>도면 공간 구분</h2><p>도면 위에서 드래그해 실제 운영 공간을 사각형/직사각형으로 지정합니다. 진료실·대기실처럼 필요한 공간만 표시하세요.</p></div><div class="settings-count">${spaces.length}개</div></div><div class="floor-space-toolbar"><label><span>층</span><select id="spaceEditorFloor">${floors.map(g=>`<option value="${g.id}" ${g.id===current.id?'selected':''}>${esc(floorTitle(g))} · ${esc(g.name)}</option>`).join('')}</select></label><label><span>공간명</span><input id="newFloorSpaceName" maxlength="40" placeholder="예: 진료실 1"></label><label><span>유형</span><select id="newFloorSpaceType">${FLOOR_SPACE_TYPES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><span class="muted">이름과 유형을 입력한 뒤 도면에서 드래그하세요.</span></div><div class="settings-map-stage floor-space-stage" data-space-stage="${current.id}"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${spaces.map(x=>floorSpaceOverlay(x,true)).join('')}</div><div class="floor-space-list">${spaces.map(x=>`<div><span><b>${esc(x.name)}</b><small>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===x.space_type)?.[1]||'기타')}</small></span><button class="text-action danger-text" data-delete-floor-space="${x.id}">삭제</button></div>`).join('')||'<span class="muted">아직 지정한 공간이 없습니다.</span>'}</div></section>`;
   }
+  const SPACE_GRID_STEP=1,SPACE_ALIGN_THRESHOLD=1;
+  const clampSpacePct=v=>Math.max(0,Math.min(100,Number(v)||0));
+  function snapAdminSpacePoint(stage,rawX,rawY){
+    const gid=stage?.dataset?.spaceStage,x0=clampSpacePct(rawX),y0=clampSpacePct(rawY);
+    let x=Math.round(x0/SPACE_GRID_STEP)*SPACE_GRID_STEP,y=Math.round(y0/SPACE_GRID_STEP)*SPACE_GRID_STEP,guideX=null,guideY=null,bestX=SPACE_ALIGN_THRESHOLD+0.001,bestY=SPACE_ALIGN_THRESHOLD+0.001;
+    state.floorSpaces.filter(sp=>sp.group_id===gid).forEach(sp=>{
+      [Number(sp.x_pct),Number(sp.x_pct)+Number(sp.width_pct)].forEach(px=>{const d=Math.abs(px-x0);if(d<=SPACE_ALIGN_THRESHOLD&&d<bestX){bestX=d;x=px;guideX=px;}});
+      [Number(sp.y_pct),Number(sp.y_pct)+Number(sp.height_pct)].forEach(py=>{const d=Math.abs(py-y0);if(d<=SPACE_ALIGN_THRESHOLD&&d<bestY){bestY=d;y=py;guideY=py;}});
+    });
+    return {x:clampSpacePct(x),y:clampSpacePct(y),guideX,guideY};
+  }
+  function showAdminSpaceGuides(stage,p){
+    stage?.querySelectorAll('.display-snap-guide').forEach(x=>x.remove());
+    if(p?.guideX!==null&&p?.guideX!==undefined){const g=document.createElement('i');g.className='display-snap-guide is-vertical';g.style.left=`${p.guideX}%`;stage.appendChild(g);}
+    if(p?.guideY!==null&&p?.guideY!==undefined){const g=document.createElement('i');g.className='display-snap-guide is-horizontal';g.style.top=`${p.guideY}%`;stage.appendChild(g);}
+  }
+  function clearAdminSpaceGuides(stage){stage?.querySelectorAll('.display-snap-guide').forEach(x=>x.remove());}
   async function createFloorSpace(groupId,x,y,w,h){const name=(qs('#newFloorSpaceName')?.value||'').trim();if(!name)return toast('공간명을 먼저 입력하세요.','error');const type=qs('#newFloorSpaceType')?.value||'other';const {error}=await db.from('floor_spaces').insert({site_id:state.currentSite?.id,group_id:groupId,name,space_type:type,x_pct:x,y_pct:y,width_pct:w,height_pct:h,sort_order:state.floorSpaces.length*10+10});if(error)return toast(error.message,'error');toast('공간 영역을 저장했습니다.');await load();}
   function bindFloorSpaceManager(){
     qs('#spaceEditorFloor')?.addEventListener('change',e=>{spaceEditorGroupId=e.target.value;renderSettings();});
     qsa('[data-delete-floor-space]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('이 공간 영역을 삭제할까요?'))return;const {error}=await db.from('floor_spaces').delete().eq('id',b.dataset.deleteFloorSpace);if(error)return toast(error.message,'error');await load();}));
     const stage=qs('[data-space-stage]');if(!stage)return;let start=null,preview=null;
-    stage.addEventListener('pointerdown',e=>{if(e.target.closest('[data-floor-space]'))return;const name=(qs('#newFloorSpaceName')?.value||'').trim();if(!name)return toast('공간명을 먼저 입력하세요.','error');const r=stage.getBoundingClientRect();start={x:Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100)),y:Math.max(0,Math.min(100,(e.clientY-r.top)/r.height*100)),id:e.pointerId};preview=document.createElement('div');preview.className='floor-space-preview';stage.appendChild(preview);stage.setPointerCapture?.(e.pointerId);});
-    stage.addEventListener('pointermove',e=>{if(!start||e.pointerId!==start.id||!preview)return;const r=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100)),y=Math.max(0,Math.min(100,(e.clientY-r.top)/r.height*100)),l=Math.min(start.x,x),t=Math.min(start.y,y),w=Math.abs(x-start.x),h=Math.abs(y-start.y);Object.assign(preview.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});});
-    const finish=async e=>{if(!start||e.pointerId!==start.id)return;const r=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100)),y=Math.max(0,Math.min(100,(e.clientY-r.top)/r.height*100)),l=Math.min(start.x,x),t=Math.min(start.y,y),w=Math.abs(x-start.x),h=Math.abs(y-start.y);preview?.remove();start=null;preview=null;if(w<2||h<2)return toast('공간 영역을 조금 더 크게 드래그하세요.','error');await createFloorSpace(stage.dataset.spaceStage,Number(l.toFixed(2)),Number(t.toFixed(2)),Number(w.toFixed(2)),Number(h.toFixed(2)));};
-    stage.addEventListener('pointerup',finish);stage.addEventListener('pointercancel',()=>{preview?.remove();start=null;preview=null;});
+    stage.addEventListener('pointerdown',e=>{if(e.target.closest('[data-floor-space]'))return;const name=(qs('#newFloorSpaceName')?.value||'').trim();if(!name)return toast('공간명을 먼저 입력하세요.','error');const r=stage.getBoundingClientRect(),p=snapAdminSpacePoint(stage,(e.clientX-r.left)/r.width*100,(e.clientY-r.top)/r.height*100);start={x:p.x,y:p.y,id:e.pointerId};preview=document.createElement('div');preview.className='floor-space-preview';stage.appendChild(preview);showAdminSpaceGuides(stage,p);stage.setPointerCapture?.(e.pointerId);});
+    stage.addEventListener('pointermove',e=>{if(!start||e.pointerId!==start.id||!preview)return;const r=stage.getBoundingClientRect(),p=snapAdminSpacePoint(stage,(e.clientX-r.left)/r.width*100,(e.clientY-r.top)/r.height*100),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);Object.assign(preview.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});showAdminSpaceGuides(stage,p);});
+    const finish=async e=>{if(!start||e.pointerId!==start.id)return;const r=stage.getBoundingClientRect(),p=snapAdminSpacePoint(stage,(e.clientX-r.left)/r.width*100,(e.clientY-r.top)/r.height*100),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);preview?.remove();start=null;preview=null;clearAdminSpaceGuides(stage);if(w<2||h<2)return toast('공간 영역을 조금 더 크게 드래그하세요.','error');await createFloorSpace(stage.dataset.spaceStage,l,t,w,h);};
+    stage.addEventListener('pointerup',finish);stage.addEventListener('pointercancel',()=>{preview?.remove();start=null;preview=null;clearAdminSpaceGuides(stage);});
   }
+
 
   function backupAuditMarkup(){
     const logs=state.audit.slice(0,12).map(x=>`<div class="audit-row"><span><b>${esc(x.summary||x.action)}</b><small>${esc(x.actor_role==='admin'?'슈퍼어드민':'병원 관리자')} · ${new Date(x.created_at).toLocaleString('ko-KR')}</small></span><em>${esc(x.entity_type||'')}</em></div>`).join('');

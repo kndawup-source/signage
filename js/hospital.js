@@ -468,8 +468,18 @@
       toast(optimized.optimized?`${floor}층 도면을 최적화해 저장했습니다. · ${rate}% 절감`:`${floor}층 도면을 저장했습니다.`);await load();
     }catch(e){toast(e.message||String(e),'error');}
   }
-  async function resetFloorplan(floor){const old=floorplanMeta(floor);if(!old)return;if(!confirm(`${floor}층 업로드 도면을 기본/미등록 상태로 되돌릴까요?`))return;try{const next={...state.floorplanAssets};delete next[String(floor)];await saveFloorplanAssets(next);await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);toast('현재 도면을 해제했습니다. 이전 버전은 보관됩니다.');await load();}catch(e){toast(e.message||String(e),'error');}}
-  function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>등록된 도면만 표시됩니다. 업로드 시 화면용 크기로 자동 최적화합니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'PNG, JPG, WebP · 업로드 시 자동 압축'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">도면 제거</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
+  async function resetFloorplan(floor){
+    const old=floorplanMeta(floor);if(!old)return;
+    if(!confirm(`${floor}층 도면을 완전히 삭제할까요?\n현재 도면과 이전 버전 파일까지 모두 삭제되며 복원할 수 없습니다.`))return;
+    try{
+      const versions=floorplanVersionsFor(floor),keys=[...new Set([floorplanMetaKey(old),...versions.map(v=>String(v.object_key||'').trim())].filter(Boolean))];
+      for(const key of keys){await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId:state.site.id,floor,key})});}
+      const {error:versionDeleteError}=await db.from('floorplan_versions').delete().eq('site_id',state.site.id).eq('floor_number',floor);if(versionDeleteError)throw versionDeleteError;
+      const next={...state.floorplanAssets};delete next[String(floor)];await saveFloorplanAssets(next);
+      toast(`${floor}층 도면을 완전히 삭제했습니다.`);await load();
+    }catch(e){toast(`도면 삭제에 실패했습니다. ${e.message||String(e)}`,'error');}
+  }
+  function floorplanAdminMarkup(){return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층별 도면</b><small>등록된 도면만 표시됩니다. 업로드 시 화면용 크기로 자동 최적화합니다.</small></div></div><div class="floorplan-admin-list">${Array.from({length:14},(_,i)=>14-i).map(f=>{const m=floorplanMeta(f),versions=floorplanVersionsFor(f);return `<article class="floorplan-admin-row"><div class="floorplan-admin-copy"><b>${f}F</b><span>${m?'업로드 도면':'도면 없음'}</span><small>${m?esc(m.filename||'사용자 도면'):'PNG, JPG, WebP · 업로드 시 자동 압축'}${versions.length?` · 버전 ${versions.length}개`:''}</small></div><div class="floorplan-admin-actions"><label class="btn small floorplan-upload-btn"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${f}"><span>${m?'교체':'업로드'}</span></label>${m?`<button class="btn small" type="button" data-staff-floorplan-reset="${f}">완전 삭제</button>`:''}${versions.length>1?`<select class="compact-select" data-staff-floorplan-version="${f}">${versions.map(v=>`<option value="${v.id}" ${v.object_key===m?.key?'selected':''}>${esc(v.filename||'도면')} · ${new Date(v.created_at).toLocaleDateString('ko-KR')}</option>`).join('')}</select><button class="btn small" data-staff-floorplan-restore="${f}" type="button">복원</button>`:''}</div></article>`;}).join('')}</div></div>`;}
   function floorAssetFingerprint(group){
     const meta=floorplanMeta(floorNumber(group));if(!meta)return '';
     const w=Number(meta.source_width||meta.width||0),h=Number(meta.source_height||meta.height||0);
@@ -581,6 +591,24 @@
   async function saveDisplaySetup(roomId,x,y,mode,spaceId){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const useMode=mode||displayControlMode(r),gid=canonicalFloorGroupIdForRoom(r)||r.group_id;let resolvedSpace=spaceId===undefined?r.floor_space_id||null:spaceId||null;if(spaceId===null||spaceId==='auto')resolvedSpace=spaceContainingPoint(gid,x,y)?.id||null;let {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null,p_space:resolvedSpace,p_group:gid}),legacy=false;if(error&&displaySetupRpcMissing(error)){const retry=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});error=retry.error;legacy=!error;}if(error)return toast(error.message,'error');r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;if(!legacy)r.floor_space_id=resolvedSpace;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';if(legacy)toast('디스플레이 위치를 저장했습니다. 공간 연결은 DB 업데이트 후 함께 저장됩니다.');renderPreservingUi(true);}
   const DISPLAY_GRID_STEP=1,DISPLAY_ALIGN_THRESHOLD=1;
   const clampPct=v=>Math.max(0,Math.min(100,Number(v)||0));
+  function snapLayoutPoint(raw,targets=[]){
+    const x0=clampPct(raw.x),y0=clampPct(raw.y);
+    let x=Math.round(x0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,y=Math.round(y0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,guideX=null,guideY=null;
+    let bestX=DISPLAY_ALIGN_THRESHOLD+0.001,bestY=DISPLAY_ALIGN_THRESHOLD+0.001;
+    targets.forEach(t=>{
+      (t.xs||[]).forEach(px=>{const dx=Math.abs(Number(px)-x0);if(dx<=DISPLAY_ALIGN_THRESHOLD&&dx<bestX){bestX=dx;x=Number(px);guideX=Number(px);}});
+      (t.ys||[]).forEach(py=>{const dy=Math.abs(Number(py)-y0);if(dy<=DISPLAY_ALIGN_THRESHOLD&&dy<bestY){bestY=dy;y=Number(py);guideY=Number(py);}});
+    });
+    return {x:clampPct(x),y:clampPct(y),guideX,guideY};
+  }
+  function snapSpacePoint(stage,rawX,rawY,ignoreId=null){
+    const gid=stage?.dataset?.staffSpaceStage||stage?.dataset?.staffMapStage;
+    const targets=state.floorSpaces.filter(sp=>sp.group_id===gid&&sp.id!==ignoreId).map(sp=>({
+      xs:[Number(sp.x_pct),Number(sp.x_pct)+Number(sp.width_pct)],
+      ys:[Number(sp.y_pct),Number(sp.y_pct)+Number(sp.height_pct)]
+    }));
+    return snapLayoutPoint({x:rawX,y:rawY},targets);
+  }
   function snapDisplayPoint(stage,roomId,rawX,rawY){
     const gid=stage?.dataset?.staffMapStage,x0=clampPct(rawX),y0=clampPct(rawY);
     let x=Math.round(x0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,y=Math.round(y0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,guideX=null,guideY=null;
@@ -618,12 +646,13 @@
     qs('#staffCancelSpaceRedraw')?.addEventListener('click',()=>{spaceRedrawId=null;renderPreservingUi(false);});
     qsa('[data-staff-delete-space]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('공간 구분을 삭제할까요?'))return;const {error}=await db.from('floor_spaces').delete().eq('id',b.dataset.staffDeleteSpace);if(error)return toast(error.message,'error');if(spaceRedrawId===b.dataset.staffDeleteSpace)spaceRedrawId=null;await load();}));
     const stage=qs('[data-staff-space-stage]');if(!stage)return;let start=null,preview=null;
-    stage.addEventListener('pointerdown',e=>{if(layoutEditMode!=='space')return;if(e.target.closest('[data-floor-space]')&&!spaceRedrawId)return;const name=(qs('#staffSpaceName')?.value||'').trim();if(!name)return toast('공간명을 먼저 입력하세요.','error');e.preventDefault();const rect=stage.getBoundingClientRect();start={x:Math.max(0,Math.min(100,(e.clientX-rect.left)/rect.width*100)),y:Math.max(0,Math.min(100,(e.clientY-rect.top)/rect.height*100))};preview=document.createElement('div');preview.className='floor-space-draft';stage.appendChild(preview);stage.setPointerCapture?.(e.pointerId);});
-    stage.addEventListener('pointermove',e=>{if(!start||!preview)return;const rect=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(e.clientX-rect.left)/rect.width*100)),y=Math.max(0,Math.min(100,(e.clientY-rect.top)/rect.height*100)),l=Math.min(start.x,x),t=Math.min(start.y,y),w=Math.abs(x-start.x),h=Math.abs(y-start.y);Object.assign(preview.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});});
-    stage.addEventListener('pointerup',async e=>{if(!start)return;const rect=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(e.clientX-rect.left)/rect.width*100)),y=Math.max(0,Math.min(100,(e.clientY-rect.top)/rect.height*100)),l=Math.min(start.x,x),t=Math.min(start.y,y),w=Math.abs(x-start.x),h=Math.abs(y-start.y);preview?.remove();preview=null;start=null;if(w<2||h<2)return toast('공간 영역을 조금 더 크게 드래그하세요.','error');const name=(qs('#staffSpaceName')?.value||'').trim(),type=qs('#staffSpaceType')?.value||'other',groupId=stage.dataset.staffSpaceStage;
+    stage.addEventListener('pointerdown',e=>{if(layoutEditMode!=='space')return;if(e.target.closest('[data-floor-space]')&&!spaceRedrawId)return;const name=(qs('#staffSpaceName')?.value||'').trim();if(!name)return toast('공간명을 먼저 입력하세요.','error');e.preventDefault();const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId);start={x:p.x,y:p.y,id:e.pointerId};preview=document.createElement('div');preview.className='floor-space-draft';stage.appendChild(preview);showDisplaySnapGuides(stage,p);stage.setPointerCapture?.(e.pointerId);});
+    stage.addEventListener('pointermove',e=>{if(!start||e.pointerId!==start.id||!preview)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);Object.assign(preview.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});showDisplaySnapGuides(stage,p);});
+    stage.addEventListener('pointerup',async e=>{if(!start||e.pointerId!==start.id)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);preview?.remove();preview=null;start=null;clearDisplaySnapGuides(stage);if(w<2||h<2)return toast('공간 영역을 조금 더 크게 드래그하세요.','error');const name=(qs('#staffSpaceName')?.value||'').trim(),type=qs('#staffSpaceType')?.value||'other',groupId=stage.dataset.staffSpaceStage;
       if(spaceRedrawId){const id=spaceRedrawId,{error}=await db.from('floor_spaces').update({name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h}).eq('id',id).eq('site_id',state.site.id);if(error)return toast(error.message,'error');const item=state.floorSpaces.find(x=>x.id===id);if(item)Object.assign(item,{name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h});spaceRedrawId=null;toast('공간을 다시 그렸습니다.');renderPreservingUi(true);return;}
       const {data,error}=await db.from('floor_spaces').insert({site_id:state.site.id,group_id:groupId,name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h}).select('*').single();if(error)return toast(error.message,'error');if(data)state.floorSpaces.push(data);toast('공간을 저장했습니다.');renderPreservingUi(true);
     });
+    stage.addEventListener('pointercancel',()=>{preview?.remove();preview=null;start=null;clearDisplaySnapGuides(stage);});
   }
   async function restoreHospitalFloorplan(floor){const id=qs(`[data-staff-floorplan-version="${floor}"]`)?.value,v=state.floorplanVersions.find(x=>x.id===id);if(!v)return;try{const next={...state.floorplanAssets,[String(floor)]:{key:v.object_key,filename:v.filename,mime:v.mime,size:Number(v.size_bytes||0),updated_at:new Date().toISOString()}};await db.from('floorplan_versions').update({active:false}).eq('site_id',state.site.id).eq('floor_number',floor);await db.from('floorplan_versions').update({active:true}).eq('id',v.id);await saveFloorplanAssets(next);toast(`${floor}층 도면을 복원했습니다.`);await load();}catch(e){toast(e.message||String(e),'error');}}
   function bindHospitalAdminSettings(){

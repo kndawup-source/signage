@@ -2837,7 +2837,9 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 
 
 /* v2.34.40 · dense display placement grid + alignment guides */
-.floor-layout-stage.mode-display::after{
+.floor-layout-stage.mode-display::after,
+.floor-layout-stage.mode-space::after,
+.floor-space-stage::after{
   content:"";
   position:absolute;
   inset:0;
@@ -2856,7 +2858,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .display-snap-guide{position:absolute;z-index:6;pointer-events:none;background:rgba(35,33,118,.48);box-shadow:0 0 0 1px rgba(255,255,255,.45)}
 .display-snap-guide.is-vertical{top:0;bottom:0;width:1px;transform:translateX(-.5px)}
 .display-snap-guide.is-horizontal{left:0;right:0;height:1px;transform:translateY(-.5px)}
-@media(max-width:760px){.floor-layout-stage.mode-display::after{background-size:1% 1%,1% 1%,5% 5%,5% 5%}}
+@media(max-width:760px){.floor-layout-stage.mode-display::after,.floor-layout-stage.mode-space::after,.floor-space-stage::after{background-size:1% 1%,1% 1%,5% 5%,5% 5%}}
 
 /* v2.34.41 · copy a finished floor layout to matching floors */
 .floor-layout-topbar{flex-wrap:wrap}
