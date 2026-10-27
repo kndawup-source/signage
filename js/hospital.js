@@ -205,9 +205,9 @@
     const st=roomDisplayStatus(r),x=Number(r.map_x_pct),y=Number(r.map_y_pct),current=currentVideoForRoom(r);
     const thumb=current?.thumbnail_data_url?`<img src="${esc(current.thumbnail_data_url)}" alt="">`:'<span class="display-screen-icon"></span>';
     const videoTitle=current?.title||r.player_status?.title||'현재 영상 없음';
-    return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" aria-label="${esc(r.name)} · ${esc(st.label)}">
-      <span class="floor-display-card"><b><i></i>${esc(r.name)}</b></span>
-      <span class="floor-display-hover"><span class="floor-display-hover-thumb">${thumb}</span><span><b>${esc(r.name)}</b><small>${esc(videoTitle)}</small></span></span>
+    return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" aria-label="${esc(r.name)} · ${esc(st.label)}" aria-expanded="false">
+      <span class="floor-display-dot-only" aria-hidden="true"></span>
+      <span class="floor-display-hover" role="tooltip"><span class="floor-display-hover-thumb">${thumb}</span><span><b>${esc(r.name)}</b><small>${esc(videoTitle)}</small></span></span>
     </button>`;
   }
   function staffFloorPanelMarkup(g){

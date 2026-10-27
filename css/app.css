@@ -2756,3 +2756,81 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-layout-summary>div{display:flex;align-items:baseline;gap:8px;padding:8px 10px;border:1px solid #eceef2;border-radius:9px;background:#fff}
 .floor-layout-summary b{font-size:12px}.floor-layout-summary span{font-size:10px;color:var(--muted)}
 @media(max-width:760px){.floor-layout-topbar{align-items:stretch;flex-direction:column}.floor-layout-mode{width:100%}.floor-layout-mode button{flex:1}.floor-layout-space-controls,.floor-layout-display-controls{grid-template-columns:1fr}.floor-layout-help{padding:2px 0}}
+
+/* v2.34.38 · floor map display markers: dot-first, detail on hover/tap */
+.hospital-floor-detail .floor-display-pin{
+  width:32px!important;
+  min-width:32px!important;
+  height:32px!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:50%!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  outline:0!important;
+  overflow:visible!important;
+  display:grid!important;
+  place-items:center!important;
+  transform:translate(-50%,-50%)!important;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+.hospital-floor-detail .floor-display-card{display:none!important}
+.hospital-floor-detail .floor-display-dot-only{
+  display:block;
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#df2f2f;
+  border:2px solid #fff;
+  box-shadow:0 1px 5px rgba(18,22,31,.24);
+  transition:transform .12s ease,box-shadow .12s ease;
+}
+.hospital-floor-detail .floor-display-pin:hover .floor-display-dot-only,
+.hospital-floor-detail .floor-display-pin:focus .floor-display-dot-only,
+.hospital-floor-detail .floor-display-pin.is-selected .floor-display-dot-only{
+  transform:scale(1.35);
+  box-shadow:0 0 0 3px rgba(223,47,47,.16),0 1px 6px rgba(18,22,31,.24);
+}
+.hospital-floor-detail .floor-display-hover{
+  left:50%!important;
+  bottom:calc(50% + 15px)!important;
+  width:min(220px,calc(100vw - 32px))!important;
+  grid-template-columns:76px minmax(0,1fr)!important;
+  gap:10px!important;
+  padding:9px!important;
+  border:1px solid #e1e4e9!important;
+  border-radius:11px!important;
+  background:#fff!important;
+  box-shadow:0 14px 32px rgba(26,31,43,.18)!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+  transform:translate(-50%,5px)!important;
+}
+.hospital-floor-detail .floor-display-pin:hover .floor-display-hover,
+.hospital-floor-detail .floor-display-pin:focus .floor-display-hover,
+.hospital-floor-detail .floor-display-pin:focus-visible .floor-display-hover{
+  opacity:1!important;
+  visibility:visible!important;
+  transform:translate(-50%,0)!important;
+}
+.hospital-floor-detail .floor-display-pin:hover,
+.hospital-floor-detail .floor-display-pin:focus,
+.hospital-floor-detail .floor-display-pin:focus-visible{z-index:30!important}
+@media (hover:none),(pointer:coarse){
+  .hospital-floor-detail .floor-display-pin{
+    width:42px!important;
+    min-width:42px!important;
+    height:42px!important;
+  }
+  .hospital-floor-detail .floor-display-dot-only{width:11px;height:11px}
+  .hospital-floor-detail .floor-display-pin:hover .floor-display-hover{opacity:0!important;visibility:hidden!important}
+  .hospital-floor-detail .floor-display-pin:focus .floor-display-hover,
+  .hospital-floor-detail .floor-display-pin:focus-visible .floor-display-hover{opacity:1!important;visibility:visible!important}
+  .hospital-floor-detail .floor-display-hover{
+    width:min(240px,calc(100vw - 28px))!important;
+    grid-template-columns:84px minmax(0,1fr)!important;
+  }
+}
