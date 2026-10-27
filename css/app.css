@@ -2834,3 +2834,24 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     grid-template-columns:84px minmax(0,1fr)!important;
   }
 }
+
+
+/* v2.34.39 · display placement grid + alignment guides */
+.floor-layout-stage.mode-display::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:3;
+  pointer-events:none;
+  background-image:
+    linear-gradient(to right,rgba(35,33,118,.055) 1px,transparent 1px),
+    linear-gradient(to bottom,rgba(35,33,118,.055) 1px,transparent 1px);
+  background-size:5% 5%;
+}
+.floor-layout-stage.mode-display .floorplan-svg-host{z-index:0}
+.floor-layout-stage.mode-display .floor-space-overlay{z-index:2}
+.floor-layout-stage.mode-display .display-map-marker{z-index:7}
+.display-snap-guide{position:absolute;z-index:6;pointer-events:none;background:rgba(35,33,118,.48);box-shadow:0 0 0 1px rgba(255,255,255,.45)}
+.display-snap-guide.is-vertical{top:0;bottom:0;width:1px;transform:translateX(-.5px)}
+.display-snap-guide.is-horizontal{left:0;right:0;height:1px;transform:translateY(-.5px)}
+@media(max-width:760px){.floor-layout-stage.mode-display::after{background-size:10% 10%}}

@@ -477,7 +477,7 @@
           <label><span>디스플레이</span><select data-staff-map-room="${current.id}">${rooms.map(r=>`<option value="${r.id}" ${selectedRoom?.id===r.id?'selected':''}>${esc(r.name)}${roomMapPlaced(r)?' · 배치됨':' · 위치 미설정'}</option>`).join('')}</select></label>
           <label><span>운영 방식</span><select data-staff-map-mode="${current.id}">${CONTROL_MODES.map(([v,l])=>`<option value="${v}" ${displayControlMode(selectedRoom)===v?'selected':''}>${l}</option>`).join('')}</select></label>
           <button class="btn small" type="button" data-staff-map-clear="${current.id}">선택 위치 지우기</button>
-          <span class="floor-layout-help">디스플레이를 선택하고 도면을 클릭하세요. 점은 드래그해서 옮길 수 있습니다.</span>
+          <span class="floor-layout-help">디스플레이를 선택하고 도면을 클릭하세요. 2.5% 그리드와 기존 점의 가로·세로 라인에 자동 정렬됩니다.</span>
         </div>
       </div>
       ${editing?`<div class="floor-space-redraw-note"><b>${esc(editing.name)}</b><span>새 영역을 드래그하면 기존 공간의 좌표만 다시 저장됩니다.</span></div>`:''}
@@ -517,13 +517,29 @@
   function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="hospital-page-intro"><span class="eyebrow">PLAYLIST</span><h2>플레이리스트</h2><p>이미 등록된 영상 중 이 병원에서 사용할 재생 순서만 정합니다.</p></div>${hospitalPlaylistManagerMarkup()}</section>`;}
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   async function saveDisplaySetup(roomId,x,y,mode){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const useMode=mode||displayControlMode(r);const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});if(error)return toast(error.message,'error');r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';renderPreservingUi(true);}
+  const DISPLAY_GRID_STEP=2.5,DISPLAY_ALIGN_THRESHOLD=1.5;
+  const clampPct=v=>Math.max(0,Math.min(100,Number(v)||0));
+  function snapDisplayPoint(stage,roomId,rawX,rawY){
+    const gid=stage?.dataset?.staffMapStage,x0=clampPct(rawX),y0=clampPct(rawY);
+    let x=Math.round(x0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,y=Math.round(y0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,guideX=null,guideY=null;
+    const peers=state.rooms.filter(r=>r.id!==roomId&&r.group_id===gid&&roomMapPlaced(r));
+    let bestX=DISPLAY_ALIGN_THRESHOLD+0.001,bestY=DISPLAY_ALIGN_THRESHOLD+0.001;
+    peers.forEach(r=>{const px=Number(r.map_x_pct),py=Number(r.map_y_pct),dx=Math.abs(px-x0),dy=Math.abs(py-y0);if(dx<=DISPLAY_ALIGN_THRESHOLD&&dx<bestX){bestX=dx;x=px;guideX=px;}if(dy<=DISPLAY_ALIGN_THRESHOLD&&dy<bestY){bestY=dy;y=py;guideY=py;}});
+    return {x:clampPct(x),y:clampPct(y),guideX,guideY};
+  }
+  function showDisplaySnapGuides(stage,point){
+    if(!stage)return;stage.querySelectorAll('.display-snap-guide').forEach(x=>x.remove());
+    if(point?.guideX!==null&&point?.guideX!==undefined){const g=document.createElement('i');g.className='display-snap-guide is-vertical';g.style.left=`${point.guideX}%`;stage.appendChild(g);}
+    if(point?.guideY!==null&&point?.guideY!==undefined){const g=document.createElement('i');g.className='display-snap-guide is-horizontal';g.style.top=`${point.guideY}%`;stage.appendChild(g);}
+  }
+  function clearDisplaySnapGuides(stage){stage?.querySelectorAll('.display-snap-guide').forEach(x=>x.remove());}
   function bindDisplaySetup(){
     qsa('[data-layout-mode]').forEach(b=>b.addEventListener('click',()=>{layoutEditMode=b.dataset.layoutMode||'display';if(layoutEditMode==='display')spaceRedrawId=null;renderPreservingUi(true);}));
-    qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',e=>{if(layoutEditMode!=='display')return;if(e.target.closest('[data-display-marker]'))return;const gid=stage.dataset.staffMapStage,select=qs(`[data-staff-map-room="${gid}"]`),mode=qs(`[data-staff-map-mode="${gid}"]`)?.value,roomId=select?.value;if(!roomId)return;const rect=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(e.clientX-rect.left)/rect.width*100)),y=Math.max(0,Math.min(100,(e.clientY-rect.top)/rect.height*100));saveDisplaySetup(roomId,x,y,mode);}));
+    qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',e=>{if(layoutEditMode!=='display')return;if(e.target.closest('[data-display-marker]'))return;const gid=stage.dataset.staffMapStage,select=qs(`[data-staff-map-room="${gid}"]`),mode=qs(`[data-staff-map-mode="${gid}"]`)?.value,roomId=select?.value;if(!roomId)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);saveDisplaySetup(roomId,p.x,p.y,mode);}));
     qsa('[data-staff-map-room]').forEach(sel=>sel.addEventListener('change',()=>{sel.dataset.dirty='1';const r=roomById(sel.value),gid=sel.dataset.staffMapRoom,m=qs(`[data-staff-map-mode="${gid}"]`);if(r&&m){m.value=displayControlMode(r);m.dataset.dirty='1';}}));
     qsa('[data-staff-map-mode]').forEach(sel=>sel.addEventListener('change',()=>{const roomId=qs(`[data-staff-map-room="${sel.dataset.staffMapMode}"]`)?.value,r=roomById(roomId);if(r)saveDisplaySetup(roomId,r.map_x_pct,r.map_y_pct,sel.value);}));
     qsa('[data-staff-map-clear]').forEach(b=>b.addEventListener('click',()=>{const id=qs(`[data-staff-map-room="${b.dataset.staffMapClear}"]`)?.value;if(id)saveDisplaySetup(id,null,null,displayControlMode(roomById(id)));}));
-    qsa('[data-display-marker]').forEach(marker=>marker.addEventListener('pointerdown',e=>{if(layoutEditMode!=='display')return;e.preventDefault();e.stopPropagation();const stage=marker.closest('[data-staff-map-stage]');if(!stage)return;marker.setPointerCapture?.(e.pointerId);const move=ev=>{const rect=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(ev.clientX-rect.left)/rect.width*100)),y=Math.max(0,Math.min(100,(ev.clientY-rect.top)/rect.height*100));marker.style.left=`${x}%`;marker.style.top=`${y}%`;};const up=ev=>{marker.removeEventListener('pointermove',move);marker.removeEventListener('pointerup',up);const rect=stage.getBoundingClientRect(),x=Math.max(0,Math.min(100,(ev.clientX-rect.left)/rect.width*100)),y=Math.max(0,Math.min(100,(ev.clientY-rect.top)/rect.height*100));saveDisplaySetup(marker.dataset.displayMarker,x,y,displayControlMode(roomById(marker.dataset.displayMarker)));};marker.addEventListener('pointermove',move);marker.addEventListener('pointerup',up);}));
+    qsa('[data-display-marker]').forEach(marker=>marker.addEventListener('pointerdown',e=>{if(layoutEditMode!=='display')return;e.preventDefault();e.stopPropagation();const stage=marker.closest('[data-staff-map-stage]');if(!stage)return;const roomId=marker.dataset.displayMarker;marker.setPointerCapture?.(e.pointerId);const move=ev=>{const rect=stage.getBoundingClientRect(),rawX=(ev.clientX-rect.left)/rect.width*100,rawY=(ev.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);marker.style.left=`${p.x}%`;marker.style.top=`${p.y}%`;showDisplaySnapGuides(stage,p);};const up=ev=>{marker.removeEventListener('pointermove',move);marker.removeEventListener('pointerup',up);const rect=stage.getBoundingClientRect(),rawX=(ev.clientX-rect.left)/rect.width*100,rawY=(ev.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);clearDisplaySnapGuides(stage);saveDisplaySetup(roomId,p.x,p.y,displayControlMode(roomById(roomId)));};marker.addEventListener('pointermove',move);marker.addEventListener('pointerup',up);}));
   }
   function bindFloorSpaceManager(){
     qs('#staffSpaceFloor')?.addEventListener('change',e=>{spaceEditorGroupId=e.target.value;spaceRedrawId=null;settingsOpen=true;renderPreservingUi(false);});
