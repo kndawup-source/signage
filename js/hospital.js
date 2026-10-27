@@ -25,7 +25,7 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,selectedFloorId=null,tab='output';
-  document.addEventListener('click',e=>{const b=e.target.closest?.('[data-video-open-url]');if(!b)return;e.preventDefault();e.stopPropagation();const url=String(b.dataset.videoOpenUrl||'').trim();if(!url)return;window.open(url,'_blank','noopener,noreferrer');});
+  document.addEventListener('click',e=>{const a=e.target.closest?.('a[data-video-link]');if(!a)return;e.stopPropagation();});
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanUrlCache=new Map();
   const buildingImageUrlCache=new Map();
@@ -64,7 +64,7 @@
   function staffThumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
   function staffThumbLink(v,className='',label='영상 열기'){
     const inner=staffThumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();
-    return url?`<button type="button" class="${cls}" data-video-open-url="${esc(url)}" aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</button>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;
+    return url?`<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;
   }
   function roomPlaylistLabel(r){
     const mode=String(r.player_status?.mode||'');

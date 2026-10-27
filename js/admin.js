@@ -4,7 +4,7 @@
   await Signage.requireAuth('admin');
   qs('#signOut').addEventListener('click', Signage.signOut);
 
-  document.addEventListener('click',e=>{const b=e.target.closest?.('[data-video-open-url]');if(!b)return;e.preventDefault();e.stopPropagation();const url=String(b.dataset.videoOpenUrl||'').trim();if(!url)return;window.open(url,'_blank','noopener,noreferrer');});
+  document.addEventListener('click',e=>{const a=e.target.closest?.('a[data-video-link]');if(!a)return;e.stopPropagation();});
   const AGE_OPTIONS=[['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['female','여성'],['male','남성']];
   const TREATMENT_OPTIONS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
@@ -214,7 +214,7 @@
     return ids.map((id,idx)=>{const video=state.videos.find(v=>v.id===id),rule=rules.get(id),ruleEnabled=rule?.enabled!==false;const scheduledOn=(!rule?.starts_at||new Date(rule.starts_at).getTime()<=now)&&(!rule?.ends_at||new Date(rule.ends_at).getTime()>now);return {id,video,rule,baseIndex:idx,ruleEnabled,scheduledOn,enabled:ruleEnabled&&scheduledOn};}).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.baseIndex+1)*10))-(b.rule?.sort_order??((b.baseIndex+1)*10))||a.baseIndex-b.baseIndex);
   }
   function thumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
-  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<button type="button" class="${cls}" data-video-open-url="${esc(url)}" aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</button>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
+  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
   function roomVideoStripHtml(r){
     const ids=roomBaseVideoIds(r).filter(Boolean);
     const videos=ids.map(id=>state.videos.find(v=>v.id===id)).filter(Boolean);
