@@ -214,7 +214,7 @@
     return ids.map((id,idx)=>{const video=state.videos.find(v=>v.id===id),rule=rules.get(id),ruleEnabled=rule?.enabled!==false;const scheduledOn=(!rule?.starts_at||new Date(rule.starts_at).getTime()<=now)&&(!rule?.ends_at||new Date(rule.ends_at).getTime()>now);return {id,video,rule,baseIndex:idx,ruleEnabled,scheduledOn,enabled:ruleEnabled&&scheduledOn};}).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.baseIndex+1)*10))-(b.rule?.sort_order??((b.baseIndex+1)*10))||a.baseIndex-b.baseIndex);
   }
   function thumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
-  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
+  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<a class="${cls}" href="${esc(url)}" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
   function roomVideoStripHtml(r){
     const ids=roomBaseVideoIds(r).filter(Boolean);
     const videos=ids.map(id=>state.videos.find(v=>v.id===id)).filter(Boolean);
