@@ -503,8 +503,10 @@
   function displaySpaceOptions(spaces,room){return `<option value="">자동 · 점 위치 기준</option>${spaces.map(sp=>`<option value="${sp.id}" ${room?.floor_space_id===sp.id?'selected':''}>${esc(sp.name)}</option>`).join('')}`;}
   function floorSettingsLabel(group){const floor=Number(group?.floor_number);const floorLabel=Number.isFinite(floor)&&floor>0?`${floor}F`:'';const name=String(group?.name||'').trim();return floorLabel&&name?`${floorLabel} · ${name}`:(floorLabel||name||'층');}
   function floorNumberForGroupId(groupId){const g=state.groups.find(x=>x.id===groupId);const n=Number(g?.floor_number);return Number.isFinite(n)&&n>0?n:null;}
-  function roomsForFloorGroup(group){const floor=Number(group?.floor_number);if(!Number.isFinite(floor)||floor<=0)return state.rooms.filter(r=>r.group_id===group?.id);const validGroupIds=new Set(state.groups.filter(g=>Number(g.floor_number)===floor).map(g=>g.id));validGroupIds.add(group.id);return state.rooms.filter(r=>validGroupIds.has(r.group_id));}
-  function canonicalFloorGroupIdForRoom(room){const floor=floorNumberForGroupId(room?.group_id);if(!floor)return room?.group_id||null;return state.groups.find(g=>g.kind==='floor'&&Number(g.floor_number)===floor)?.id||room?.group_id||null;}
+  function floorNumberFromLabel(value){const text=String(value||'').trim();if(!text)return null;let m=text.match(/(?:^|[^0-9])(\d{1,2})\s*F(?:[_\s.-]|$)/i);if(!m)m=text.match(/(?:^|[^0-9])(\d{1,2})\s*층(?:[_\s.-]|$)/);const n=m?Number(m[1]):null;return Number.isFinite(n)&&n>0?n:null;}
+  function physicalFloorForRoom(room){return floorNumberForGroupId(room?.group_id)||floorNumberFromLabel(room?.group_name)||floorNumberFromLabel(room?.name)||null;}
+  function roomsForFloorGroup(group){const floor=Number(group?.floor_number);if(!Number.isFinite(floor)||floor<=0)return state.rooms.filter(r=>r.group_id===group?.id);const validGroupIds=new Set(state.groups.filter(g=>Number(g.floor_number)===floor).map(g=>g.id));validGroupIds.add(group.id);return state.rooms.filter(r=>validGroupIds.has(r.group_id)||physicalFloorForRoom(r)===floor);}
+  function canonicalFloorGroupIdForRoom(room){const floor=physicalFloorForRoom(room);if(!floor)return room?.group_id||null;return state.groups.find(g=>g.kind==='floor'&&Number(g.floor_number)===floor)?.id||room?.group_id||null;}
 
   function floorLayoutEditorMarkup(){
     const floors=[...state.groups].filter(g=>g.kind==='floor'&&Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));if(!floors.length)return '';
@@ -581,7 +583,7 @@
   function snapDisplayPoint(stage,roomId,rawX,rawY){
     const gid=stage?.dataset?.staffMapStage,x0=clampPct(rawX),y0=clampPct(rawY);
     let x=Math.round(x0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,y=Math.round(y0/DISPLAY_GRID_STEP)*DISPLAY_GRID_STEP,guideX=null,guideY=null;
-    const peers=state.rooms.filter(r=>r.id!==roomId&&r.group_id===gid&&roomMapPlaced(r));
+    const floorGroup=state.groups.find(g=>g.id===gid),peers=roomsForFloorGroup(floorGroup).filter(r=>r.id!==roomId&&roomMapPlaced(r));
     let bestX=DISPLAY_ALIGN_THRESHOLD+0.001,bestY=DISPLAY_ALIGN_THRESHOLD+0.001;
     peers.forEach(r=>{const px=Number(r.map_x_pct),py=Number(r.map_y_pct),dx=Math.abs(px-x0),dy=Math.abs(py-y0);if(dx<=DISPLAY_ALIGN_THRESHOLD&&dx<bestX){bestX=dx;x=px;guideX=px;}if(dy<=DISPLAY_ALIGN_THRESHOLD&&dy<bestY){bestY=dy;y=py;guideY=py;}});
     return {x:clampPct(x),y:clampPct(y),guideX,guideY};
