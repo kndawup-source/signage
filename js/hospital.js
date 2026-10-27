@@ -25,6 +25,7 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,selectedFloorId=null,tab='output';
+  document.addEventListener('click',e=>{const b=e.target.closest?.('[data-video-open-url]');if(!b)return;e.preventDefault();e.stopPropagation();const url=String(b.dataset.videoOpenUrl||'').trim();if(!url)return;window.open(url,'_blank','noopener,noreferrer');});
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanUrlCache=new Map();
   const buildingImageUrlCache=new Map();
@@ -62,8 +63,8 @@
   function staffRoomOutputItems(r){const ids=staffBaseIds(r),rules=new Map(roomRules(r.id).map(x=>[x.video_id,x]));return ids.map((id,idx)=>({id,video:state.videos.find(v=>v.id===id),rule:rules.get(id),idx})).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.idx+1)*10))-(b.rule?.sort_order??((b.idx+1)*10)));}
   function staffThumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
   function staffThumbLink(v,className='',label='영상 열기'){
-    const inner=staffThumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' ');
-    return v?.url?`<a class="${cls}" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;
+    const inner=staffThumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();
+    return url?`<button type="button" class="${cls}" data-video-open-url="${esc(url)}" aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</button>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;
   }
   function roomPlaylistLabel(r){
     const mode=String(r.player_status?.mode||'');
@@ -95,7 +96,7 @@
     const status=roomDisplayStatus(r),current=currentVideoForRoom(r),isManual=displayControlMode(r)==='manual',st=r.player_status||{};
     const title=isManual?'현장 수동 운영':(current?.title||st.title||'현재 재생 영상 없음');
     const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
-    const playback=isManual?'원격 재생 상태 없음':`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`;
+    const playback=isManual?'원격 재생 상태 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'오프라인 · 플레이어 연결 끊김');
     return `<div class="floor-room-focus">
       <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
       <div class="floor-room-current">${staffThumbLink(current,'floor-room-current-thumb','현재 영상 열기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
@@ -108,7 +109,7 @@
   const displayControlMode=(r)=>String(r?.display_control_mode||'remote');
   const displayControlLabel=(r)=>CONTROL_MODES.find(([v])=>v===displayControlMode(r))?.[1]||'원격 제어';
   const roomHealth=(r)=>Signage.roomHealth(r,monitor.serverNow());
-  const staffIsOnline=(r)=>displayControlMode(r)==='manual'?true:roomHealth(r)!=='offline';
+  const staffIsOnline=(r)=>{if(displayControlMode(r)==='manual'||!r?.last_seen_at)return false;const h=roomHealth(r),st=r.player_status||{};return st.online!==false&&['normal','error','recovering'].includes(h);};
   function roomDisplayStatus(r){
     const mode=displayControlMode(r);
     if(mode==='manual')return r.manual_check_status==='checked'?{key:'manual',label:'수동 운영'}:{key:'manual-warn',label:'수동 확인 필요'};
@@ -156,7 +157,7 @@
     return '공간 미설정';
   }
   const currentVideoForRoom=(r)=>state.videos.find(v=>v.id===r.player_status?.video_id)||null;
-  const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨'})[String(v||'').toLowerCase()]||'연결됨';
+  const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨',closed:'운영시간 외'})[String(v||'').toLowerCase()]||'상태 확인 안 됨';
   const activePatients=()=>state.patients.filter(p=>['waiting','assigned','in_progress'].includes(p.status));
   const elapsedMinutes=(start,end=Date.now())=>start?Math.max(0,Math.floor((new Date(end).getTime()-new Date(start).getTime())/60000)):0;
   const waitText=(p)=>`${elapsedMinutes(p.waiting_started_at||p.created_at,p.assigned_at||Date.now())}분 대기`;
@@ -231,7 +232,7 @@
   function staffFloorPanelMarkup(g){
     if(!g)return `<section class="hospital-floor-detail hospital-floor-detail-empty"><div><b>층을 선택하세요.</b><p>확인할 층을 누르면 도면과 디스플레이 위치가 열립니다.</p></div></section>`;
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
-    const n=floorNumber(g),online=rooms.filter(r=>displayControlMode(r)==='manual'||staffIsOnline(r)).length;
+    const n=floorNumber(g),online=rooms.filter(staffIsOnline).length;
     return `<section class="hospital-floor-detail">
       <div class="hospital-floor-detail-head">
         <div><b>${n}층 · ${esc(g.name||floorPurposeLabel(g))}</b><span>${esc(g.content_intro||'도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.')}</span>${g.role_label?`<em class="floor-role-chip">역할 · ${esc(g.role_label)}</em>`:''}${groupContentTopicsMarkup(g)}</div>
@@ -659,7 +660,7 @@
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>원내 영상 송출</h1><p>현재 송출 상태를 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${Math.max(0,state.rooms.length-offline)}<em>대</em></b></div><div class="kpi-issue"><small><i></i>확인 필요</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>원내 영상 송출</h1><p>현재 송출 상태를 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${state.rooms.filter(staffIsOnline).length}<em>대</em></b></div><div class="kpi-issue"><small><i></i>확인 필요</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="hospital-output-tools-body"><details class="staff-space-detail-drawer" open><summary><span><b>공간별 세부 관리</b><small>고급 제어가 필요한 경우에만 사용합니다.</small></span></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
@@ -701,7 +702,7 @@
   function bind(){
     bindHospitalAdminSettings();
     qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=selectedFloorId===b.dataset.staffSelectFloor?null:b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
-    qsa('.video-thumb-link[href]').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
+
     qsa('#hospitalRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-player-open]').forEach(b=>b.addEventListener('click',()=>openRoomPlayer(b.dataset.staffPlayerOpen)));

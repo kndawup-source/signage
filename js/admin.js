@@ -4,6 +4,7 @@
   await Signage.requireAuth('admin');
   qs('#signOut').addEventListener('click', Signage.signOut);
 
+  document.addEventListener('click',e=>{const b=e.target.closest?.('[data-video-open-url]');if(!b)return;e.preventDefault();e.stopPropagation();const url=String(b.dataset.videoOpenUrl||'').trim();if(!url)return;window.open(url,'_blank','noopener,noreferrer');});
   const AGE_OPTIONS=[['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['female','여성'],['male','남성']];
   const TREATMENT_OPTIONS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
@@ -111,7 +112,7 @@
   const manualPhase=(r)=>windowPhase(!!r?.manual_active,r?.manual_starts_at,r?.manual_ends_at);
   const manualIsEffective=(r)=>manualPhase(r)==='live';
   const timeWindowText=(start,end)=>{const fmt=v=>v?new Date(v).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';if(start&&end)return `${fmt(start)} → ${fmt(end)}`;if(start)return `${fmt(start)}부터`;if(end)return `${fmt(end)}까지`;return '직접 종료';};
-  const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨'})[String(v||'').toLowerCase()]||'연결됨';
+  const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨',closed:'운영시간 외'})[String(v||'').toLowerCase()]||'상태 확인 안 됨';
   function playlistInfo(st={}){
     const titles=Array.isArray(st.playlist_titles)?st.playlist_titles.filter(Boolean):[];
     const total=Number(st.playlist_count||titles.length||0);
@@ -135,7 +136,7 @@
   const videoOptions=(selected='')=>`<option value="">영상 선택</option>${activeVideos().map(v=>`<option value="${v.id}" ${selected===v.id?'selected':''}>${esc(v.title)}</option>`).join('')}`;
   const roomRules=(roomId)=>state.roomRules.filter(x=>x.room_id===roomId);
   const roomHealth=(r)=>Signage.roomHealth(r,monitor.serverNow());
-  const adminIsOnline=(r)=>displayControlMode(r)==='manual'?true:roomHealth(r)!=='offline';
+  const adminIsOnline=(r)=>{if(displayControlMode(r)==='manual'||!r?.last_seen_at)return false;const h=roomHealth(r),st=r.player_status||{};return st.online!==false&&['normal','error','recovering'].includes(h);};
   const playerVersion=(r)=>String(r?.player_status?.app_version||'').trim();
   const playerNeedsUpdate=(r)=>{const v=playerVersion(r);return !!v&&v!==PLAYER_VERSION;};
   const outdatedRooms=()=>state.rooms.filter(playerNeedsUpdate);
@@ -213,7 +214,7 @@
     return ids.map((id,idx)=>{const video=state.videos.find(v=>v.id===id),rule=rules.get(id),ruleEnabled=rule?.enabled!==false;const scheduledOn=(!rule?.starts_at||new Date(rule.starts_at).getTime()<=now)&&(!rule?.ends_at||new Date(rule.ends_at).getTime()>now);return {id,video,rule,baseIndex:idx,ruleEnabled,scheduledOn,enabled:ruleEnabled&&scheduledOn};}).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.baseIndex+1)*10))-(b.rule?.sort_order??((b.baseIndex+1)*10))||a.baseIndex-b.baseIndex);
   }
   function thumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
-  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' ');return v?.url?`<a class="${cls}" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
+  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<button type="button" class="${cls}" data-video-open-url="${esc(url)}" aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</button>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
   function roomVideoStripHtml(r){
     const ids=roomBaseVideoIds(r).filter(Boolean);
     const videos=ids.map(id=>state.videos.find(v=>v.id===id)).filter(Boolean);
@@ -545,7 +546,7 @@
   function historyPanel(){return `<section class="panel"><div class="panel-head"><div><h2>기록</h2></div></div><div class="history-list">${state.history.slice(0,15).map(h=>`<div class="history-row"><span><b>${esc(h.label||h.scope_type)}</b><small>${esc(h.action)} · ${new Date(h.created_at).toLocaleString('ko-KR')}</small></span>${h.before_state&&['hospital','group','rooms'].includes(h.scope_type)?`<button class="btn small" data-undo-history="${h.id}">되돌리기</button>`:''}</div>`).join('')||'<p class="muted">이력이 없습니다.</p>'}</div></section>`;}
 
   function bindDashboard(){
-    qsa('.video-thumb-link[href]').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
+
     qsa('[data-go-floorplan-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';render();requestAnimationFrame(()=>qs('.floorplan-manager')?.scrollIntoView({behavior:'smooth',block:'start'}));}));
     qsa('[data-select-site]').forEach(b=>b.addEventListener('click',()=>switchSite(b.dataset.selectSite)));qsa('[data-close-hospital]').forEach(b=>b.addEventListener('click',()=>{if(scopedHospitalMode){location.href='/admin.html';return;}hospitalFocusOpen=false;selectedFloorId=null;dashboardView='building';render();}));qsa('[data-open-address]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openAddress(b.dataset.openAddress)}));qsa('[data-copy-address]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();copyAddress(b.dataset.copyAddress,b.dataset.copyLabel||'주소')}));
     qsa('[data-admin-manual-check]').forEach(b=>b.addEventListener('click',()=>markAdminManualChecked(b.dataset.adminManualCheck)));

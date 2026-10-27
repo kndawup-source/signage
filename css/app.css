@@ -2873,7 +2873,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 @media(max-width:760px){.floor-layout-copy-toggle{width:100%;margin-left:0}.floor-layout-copy-head,.floor-layout-copy-actions{align-items:stretch;flex-direction:column}.floor-layout-copy-targets{grid-template-columns:1fr}.floor-layout-copy-actions .btn{width:100%}}
 
 /* v2.34.47 — clickable video previews + clearer live context */
-.video-thumb-link{display:grid;text-decoration:none;color:inherit;cursor:pointer;position:relative}
+.video-thumb-link{display:grid;text-decoration:none;color:inherit;cursor:pointer;position:relative;border:0;padding:0;background:none;font:inherit;text-align:inherit}
 .video-thumb-link:not(.is-disabled):hover{filter:brightness(.94)}
 .video-thumb-link:not(.is-disabled):focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .video-thumb-link.is-disabled{cursor:default}
