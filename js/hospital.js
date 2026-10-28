@@ -484,7 +484,34 @@
   function floorNumberForGroupId(groupId){const g=state.groups.find(x=>x.id===groupId);const n=Number(g?.floor_number);return Number.isFinite(n)&&n>0?n:null;}
   function floorNumberFromLabel(value){const text=String(value||'').trim();if(!text)return null;let m=text.match(/(?:^|[^0-9])(\d{1,2})\s*F(?:[_\s.-]|$)/i);if(!m)m=text.match(/(?:^|[^0-9])(\d{1,2})\s*층(?:[_\s.-]|$)/);const n=m?Number(m[1]):null;return Number.isFinite(n)&&n>0?n:null;}
   function physicalFloorForRoom(room){const linkedSpace=roomSpace(room),spaceFloor=floorNumberForGroupId(linkedSpace?.group_id);return spaceFloor||floorNumberForGroupId(room?.group_id)||floorNumberFromLabel(room?.group_name)||floorNumberFromLabel(room?.name)||null;}
-  function roomsForFloorGroup(group){const floor=Number(group?.floor_number);if(!Number.isFinite(floor)||floor<=0)return state.rooms.filter(r=>r.group_id===group?.id||roomSpace(r)?.group_id===group?.id);const validGroupIds=new Set(state.groups.filter(g=>Number(g.floor_number)===floor).map(g=>g.id));validGroupIds.add(group.id);return state.rooms.filter(r=>validGroupIds.has(r.group_id)||validGroupIds.has(roomSpace(r)?.group_id)||physicalFloorForRoom(r)===floor);}
+  function displayLogicalKey(room,floor){
+    const name=String(room?.name||'').trim().replace(/\s+/g,' ').toLocaleLowerCase('ko-KR');
+    return `${Number(floor)||physicalFloorForRoom(room)||0}|${name||room?.id||''}`;
+  }
+  function displayCandidateScore(room,group){
+    let score=0;
+    if(room?.group_id===group?.id)score+=8;
+    if(roomSpace(room)?.group_id===group?.id)score+=6;
+    if(room?.floor_space_id)score+=4;
+    if(roomMapPlaced(room))score+=4;
+    if(room?.last_seen_at)score+=1;
+    return score;
+  }
+  function dedupeFloorRooms(list,group){
+    const floor=Number(group?.floor_number)||0,map=new Map();
+    for(const room of list){
+      const key=displayLogicalKey(room,floor),prev=map.get(key);
+      if(!prev||displayCandidateScore(room,group)>displayCandidateScore(prev,group))map.set(key,room);
+    }
+    return [...map.values()].sort(layoutRoomSort);
+  }
+  function roomsForFloorGroup(group){
+    const floor=Number(group?.floor_number);
+    if(!Number.isFinite(floor)||floor<=0)return dedupeFloorRooms(state.rooms.filter(r=>r.group_id===group?.id||roomSpace(r)?.group_id===group?.id),group);
+    const validGroupIds=new Set(state.groups.filter(g=>Number(g.floor_number)===floor).map(g=>g.id));
+    validGroupIds.add(group.id);
+    return dedupeFloorRooms(state.rooms.filter(r=>validGroupIds.has(r.group_id)||validGroupIds.has(roomSpace(r)?.group_id)||physicalFloorForRoom(r)===floor),group);
+  }
   function canonicalFloorGroupIdForRoom(room){const linkedSpace=roomSpace(room);if(linkedSpace?.group_id)return linkedSpace.group_id;const floor=physicalFloorForRoom(room);if(!floor)return room?.group_id||null;return state.groups.find(g=>g.kind==='floor'&&Number(g.floor_number)===floor)?.id||room?.group_id||null;}
 
   function floorMetaEditorMarkup(g){
