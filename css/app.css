@@ -2955,3 +2955,10 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-layout-stage.is-awaiting-placement{cursor:crosshair}.floor-layout-stage.is-awaiting-placement::before{content:'도면에서 위치를 클릭하세요';position:absolute;z-index:12;left:50%;top:14px;transform:translateX(-50%);padding:7px 10px;border-radius:999px;background:rgba(23,25,30,.9);color:#fff;font-size:10px;font-weight:850;pointer-events:none}
 .floor-layout-placed{display:grid;border:1px solid #eceef2;border-radius:12px;background:#fff;overflow:hidden}.floor-layout-placed-head{display:flex;align-items:baseline;gap:8px;padding:10px 12px;background:#fafbfc;border-bottom:1px solid #eceef2}.floor-layout-placed-head b{font-size:12px}.floor-layout-placed-head small{font-size:10px;color:var(--muted)}.floor-layout-placed-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px;border-top:1px solid #f0f1f3}.floor-layout-placed-row:first-of-type{border-top:0}.floor-layout-placed-row>span{display:grid;gap:2px}.floor-layout-placed-row b{font-size:11px}.floor-layout-placed-row small{font-size:10px;color:var(--muted)}
 @media(max-width:760px){.floor-layout-quick-actions{width:100%;margin-left:0}.floor-layout-quick-actions .btn{flex:1}.floor-layout-space-create{grid-template-columns:1fr}.floor-layout-display-pick-head{align-items:flex-start;flex-direction:column}.floor-layout-display-pick-head em{white-space:normal}.floor-layout-placed-head{align-items:flex-start;flex-direction:column}}
+
+/* v2.34.76 · inline management for unplaced displays */
+.floor-layout-display-manage{display:flex;align-items:center;gap:8px;min-width:0}
+.floor-layout-display-manage .floor-layout-display-chip{min-width:0;flex:1;text-align:left}
+.floor-layout-display-manage-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.floor-layout-display-manage.is-active .floor-layout-display-chip{font-weight:700}
+@media (max-width:720px){.floor-layout-display-manage{align-items:stretch;flex-direction:column}.floor-layout-display-manage-actions{justify-content:flex-end}}
