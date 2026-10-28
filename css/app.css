@@ -2962,3 +2962,16 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-layout-display-manage-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}
 .floor-layout-display-manage.is-active .floor-layout-display-chip{font-weight:700}
 @media (max-width:720px){.floor-layout-display-manage{align-items:stretch;flex-direction:column}.floor-layout-display-manage-actions{justify-content:flex-end}}
+
+
+/* v2.34.77 · hospital settings width containment */
+.hospital-page,.hospital-page .shell,.hospital-page #hospitalRoot,.hospital-settings-primary,.hospital-settings-card,.floor-layout-editor,.floor-meta-editor{min-width:0;max-width:100%}
+.hospital-page{overflow-x:clip}
+.floor-layout-display-chips,.floor-layout-placed,.floor-space-list{min-width:0}
+@media(max-width:1440px){
+  .hospital-page .shell{width:100%;max-width:100%;padding-left:24px;padding-right:24px}
+  .hospital-page #hospitalRoot{width:100%}
+  .floor-layout-space-create{grid-template-columns:minmax(0,1fr) minmax(0,.7fr)}
+  .floor-layout-space-instruction{grid-column:1/-1}
+  .floor-layout-space-create>#staffCancelSpaceRedraw{justify-self:start}
+}

@@ -397,6 +397,42 @@
     for(const v of old){await apiJson('/api/floorplan-delete',{method:'POST',body:JSON.stringify({siteId,floor,key:v.object_key})});}
     if(old.length){const ids=old.map(v=>v.id);const {error:deleteError}=await db.from('floorplan_versions').delete().in('id',ids);if(deleteError)throw deleteError;}
   }
+  async function imageSourceForFloorplan(file){
+    if(typeof createImageBitmap==='function'){
+      const bitmap=await createImageBitmap(file);
+      return {source:bitmap,width:bitmap.width,height:bitmap.height,close:()=>bitmap.close?.()};
+    }
+    const url=URL.createObjectURL(file),img=new Image();
+    try{
+      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('도면 이미지를 읽을 수 없습니다.'));img.src=url;});
+      return {source:img,width:img.naturalWidth,height:img.naturalHeight,close:()=>URL.revokeObjectURL(url)};
+    }catch(e){URL.revokeObjectURL(url);throw e;}
+  }
+  function canvasBlob(canvas,type,quality){return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('도면 압축에 실패했습니다.')),type,quality));}
+  async function optimizeFloorplanFile(file){
+    const MAX_EDGE=2600,TARGET_BYTES=1800*1024,SKIP_BYTES=1200*1024,ABSOLUTE_BYTES=4*1024*1024;
+    const image=await imageSourceForFloorplan(file);
+    try{
+      const originalWidth=Number(image.width)||0,originalHeight=Number(image.height)||0;
+      const maxEdge=Math.max(originalWidth,originalHeight);
+      if(file.size<=SKIP_BYTES&&maxEdge<=MAX_EDGE)return {file,optimized:false,originalSize:file.size,width:originalWidth,height:originalHeight};
+      const baseScale=Math.min(1,MAX_EDGE/maxEdge);let best=null,bestWidth=originalWidth,bestHeight=originalHeight;
+      for(let round=0;round<5;round++){
+        const scale=baseScale*Math.pow(.86,round),width=Math.max(1,Math.round(originalWidth*scale)),height=Math.max(1,Math.round(originalHeight*scale));
+        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+        const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('도면 압축을 지원하지 않는 브라우저입니다.');
+        ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(image.source,0,0,width,height);
+        for(const quality of [.9,.84,.78,.72]){
+          const blob=await canvasBlob(canvas,'image/webp',quality);if(!best||blob.size<best.size){best=blob;bestWidth=width;bestHeight=height;}if(blob.size<=TARGET_BYTES){best=blob;bestWidth=width;bestHeight=height;round=99;break;}
+        }
+      }
+      if(!best)throw new Error('도면 압축에 실패했습니다.');
+      if(best.size>=file.size&&file.size<=ABSOLUTE_BYTES)return {file,optimized:false,originalSize:file.size,width:originalWidth,height:originalHeight};
+      if(best.size>ABSOLUTE_BYTES)throw new Error('도면을 최적화했지만 용량이 너무 큽니다. 더 작은 이미지를 사용하세요.');
+      const base=String(file.name||'floorplan').replace(/\.[^.]+$/,'').slice(0,80)||'floorplan';
+      return {file:new File([best],`${base}.webp`,{type:'image/webp',lastModified:Date.now()}),optimized:true,originalSize:file.size,width:bestWidth,height:bestHeight,source_width:originalWidth,source_height:originalHeight};
+    }finally{image.close?.();}
+  }
   async function getBuildingImageUrl(){
     const key=String(state.buildingAsset?.key||'');if(!key)return '';
     const cached=buildingImageUrlCache.get(key);if(cached&&cached.expiresAt>Date.now())return cached.url;
@@ -588,19 +624,29 @@
   function structureSetupMarkup(){const floors=[...state.groups].filter(g=>g.kind==='floor'&&Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층 · 디스플레이 만들기</b><small>처음 설치할 때 필요한 기본 구조만 추가합니다.</small></div></div><div class="grid-2"><div class="settings-card"><h3>층 추가</h3><label class="field"><span>층 번호</span><input id="staffNewFloorNumber" type="number" min="1" max="99" placeholder="예: 8"></label><label class="field"><span>표시 이름</span><input id="staffNewFloorName" maxlength="30" placeholder="비우면 8F"></label><button id="staffCreateFloor" class="btn" type="button">층 추가</button></div><div class="settings-card"><h3>디스플레이 추가</h3><label class="field"><span>층</span><select id="staffNewDisplayGroup"><option value="">층 선택</option>${floors.map(g=>`<option value="${g.id}">${esc(floorSettingsLabel(g))}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffNewDisplayName" maxlength="40" placeholder="예: 진료실 1"></label><label class="field"><span>운영 방식</span><select id="staffNewDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button id="staffCreateDisplay" class="btn" type="button">디스플레이 추가</button></div></div></div>`;}
   async function createHospitalFloor(){const n=Number(qs('#staffNewFloorNumber')?.value),name=(qs('#staffNewFloorName')?.value||'').trim();if(!Number.isInteger(n)||n<1||n>99)return toast('층 번호는 1~99 사이로 입력하세요.','error');const {error}=await db.rpc('hospital_create_floor',{p_site:targetSiteId,p_floor:n,p_name:name||null});if(error)return toast(error.message,'error');toast(`${n}층을 추가했습니다.`);await load();}
   async function createHospitalDisplay(){const group=qs('#staffNewDisplayGroup')?.value,name=(qs('#staffNewDisplayName')?.value||'').trim(),mode=qs('#staffNewDisplayMode')?.value||'remote';if(!group||!name)return toast('층과 디스플레이 이름을 입력하세요.','error');const {error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:group,p_name:name,p_mode:mode});if(error)return toast(error.message,'error');toast('디스플레이를 추가했습니다.');await load();}
+  function displayManageErrorMessage(error){
+    const msg=String(error?.message||error||'').toLowerCase();
+    if(msg.includes('display name required'))return '디스플레이 이름을 입력하세요.';
+    if(msg.includes('same display name already exists on this floor'))return '같은 층에 동일한 디스플레이 이름이 이미 있습니다.';
+    if(msg.includes('unplace display before deleting'))return '배치된 디스플레이는 위치를 먼저 해제하세요.';
+    if(msg.includes('assigned patient exists')||msg.includes('active patient'))return '현재 환자가 배정된 디스플레이는 삭제할 수 없습니다. 환자 배정을 먼저 해제하세요.';
+    if(msg.includes('display not found'))return '디스플레이를 찾을 수 없습니다.';
+    if(msg.includes('not allowed'))return '이 병원의 디스플레이를 수정할 권한이 없습니다.';
+    return error?.message||String(error);
+  }
   async function renameHospitalDisplay(roomId){
     const room=roomById(roomId);if(!room)return;
     const name=window.prompt('디스플레이 이름을 입력하세요.',room.name||'');if(name===null)return;
     const next=name.trim();if(!next)return toast('디스플레이 이름을 입력하세요.','error');
     if(next===room.name)return;
-    const {error}=await db.rpc('hospital_rename_display',{p_site:targetSiteId,p_room:roomId,p_name:next});if(error)return toast(error.message,'error');
+    const {error}=await db.rpc('hospital_rename_display',{p_site:targetSiteId,p_room:roomId,p_name:next});if(error)return toast(displayManageErrorMessage(error),'error');
     toast('디스플레이 이름을 수정했습니다.');await load();
   }
   async function deleteHospitalDisplay(roomId){
     const room=roomById(roomId);if(!room)return;
     if(roomMapPlaced(room))return toast('배치된 디스플레이는 위치를 먼저 해제하세요.','error');
-    if(!window.confirm(`'${room.name}' 디스플레이를 삭제할까요?`))return;
-    const {error}=await db.rpc('hospital_delete_display',{p_site:targetSiteId,p_room:roomId});if(error)return toast(error.message,'error');
+    if(!window.confirm(`'${room.name}' 디스플레이를 삭제할까요?\n\n삭제하면 이 디스플레이의 화면 링크가 더 이상 동작하지 않으며, 누적 송출 통계와 재생 로그도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`))return;
+    const {error}=await db.rpc('hospital_delete_display',{p_site:targetSiteId,p_room:roomId});if(error)return toast(displayManageErrorMessage(error),'error');
     if(layoutPlacementRoomId===roomId)layoutPlacementRoomId=null;
     toast('디스플레이를 삭제했습니다.');await load();
   }
@@ -732,7 +778,7 @@
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>원내 영상 송출</h1><p>현재 송출 상태를 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${state.rooms.filter(staffIsOnline).length}<em>대</em></b></div><div class="kpi-issue"><small><i></i>확인 필요</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>병원 콘텐츠 운영</h1><p>공간별 송출 상태와 현재 콘텐츠를 한눈에 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${state.rooms.filter(staffIsOnline).length}<em>대</em></b></div><div class="kpi-issue"><small><i></i>확인 필요</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="hospital-output-tools-body"><details class="staff-space-detail-drawer" open><summary><span><b>공간별 세부 관리</b><small>고급 제어가 필요한 경우에만 사용합니다.</small></span></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
@@ -894,9 +940,14 @@
     if(!roomId||!roomById(roomId))return;clearTimeout(statusWakeTimers.get(roomId));
     statusWakeTimers.set(roomId,setTimeout(()=>{statusWakeTimers.delete(roomId);void refreshLiveRoom(roomId);},80));
   }
+  function stopRealtime(){
+    try{if(signalChannel)db.removeChannel(signalChannel);if(statusWakeChannel)db.removeChannel(statusWakeChannel);}catch(_){}
+    signalChannel=null;statusWakeChannel=null;
+  }
   function startRealtime(){
     // Control changes reload staff configuration. Status changes wake a one-room RPC refresh;
     // the 30s delta poll remains only as loss recovery.
+    stopRealtime();
     try{
       const roomIds=state.rooms.map(r=>r.id).filter(Boolean);
       if(roomIds.length)signalChannel=db.channel(`clinic-hospital-signal:${state.site?.id||'unknown'}`).on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals',filter:`room_id=in.(${roomIds.join(',')})`},scheduleStaffStateReload).subscribe();
@@ -908,5 +959,8 @@
 
   try{await load();startRealtime();monitor.start(Signage.cfg.livePollMs);}catch(e){qs('#hospitalRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
   const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();},1000);
-  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);monitor.stop();try{if(signalChannel)db.removeChannel(signalChannel);if(statusWakeChannel)db.removeChannel(statusWakeChannel);}catch(_){}});
+  function stopPageRuntime(){clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);statusWakeTimers.clear();monitor.stop();stopRealtime();}
+  window.addEventListener('pagehide',stopPageRuntime);
+  window.addEventListener('pageshow',e=>{if(e.persisted){startRealtime();monitor.start(Signage.cfg.livePollMs);void load({background:true}).catch(()=>{});}});
+  window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);stopPageRuntime();});
 })();

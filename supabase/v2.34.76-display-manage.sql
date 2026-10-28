@@ -1,6 +1,7 @@
 -- Clinic Signage v2.34.76 · hospital display rename/delete
 -- Safe to re-run. Apply only this migration, not the full schema.
 
+begin;
 create or replace function public.hospital_rename_display(p_site uuid,p_room uuid,p_name text)
 returns void language plpgsql security definer set search_path=public as $$
 declare
@@ -34,4 +35,5 @@ revoke all on function public.hospital_rename_display(uuid,uuid,text), public.ho
 grant execute on function public.hospital_rename_display(uuid,uuid,text), public.hospital_delete_display(uuid,uuid) to anon,authenticated;
 
 insert into public.schema_version(version) values('2.34.76') on conflict(version) do update set applied_at=excluded.applied_at;
+commit;
 notify pgrst,'reload schema';
