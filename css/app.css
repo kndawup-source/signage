@@ -2935,3 +2935,10 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .floor-layout-stage.mode-display .display-map-marker,
   .settings-map-stage .display-map-marker{width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important}
 }
+
+
+/* v2.34.71 — one-stop editable floor metadata */
+.floor-meta-editor{margin:12px 0 14px;border:1px solid #e3e5e8;border-radius:12px;background:#fff;overflow:hidden}
+.floor-meta-editor>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 15px;cursor:pointer;list-style:none}
+.floor-meta-editor>summary::-webkit-details-marker{display:none}.floor-meta-editor>summary>span{display:grid;gap:3px}.floor-meta-editor>summary b{font-size:13px}.floor-meta-editor>summary small,.floor-meta-editor>summary em{font-size:10px;color:var(--muted);font-style:normal}.floor-meta-editor-body{padding:14px 15px 16px;border-top:1px solid #eceef1;background:#fafbfc}.floor-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px 12px}.floor-meta-wide{grid-column:1/-1}.floor-meta-grid textarea{resize:vertical;line-height:1.5}.floor-meta-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px}.floor-meta-actions>span{font-size:10px;color:var(--muted)}
+@media(max-width:760px){.floor-meta-grid{grid-template-columns:1fr}.floor-meta-wide{grid-column:auto}.floor-meta-actions{align-items:stretch;flex-direction:column}.floor-meta-actions .btn{width:100%}}

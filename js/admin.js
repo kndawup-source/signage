@@ -214,7 +214,7 @@
     return ids.map((id,idx)=>{const video=state.videos.find(v=>v.id===id),rule=rules.get(id),ruleEnabled=rule?.enabled!==false;const scheduledOn=(!rule?.starts_at||new Date(rule.starts_at).getTime()<=now)&&(!rule?.ends_at||new Date(rule.ends_at).getTime()>now);return {id,video,rule,baseIndex:idx,ruleEnabled,scheduledOn,enabled:ruleEnabled&&scheduledOn};}).filter(x=>x.video).sort((a,b)=>(a.rule?.sort_order??((a.baseIndex+1)*10))-(b.rule?.sort_order??((b.baseIndex+1)*10))||a.baseIndex-b.baseIndex);
   }
   function thumb(v){return v?.thumbnail_data_url?`<img loading="lazy" decoding="async" src="${esc(v.thumbnail_data_url)}" alt="">`:`<span>${esc((v?.title||'VIDEO').slice(0,2))}</span>`;}
-  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<a class="${cls}" href="${esc(url)}" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
+  function thumbLink(v,className='',label='영상 열기'){const inner=thumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();return url?`<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;}
   function roomVideoStripHtml(r){
     const ids=roomBaseVideoIds(r).filter(Boolean);
     const videos=ids.map(id=>state.videos.find(v=>v.id===id)).filter(Boolean);
@@ -243,24 +243,7 @@
   }
   function contentWarnings(){return state.rooms.map(r=>{const items=roomOutputItems(r).filter(x=>x.enabled),known=items.filter(x=>Number(x.video.duration_sec)>0),sec=known.reduce((s,x)=>s+Number(x.video.duration_sec||0),0);if(items.length===0)return `${r.name}: 재생 영상 없음`;if(items.length===1)return `${r.name}: 재생 영상 1개`;if(known.length===items.length&&sec<180)return `${r.name}: 전체 길이 ${Math.ceil(sec/60)}분 미만`;return null;}).filter(Boolean);}
   const CARE_TYPES=[['general','일반진료'],['minish','MINISH'],['common','공용'],['support','지원'],['other','기타']];
-  const FLOOR_DEFAULTS={1:{kind:'공용',name:'로비'},2:{kind:'공용',name:'종합안내·대기'},3:{kind:'일반진료',name:'일반진료'},4:{kind:'일반진료',name:'교정·임플란트'},5:{kind:'기타',name:'도면 미등록'},6:{kind:'지원',name:'기공실'},7:{kind:'MINISH',name:'예방·진료'},8:{kind:'MINISH',name:'진료센터 1'},9:{kind:'MINISH',name:'진료센터 2'},10:{kind:'MINISH',name:'진료센터 3'},11:{kind:'지원',name:'의국·사무'},12:{kind:'지원',name:'사무공간'},13:{kind:'공용',name:'식당'},14:{kind:'MINISH',name:'라운지'}};
-  const FLOOR_GUIDES={
-    1:{flow:'입구 → 접수·안내 → 엘리베이터',purpose:'첫 방문 안내와 병원 신뢰 형성',content:'병원 소개 · 진료 분야 · 이용 안내',exposure:'로비 · 접수 대기'},
-    2:{flow:'접수·검사 → 대기 → 다음 진료 이동',purpose:'대기 중 정보 제공과 불안 완화',content:'치료 전 안내 · 자주 묻는 질문 · 케이스 소개',exposure:'대기공간 · 이동 동선'},
-    3:{flow:'엘리베이터 → 대기 → 진료실',purpose:'진료 전 치료 이해도 높이기',content:'진료 과정 · 치료 전후 주의사항 · 케이스',exposure:'대기공간 · 진료실 앞'},
-    4:{flow:'대기 → 상담 → 진료·검사',purpose:'교정·임플란트 치료 이해와 상담 보조',content:'치료 과정 · 장비/기술 설명 · 전후 관리',exposure:'상담 대기 · 진료실 앞'},
-    5:{flow:'직원·내부 이동 중심',purpose:'공간 목적에 맞는 안내',content:'운영 안내 · 필요 콘텐츠',exposure:'주요 체류 지점'},
-    6:{flow:'직원·기공 업무 동선',purpose:'내부 업무 지원과 공지',content:'업무 안내 · 교육 · 내부 공지',exposure:'업무 공간'},
-    7:{flow:'엘리베이터 → 대기 → 진료실',purpose:'예방·진료 이해와 치료 준비',content:'예방 관리 · 치료 과정 · 주의사항',exposure:'대기공간 · 진료실 앞'},
-    8:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 신뢰 형성',content:'미니쉬 과정 · 케이스 · 치료 후 관리',exposure:'대기공간 · 진료실 앞'},
-    9:{flow:'대기 → 진료실 → 상담',purpose:'미니쉬 진료 이해와 치료 선택 지원',content:'미니쉬 과정 · 전후 사례 · FAQ',exposure:'대기공간 · 진료실 앞'},
-    10:{flow:'엘리베이터 → 대기 → 진료실',purpose:'치료 이해와 긴장 완화',content:'미니쉬 치료 과정 · 전후 관리 · 브랜드 신뢰',exposure:'대기공간 · 진료실 앞 · 상담실'},
-    11:{flow:'의료진·직원 내부 이동',purpose:'내부 커뮤니케이션 지원',content:'교육 · 공지 · 운영 안내',exposure:'의국 · 공용 공간'},
-    12:{flow:'직원 내부 이동',purpose:'업무 정보와 내부 공지 전달',content:'운영 공지 · 교육 · 캠페인',exposure:'사무 공용 공간'},
-    13:{flow:'직원·방문객 식사 및 휴식',purpose:'휴식 공간 정보 제공',content:'병원 소식 · 캠페인 · 가벼운 브랜드 콘텐츠',exposure:'식당 · 휴게공간'},
-    14:{flow:'상담·진료 후 → 라운지 → 퇴원/이동',purpose:'진료 후 신뢰 강화와 관리 안내',content:'치료 후 관리 · 브랜드 스토리 · 케이스',exposure:'라운지 · 상담 대기'}
-  };
-  const floorGuide=(g)=>FLOOR_GUIDES[floorNumber(g)]||{flow:'주요 이동 동선',purpose:'공간 목적에 맞는 영상 송출',content:'안내 · 치료 정보 · 운영 콘텐츠',exposure:'대기 및 주요 체류 지점'};
+  const FLOOR_DEFAULTS=Object.fromEntries(Array.from({length:14},(_,i)=>[i+1,{kind:'기타',name:`${i+1}층`}]));
 
   const careTypeLabel=(v)=>CARE_TYPES.find(([id])=>id===v)?.[1]||'미설정';
   const floorNumber=(g)=>Number(g?.floor_number||(/^\d+$/.test(String(g?.name||'').trim())?String(g.name).trim():String(g?.name||'').match(/(\d+)/)?.[1]||0));
@@ -368,7 +351,7 @@
         <div><h3>${esc(floorTitle(g))} · ${esc(g.name||def.name)}</h3><p>${esc(g.content_intro||'도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.')}</p>${g.role_label?`<span class="floor-role-chip">역할 · ${esc(g.role_label)}</span>`:''}</div>
         <div class="building-plan-status status-${sum.key}"><i></i><b>${esc(floorState)}</b><small>${sum.total}대</small></div>
       </div>
-      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><span>디스플레이 선택</span><b>도면에서 TV를 눌러보세요.</b></div><p>현재 나오는 영상과 이 영상이 나오는 이유를 바로 확인할 수 있습니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면이 없습니다.</b><span>설정에서 이 층의 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
+      ${asset?`<div class="building-floorplan-wrap floor-activation-shell"><div class="floor-plan-stage building-floor-plan-stage is-floor-activating"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}${rooms.map(floorMarker).join('')}</div><div class="floor-zone-inspector building-zone-inspector" data-floor-zone-inspector><div class="floor-zone-inspector-empty"><div><span>디스플레이 선택</span><b>도면에서 디스플레이를 눌러보세요.</b></div><p>현재 나오는 영상과 이 영상이 나오는 이유를 바로 확인할 수 있습니다.</p></div></div></div>`:`<div class="floor-plan-empty floor-plan-empty-action"><b>도면이 없습니다.</b><span>설정에서 이 층의 도면을 등록하세요.</span><button type="button" class="btn small" data-go-floorplan-settings>도면 등록</button></div>`}
       ${unplaced.length?`<div class="building-plan-foot"><span>도면에 위치가 없는 디스플레이 ${unplaced.length}대</span></div>`:''}
     </section>`;
   }
