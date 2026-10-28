@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.71 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.72 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.71 배포
+2. 프런트/서버 v2.34.72 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -66,3 +66,4 @@ CLINIC SIGNAGE v2.34.71 · CANONICAL SETUP
 - v2.34.70: floor_spaces exact duplicate cleanup + duplicate prevention; hospital layout space list deduped defensively
 
 - v2.34.71: 병원 관리자 도면 배치에서 층 이름/역할/설명/콘텐츠/대상/목적/플레이리스트를 원스톱 편집. 공간/디스플레이 이름이 층 이름을 대신하는 fallback 제거. 기존 DB는 supabase/v2.34.71-floor-meta-one-stop.sql 실행.
+- v2.34.72: 층 이름 파싱용 동적 정규식의 escape/문자 클래스 오류 수정. SQL 변경 없음.

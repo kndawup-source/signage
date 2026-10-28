@@ -147,7 +147,7 @@
   function floorPurposeLabel(g){
     const n=floorNumber(g),raw=String(g?.name||'').trim();
     if(!raw)return n?`${n}층`:'층 이름 미설정';
-    const stripped=raw.replace(new RegExp(`^${n}\s*(?:층|F)?\s*[·._\-/]*\s*`,'i'),'').trim();
+    const stripped=raw.replace(new RegExp(`^${n}\\s*(?:층|F)?\\s*[·._/\\-]*\\s*`,'i'),'').trim();
     if(stripped&&!/^\d+\s*(?:층|F)?$/i.test(stripped))return stripped;
     return raw;
   }
