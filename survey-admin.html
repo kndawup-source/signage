@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link id="adminManifestLink" rel="manifest">
+  <title>SURVEY</title>
+  <link rel="stylesheet" href="/hospital-admin.css?v=3.2.2">
+  <link rel="stylesheet" href="/survey-admin.css?v=3.9.0">
+</head>
+<body class="oogo-admin-page">
+  <main class="admin-shell">
+    <header class="admin-header">
+      <div class="admin-brand-area">
+        <div id="clinicBrandDisplay" class="clinic-brand-display">
+          <img id="clinicHeaderLogo" class="clinic-header-logo" alt="" loading="eager" decoding="async" fetchpriority="high" hidden>
+          <h1 id="clinicName" hidden></h1>
+        </div>
+      </div>
+
+      <div class="admin-header-actions">
+        <div class="notification-control">
+          <button id="notificationToggleBtn" class="notification-toggle" type="button">알림 켜기</button>
+          <button id="notificationTestBtn" class="notification-test" type="button" hidden>테스트 알림</button>
+          <span id="notificationHint" class="notification-hint" hidden></span>
+        </div>
+        <span id="accountRoleBadge" class="account-role-badge" aria-label="현재 로그인 계정">관리자</span>
+        <button id="logoutBtn" class="logout" type="button">로그아웃</button>
+      </div>
+    </header>
+
+    <nav class="oogo-app-switcher" aria-label="OOGO 앱">
+      <a class="oogo-app-btn" data-oogo-product="profile" href="./dashboard"><span>PROFILE</span><small>문진</small></a>
+      <a class="oogo-app-btn active" data-oogo-product="survey" aria-current="page" href="./survey"><span>SURVEY</span><small>경험</small></a>
+      <a class="oogo-app-btn" data-oogo-product="camera" hidden href="./camera"><span>CAMERA</span><small>B&amp;A</small></a>
+      <a class="oogo-app-btn" data-oogo-signage href="https://signage-lake.vercel.app/"><span>SIGNAGE</span><small>송출</small></a>
+    </nav>
+
+    <nav class="admin-nav" id="surveyAdminNav" aria-label="SURVEY 관리자 메뉴"></nav>
+    <p id="surveyAdminStatus" role="status"></p>
+    <section id="surveyAdminContent" class="admin-section"></section>
+  </main>
+  <script src="/admin-clinic-brand.js?v=brand1" defer></script>
+<script src="/admin-product-switcher.js?v=platform1.1" defer></script>
+  <script type="module" src="/survey-admin.js?v=platform4.1.1"></script>
+  <script src="/hospital-notifications.js?v=push6" defer></script>
+</body>
+</html>
