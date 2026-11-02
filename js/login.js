@@ -2,6 +2,8 @@
   'use strict';
   const { db, qs, configError } = Signage;
   const safeNext=(value)=>{if(!value||!value.startsWith('/')||value.startsWith('//'))return null;try{const u=new URL(value,location.origin);return u.origin===location.origin?u.pathname+u.search+u.hash:null;}catch{return null;}};
+  const nextTarget=safeNext(new URLSearchParams(location.search).get('next'));
+  const requestedSiteCode=(()=>{try{const u=new URL(nextTarget||'',location.origin);return u.pathname==='/hospital.html'?String(u.searchParams.get('site')||'').trim().toLowerCase():'';}catch{return '';}})();
   const err = qs('#loginError');
   const form = qs('#loginForm');
   const pinInput = qs('#pin');
@@ -32,7 +34,7 @@
     btn.disabled = true;
     pinInput.disabled = true;
     try {
-      const { data, error } = await db.rpc('pin_login', { p_pin: pin, p_client_id: Signage.getClientId() });
+      const { data, error } = await db.rpc('pin_login', { p_pin: pin, p_client_id: Signage.getClientId(), p_site_code: requestedSiteCode || null });
       if (error) throw error;
       if (!data?.ok) {
         if (data?.error === 'locked') {
@@ -47,7 +49,7 @@
         return;
       }
       Signage.storePinSession(data);
-      const next = safeNext(new URLSearchParams(location.search).get('next'));
+      const next = nextTarget;
       const defaultPage = data.role === 'admin' ? '/admin.html' : '/hospital.html';
       location.replace(next || defaultPage);
     } catch (e2) {

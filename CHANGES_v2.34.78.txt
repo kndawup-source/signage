@@ -1,0 +1,69 @@
+CLINIC SIGNAGE v2.34.78 변경 목록
+
+[핵심 수정]
+1. 로그인 확장성
+- 병원 관리자 로그인은 /hospital.html?site=<병원코드>의 site 코드를 자동 사용.
+- DB pin_login(p_pin,p_client_id,p_site_code)로 변경.
+- 슈퍼어드민 계정 + 해당 병원 계정만 검사하므로 병원 수 증가에 따른 bcrypt 선형 스캔 제거.
+- 기존 2인자 pin_login은 anon/authenticated 실행 권한 제거.
+
+2. 병원 단위 Realtime / refresh
+- player_control_signals에 site_id 추가 및 인덱스 추가.
+- 병원 관리자 구독을 room_id IN (...)에서 site_id=eq.<site>로 변경.
+- 신규 디스플레이가 페이지 새로고침 없이 기존 site 구독에 자동 포함.
+- 병원당 100개 초과 디스플레이에서 IN 필터 한계 제거.
+- 영상/플레이리스트 변경 트리거를 해당 site의 플레이어만 깨우도록 변경.
+- site_id가 NULL인 레거시 공용 콘텐츠만 전 병원 refresh 유지.
+- rooms 테이블을 supabase_realtime publication에서 제거: heartbeat rooms 쓰기 Realtime fan-out 제거.
+- 공개 site-wide control broadcast listener 제거. room key + player_control_signals만 사용.
+
+3. 보안
+- schema_version RLS 활성화.
+- schema_version anon/authenticated 직접 권한 제거.
+- .vercelignore 실제 추가: SQL/SETUP/QA/도면 원본/레거시 server 공개 배포 제외.
+
+4. 시간대
+- hospital_reception_state의 '오늘 완료 환자' 기준을 UTC 자정이 아니라 Asia/Seoul 자정으로 수정.
+
+5. 플레이어 소리
+- force_mute가 아닐 때 설정된 볼륨/소리로 autoplay 먼저 시도.
+- 키오스크 Chrome의 --autoplay-policy=no-user-gesture-required 설정을 실제 활용.
+- 일반 브라우저 정책이 막으면 muted playback으로 fallback해 영상 자체는 계속 재생.
+
+6. 관리자 확장성
+- 슈퍼어드민 rooms/signage_groups 조회를 1000행 단일 요청에서 1000행 페이지 반복 조회로 변경.
+- 1000행 초과 데이터가 조용히 잘리는 문제 제거.
+- 층별 도면 목록의 14층 하드코딩 제거. 실제 등록된 floor_number 기준으로 표시.
+
+7. DB 인덱스
+- videos(site_id,sort_order,created_at)
+- playlists(site_id,sort_order,created_at)
+- player_events(created_at desc)
+- player_control_signals(site_id,updated_at desc)
+
+[누락 migration 복구]
+- supabase/v2.34.43-floor-layout-copy-display-fix.sql
+  * 2.34.44가 기능을 완전히 대체하므로 연속 업그레이드용 compatibility marker.
+- supabase/v2.34.63-video-link-safe.sql
+  * schema.sql의 2.34.63 안전 영상 링크 RPC를 독립 migration으로 복구.
+- supabase/v2.34.70-floor-space-dedupe.sql
+  * floor_spaces 정확 중복 제거 + unique index + schema_version 기록 복구.
+- supabase/v2.34.78-multisite-scale-safety.sql
+  * 이번 변경의 운영 DB 적용 migration.
+
+[삭제]
+- js/admin.js
+  * 현재 admin.html은 superadmin entry를 사용하므로 레거시 파일 삭제.
+  * DELETE_FILES.txt에도 유지.
+
+[검증]
+- js/*.js, api/*.js, api/_lib/*.js, server/*.js: node --check 통과.
+- player-release.json JSON 파싱 정상.
+- 프런트/API RPC 호출 40개 -> schema.sql 정의 40개 모두 존재.
+- SETUP.txt에 기재된 migration 파일 존재 여부 확인: 누락 0.
+- schema.sql / v2.34.78 SQL 달러쿼트 균형 및 기본 구조 정적 검사 통과.
+
+[실환경 확인 필요]
+- 이 작업 환경에는 PostgreSQL/Supabase 실행 환경이 없어 v2.34.78 migration을 실제 운영 DB에 실행하는 테스트는 하지 못함.
+- 적용 전 DB 백업 후 v2.34.78 migration 실행 권장.
+- 적용 후 확인: 슈퍼어드민 로그인, 병원 URL 로그인, 새 디스플레이 생성 후 실시간 반영, 플레이리스트 수정 시 타 병원 플레이어가 깨지지 않는지, 키오스크 소리.

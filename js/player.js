@@ -23,7 +23,7 @@
   let lastPlaylistSig = '';
   let lastNonce = null;
   let lastError = null;
-  let soundUnlocked = false;
+  let soundUnlocked = false; // set after user gesture; kiosk may autoplay audio without a gesture
   let expireTimer = null;
   let wakeLock = null;
   let cycleFailures = 0;
@@ -255,7 +255,7 @@
     el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
     /* Unattended displays must start muted so Chromium autoplay is deterministic.
        Sound is restored only after a real user gesture, unless force_mute keeps it off. */
-    el.muted=Boolean(state.room.force_mute)||!soundUnlocked;
+    el.muted=Boolean(state.room.force_mute);
   }
   function slotMatches(el,v){return Boolean(el&&v&&el.dataset.videoId===String(v.id||'')&&el.dataset.mediaUrl===mediaUrl(v));}
   function resetSlot(el){
@@ -289,10 +289,9 @@
     const forceMute=Boolean(state?.room?.force_mute);
     const targetVolume=Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));
     el.volume=targetVolume;
-    /* Chromium guarantees muted autoplay. Do not try audible autoplay first: on
-       unattended Windows displays it can leave the decoded first frame visible
-       while playback never starts. */
-    el.muted=forceMute||!soundUnlocked;
+    /* Kiosk Chrome is launched with --autoplay-policy=no-user-gesture-required, so try
+       the configured audio state first. Standard browsers fall back to muted playback below. */
+    el.muted=forceMute;
     try{
       await el.play();
       lastError=null;
@@ -635,12 +634,12 @@
   function queueHeartbeat(immediate=false){clearTimeout(heartbeatTimer);const wait=immediate?Math.max(0,1200-(Date.now()-lastHeartbeatAt)):1200;heartbeatTimer=setTimeout(heartbeat,wait);}
   async function acquireWake(){try{if(navigator.wakeLock&&document.visibilityState==='visible'){try{await wakeLock?.release();}catch(_){}wakeLock=await navigator.wakeLock.request('screen');}}catch(_){}}
 
-  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,controlBroadcastChannel=null,statusBroadcastChannel=null,statusBroadcastReady=false,realtimeFetchTimer=null,statePollTimer=null;
+  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,statusBroadcastChannel=null,statusBroadcastReady=false,realtimeFetchTimer=null,statePollTimer=null;
   let reportWakePending=false;
   function requestRealtimeState(){
     clearTimeout(realtimeFetchTimer);
-    /* room:{key} trigger, player_control_signals and the control broadcast can all fire
-       for one action; 150ms coalesces them into a single player_get_state call. */
+    /* room:{key} and player_control_signals can fire for one action; 150ms coalesces
+       them into a single player_get_state call. */
     realtimeFetchTimer=setTimeout(()=>fetchState(),150);
   }
   function subscribePlayerRealtime(){
@@ -648,9 +647,6 @@
     const roomId=state?.room?.id||null;
     if(!roomBroadcastChannel){
       roomBroadcastChannel=db.channel(`room:${key}`).on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
-    }
-    if(!controlBroadcastChannel){
-      controlBroadcastChannel=db.channel(`clinic-signage-control:${state?.room?.site_id||'unknown'}`).on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
     }
     if(!statusBroadcastChannel){
       statusBroadcastChannel=db.channel(`clinic-signage-status:${state?.room?.site_id||'unknown'}`,{config:{broadcast:{ack:false}}});
@@ -685,7 +681,7 @@
   window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
   window.addEventListener('offline',()=>{const cached=offlineReadyState();if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
-  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel,controlBroadcastChannel,statusBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
+  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel,statusBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
   setTimeout(()=>void checkForPlayerUpdate(true),8000);
   /* Fallback only: Realtime wake-ups are primary. Closed rooms back off to 10 minutes. */
   scheduleStatePoll();

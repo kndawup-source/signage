@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.34.77 · CANONICAL SETUP
+CLINIC SIGNAGE v2.34.78 · CANONICAL SETUP
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.77 배포
+2. 프런트/서버 v2.34.78 배포
 3. /admin.html 에서 병원 생성 및 PIN 설정
 4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
 
@@ -28,37 +28,37 @@ CLINIC SIGNAGE v2.34.77 · CANONICAL SETUP
 19. supabase/v2.34.71-floor-meta-one-stop.sql
 20. supabase/v2.34.76-display-manage.sql
 21. supabase/v2.34.77-display-delete-safety.sql
-22. v2.34.77 코드 배포 후 강력 새로고침
+22. supabase/v2.34.78-multisite-scale-safety.sql
+23. v2.34.78 코드 배포 후 강력 새로고침
 
-[중요 마이그레이션 요약]
-- v2.34.61: 공간 추가 권한/RLS, 층 배치 복사 UUID 처리, staff_set_display_setup 구형 오버로드 정리
-- v2.34.62: 현재/다음 영상 링크 URL 필드 복구
-- v2.34.63: 영상 링크 안전 처리
-- v2.34.67: hospital_reception_state()의 floor_space_id 복구 + 도면 교체/삭제 정리
-- v2.34.70: floor_spaces 정확 중복 정리 및 재발 방지
-- v2.34.71: 층 정보 원스톱 편집 + 층 이름 fallback 제거
-- v2.34.76: 미배치 디스플레이 이름 수정/삭제 RPC
-- v2.34.77: 디스플레이 삭제 시 활성 환자 배정 차단 + 오류 메시지 한국어화
+[2.34.78 핵심 변경]
+- PIN 로그인: 병원 관리자 URL의 site 코드로 해당 병원 계정만 검사. 슈퍼어드민은 admin 계정만 검사.
+- player_control_signals에 site_id 추가. 병원 관리자 Realtime을 site 단위로 구독.
+- 신규 디스플레이가 현재 관리자 세션의 실시간 구독에 자동 포함됨.
+- 병원당 디스플레이 100개 초과 시 room_id IN 필터 한계 제거.
+- 영상/플레이리스트 변경 시 해당 병원 플레이어만 깨움. site_id가 없는 레거시 공용 콘텐츠는 전 병원 refresh 유지.
+- schema_version RLS 활성화 + anon/authenticated 직접 권한 제거.
+- '오늘 완료 환자' 기준을 Asia/Seoul 자정으로 수정.
+- videos/playlists/player_events 멀티사이트 인덱스 추가.
+- 키오스크는 설정 볼륨으로 audible autoplay를 먼저 시도하고 일반 브라우저 정책에 막히면 muted playback으로 fallback.
+- .vercelignore 실제 포함, 사용되지 않는 js/admin.js 제거.
 
-[v2.34.77 코드 수정]
-- optimizeFloorplanFile 및 보조 함수 복원: 도면 업로드/건물 이미지 업로드 회귀 수정
-- BFCache pagehide/pageshow 시 Supabase Realtime 채널 정리/재연결
-- 병원 관리자 첫 화면 제목을 '병원 콘텐츠 운영'으로 변경
-- 1440px 설정 화면 가로 overflow 정리
-- 사용되지 않는 js/admin.js 제거
-- player-sw.js 버전 2.34.77로 통일
+[누락 migration 복구]
+- v2.34.43: 2.34.44가 기능을 완전히 대체하므로 연속 업그레이드를 위한 compatibility marker 파일로 복구.
+- v2.34.63: schema.sql의 안전한 영상 링크 RPC 정의를 독립 migration으로 복구.
+- v2.34.70: floor_spaces 정확 중복 제거/unique index 및 schema_version 기록을 독립 migration으로 복구.
 
 [배포 제외]
 루트 .vercelignore가 실제 패키지에 포함되어 있으며 다음 항목을 공개 배포에서 제외합니다.
 - supabase/
 - SETUP.txt / SUPABASE-CONFIG.txt / QA-*.txt / DELETE_FILES.txt
-- floorplans_clean/ / floorplans_source/ / floorplans_svg/
+- floorplans_clean/ / floorplans_source/ / floorplans_svg/ / floorzones/
 - assets/building/
+- server/
 
 [중요]
 - 신규 설치는 schema.sql 하나만 실행합니다.
 - 기존 DB에는 schema.sql 전체를 덮어 실행하지 말고 schema_version 기준 미적용 migration만 실행합니다.
-- v2.34.76을 이미 적용한 DB도 v2.34.77-display-delete-safety.sql을 추가로 실행해야 합니다.
-- 디스플레이 삭제는 화면 링크, 누적 송출 통계, 재생 로그 등 rooms FK에 연결된 데이터를 함께 삭제합니다.
+- 병원 관리자 로그인은 슈퍼어드민이 제공하는 /hospital.html?site=<병원코드> 주소를 사용합니다.
+- 루트 / 에서 병원 PIN만 입력하는 방식은 더 이상 병원 전체 계정을 스캔하지 않습니다.
 - 활성 환자(배정/진료중)가 연결된 디스플레이는 삭제할 수 없습니다.
-- README는 사용하지 않습니다.

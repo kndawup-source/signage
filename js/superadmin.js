@@ -37,6 +37,15 @@
   }
   function siteRooms(siteId){return state.rooms.filter(r=>r.site_id===siteId);}
   function siteGroups(siteId){return state.groups.filter(g=>g.site_id===siteId);}
+  async function fetchAllRows(table,columns){
+    const pageSize=1000,rows=[];
+    for(let from=0;;from+=pageSize){
+      const {data,error}=await db.from(table).select(columns).range(from,from+pageSize-1);
+      if(error)throw error;rows.push(...(data||[]));
+      if(!data||data.length<pageSize)break;
+    }
+    return rows;
+  }
   function siteStats(site){
     const rooms=siteRooms(site.id);
     const issues=rooms.filter(roomHasIssue);
@@ -68,16 +77,16 @@
   }
 
   async function load(){
-    const [sitesRes,roomsRes,groupsRes,liveRes]=await Promise.all([
+    const [sitesRes,rooms,groups,liveRes]=await Promise.all([
       db.from('sites').select('*').order('created_at'),
-      db.from('rooms').select('id,site_id,group_id,name,display_control_mode,manual_check_status,last_seen_at,player_status'),
-      db.from('signage_groups').select('id,site_id,name,floor_number,sort_order'),
+      fetchAllRows('rooms','id,site_id,group_id,name,display_control_mode,manual_check_status,last_seen_at,player_status'),
+      fetchAllRows('signage_groups','id,site_id,name,floor_number,sort_order'),
       monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error}))
     ]);
-    if(sitesRes.error)throw sitesRes.error;if(roomsRes.error)throw roomsRes.error;if(groupsRes.error)throw groupsRes.error;
+    if(sitesRes.error)throw sitesRes.error;
     const live=new Map((liveRes.data?.rows||[]).map(x=>[x.room_id,x]));
-    const rooms=(roomsRes.data||[]).map(r=>{const x=live.get(r.id);return x?{...r,last_seen_at:x.last_seen_at||r.last_seen_at,player_status:x.player_status||r.player_status}:r;});
-    state={sites:(sitesRes.data||[]),rooms,groups:groupsRes.data||[]};
+    const mergedRooms=rooms.map(r=>{const x=live.get(r.id);return x?{...r,last_seen_at:x.last_seen_at||r.last_seen_at,player_status:x.player_status||r.player_status}:r;});
+    state={sites:(sitesRes.data||[]),rooms:mergedRooms,groups};
     if(selectedSiteId&&!state.sites.some(s=>s.id===selectedSiteId))selectedSiteId=null;
     render();
   }
