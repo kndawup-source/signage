@@ -3286,3 +3286,45 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-detail,
   .hospital-floor-detail .building-floor-plan-stage{animation:none!important}
 }
+
+
+/* v2.34.94 · remove decorative building image from operations dashboard */
+.hospital-building-dashboard{
+  display:block!important;
+  grid-template-columns:none!important;
+}
+.hospital-building-visual{
+  display:none!important;
+}
+.hospital-building-console{
+  width:100%!important;
+  max-width:none!important;
+}
+.hospital-floor-console-card{
+  width:100%!important;
+  max-width:none!important;
+}
+.hospital-floor-console-grid{
+  grid-template-columns:240px minmax(0,1fr)!important;
+}
+.hospital-floor-detail{
+  min-width:0;
+}
+.hospital-floor-detail .building-floor-plan-stage{
+  min-height:470px;
+}
+
+@media(max-width:900px){
+  .hospital-floor-console-grid{
+    grid-template-columns:210px minmax(0,1fr)!important;
+  }
+}
+@media(max-width:700px){
+  .hospital-floor-console-grid{
+    grid-template-columns:1fr!important;
+  }
+  .hospital-floor-list{
+    border-right:0!important;
+    border-bottom:1px solid #e7e9ed;
+  }
+}
