@@ -2994,3 +2994,40 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     max-width:1040px;
   }
 }
+
+/* v2.34.81 · staff-first operating view */
+.hospital-floor-detail-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.journey-toggle{white-space:nowrap}
+.journey-toggle.is-active{background:#111;color:#fff;border-color:#111}
+.floor-journey-legend{margin:10px 0 12px;padding:10px 12px;border:1px solid #e7e7e7;border-radius:12px;background:#fafafa}
+.floor-journey-legend>small{display:block;margin-bottom:7px;color:#707070;font-size:11px;font-weight:700}
+.floor-journey-legend>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px;color:#333}
+.floor-journey-legend span{display:inline-flex;align-items:center;gap:5px}
+.floor-journey-legend span i{display:inline-grid;place-items:center;width:19px;height:19px;border-radius:999px;background:#111;color:#fff;font-style:normal;font-size:10px;font-weight:800}
+.floor-journey-legend b{font-weight:500;color:#aaa}
+.floor-journey-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;overflow:visible}
+.floor-journey-overlay polyline{fill:none;stroke:currentColor;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:4 3;opacity:.78}
+.floor-journey-overlay circle{fill:#111;stroke:#fff;stroke-width:.45}
+.floor-journey-overlay text{fill:#111;font-size:3.2px;font-weight:800;text-anchor:middle;dominant-baseline:middle;paint-order:stroke;stroke:#fff;stroke-width:.9px;stroke-linejoin:round}
+.building-floor-plan-stage.is-journey-visible .floor-space-overlay{opacity:.72}
+.building-floor-plan-stage.is-journey-visible .floor-display-pin{z-index:5}
+.floor-room-purpose{padding:11px 0;border-top:1px solid #ededed}
+.floor-room-purpose small{display:block;margin-bottom:5px;color:#777;font-size:11px;font-weight:700}
+.floor-room-purpose p{margin:0;font-size:12px;line-height:1.55;color:#2d2d2d}
+.display-purpose-field{display:grid;grid-template-columns:auto minmax(180px,1fr) auto;align-items:center;gap:8px;flex:1;min-width:300px}
+.display-purpose-field>span{font-size:11px;color:#777;white-space:nowrap}
+.display-purpose-field input{width:100%;min-width:0;height:34px;padding:0 9px;border:1px solid #ddd;border-radius:8px;background:#fff;font:inherit;font-size:12px}
+.floor-layout-placed-row{gap:12px;align-items:center}
+.floor-layout-placed-row>span:first-child{min-width:140px}
+.floor-space-order{display:flex!important;align-items:center;gap:9px}
+.floor-space-order>i{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:999px;background:#111;color:#fff;font-style:normal;font-size:10px;font-weight:800}
+.floor-space-order>span{display:grid;gap:2px}
+.floor-space-list-actions .text-action:disabled{opacity:.25;cursor:default}
+@media(max-width:1000px){
+  .hospital-floor-detail-actions{justify-content:flex-start}
+  .display-purpose-field{grid-template-columns:1fr auto;min-width:100%}
+  .display-purpose-field>span{grid-column:1/-1}
+  .floor-layout-placed-row{align-items:flex-start;flex-wrap:wrap}
+}
+.floor-space-list-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:14px 0 7px}
+.floor-space-list-head>div{display:grid;gap:2px}.floor-space-list-head b{font-size:12px}.floor-space-list-head small{font-size:10px;color:var(--muted)}

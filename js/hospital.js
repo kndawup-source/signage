@@ -24,7 +24,7 @@
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,tab='output';
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,journeyVisible=false,tab='output';
   document.addEventListener('click',e=>{const a=e.target.closest?.('a[data-video-link]');if(!a)return;e.stopPropagation();});
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanUrlCache=new Map();
@@ -92,6 +92,13 @@
     if(target)return `${target}에게 필요한 정보를 보여주기 위한 영상입니다.`;
     return `${r.name}에서 필요한 안내를 보여주기 위한 영상입니다.`;
   }
+  function roomOperationalPurpose(r){
+    const note=String(r?.display_note||'').trim();
+    if(note)return note;
+    const sp=roomSpace(r),type=sp?.space_type||r?.room_mode;
+    const fallback={reception:'접수·안내 공간에서 필요한 정보를 보여주는 디스플레이',waiting:'대기 중인 고객에게 안내·브랜드 콘텐츠를 보여주는 디스플레이',lounge:'라운지 이용 고객에게 병원 콘텐츠를 보여주는 디스플레이',consultation:'상담 전후 고객에게 관련 콘텐츠를 보여주는 디스플레이',treatment:'진료 공간에서 필요한 콘텐츠를 보여주는 디스플레이',lobby:'이동 고객에게 병원 안내 콘텐츠를 보여주는 디스플레이',public:'공용 공간 안내용 디스플레이',staff:'직원 운영용 디스플레이',support:'지원 공간 디스플레이',other:'이 공간의 콘텐츠 송출 디스플레이'};
+    return fallback[type]||fallback.other;
+  }
   function staffFloorRoomPreviewHtml(r){
     const status=roomDisplayStatus(r),current=currentVideoForRoom(r),isManual=displayControlMode(r)==='manual',st=r.player_status||{};
     const title=isManual?'현장 수동 운영':(current?.title||st.title||'현재 재생 영상 없음');
@@ -102,6 +109,7 @@
       <div class="floor-room-current">${staffThumbLink(current,'floor-room-current-thumb','현재 영상 열기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
       <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
       <div class="floor-room-why"><small>송출 이유</small><p>${esc(roomBroadcastReason(r))}</p></div>
+      <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(roomOperationalPurpose(r))}</p></div>
       <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">실제 화면 보기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">링크 복사</button>`}<button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">수동 디스플레이는 설정만 저장되며 원격 재생 명령은 보내지 않습니다.</small>':''}</div>
     </div>`;
   }
@@ -232,19 +240,34 @@
   }
   const groupContentTopics=(g)=>Array.isArray(g?.content_topics)?g.content_topics.map(x=>String(x||'').trim()).filter(Boolean):[];
   const groupContentTopicsMarkup=(g)=>{const items=groupContentTopics(g);return items.length?`<div class="floor-content-topics compact"><small>주요 콘텐츠</small><ul>${items.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'';};
+  function floorJourneySpaces(g){
+    return state.floorSpaces.filter(x=>x.group_id===g?.id&&!['staff','support'].includes(String(x.space_type||''))).sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||(Number(a.x_pct||0)-Number(b.x_pct||0))||(Number(a.y_pct||0)-Number(b.y_pct||0)));
+  }
+  function floorJourneyOverlay(g){
+    const items=floorJourneySpaces(g);if(items.length<2)return '';
+    const center=x=>({x:Math.max(0,Math.min(100,Number(x.x_pct)+Number(x.width_pct)/2)),y:Math.max(0,Math.min(100,Number(x.y_pct)+Number(x.height_pct)/2))});
+    const pts=items.map(x=>{const p=center(x);return `${p.x},${p.y}`;}).join(' ');
+    return `<svg class="floor-journey-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" vector-effect="non-scaling-stroke"></polyline>${items.map((x,i)=>{const p=center(x);return `<circle cx="${p.x}" cy="${p.y}" r="1.05"></circle><text x="${p.x}" y="${Math.max(2,p.y-2.1)}">${i+1}</text>`;}).join('')}</svg>`;
+  }
+  function floorJourneyLegend(g){
+    const items=floorJourneySpaces(g);if(!items.length)return '';
+    return `<div class="floor-journey-legend"><small>대표 환자 동선</small><div>${items.map((x,i)=>`<span><i>${i+1}</i>${esc(x.name)}</span>`).join('<b>→</b>')}</div></div>`;
+  }
   function staffFloorPanelMarkup(g){
     if(!g)return `<section class="hospital-floor-detail hospital-floor-detail-empty"><div><b>층을 선택하세요.</b><p>확인할 층을 누르면 도면과 디스플레이 위치가 열립니다.</p></div></section>`;
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
-    const n=floorNumber(g),online=rooms.filter(staffIsOnline).length;
+    const n=floorNumber(g),online=rooms.filter(staffIsOnline).length,journey=floorJourneySpaces(g);
     return `<section class="hospital-floor-detail">
       <div class="hospital-floor-detail-head">
-        <div><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면에서 디스플레이를 누르면 현재 영상과 송출 이유를 확인할 수 있습니다.')}</span>${g.role_label?`<em class="floor-role-chip">역할 · ${esc(g.role_label)}</em>`:''}${groupContentTopicsMarkup(g)}</div>
-        <div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${sum.issues?`<span class="is-alert">확인 필요 <b>${sum.issues}</b></span>`:''}</div>
+        <div><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면의 점을 누르면 이 디스플레이가 왜 여기 있고 무엇을 송출하는지 확인할 수 있습니다.')}</span>${g.role_label?`<em class="floor-role-chip">역할 · ${esc(g.role_label)}</em>`:''}${groupContentTopicsMarkup(g)}</div>
+        <div class="hospital-floor-detail-actions"><div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${sum.issues?`<span class="is-alert">확인 필요 <b>${sum.issues}</b></span>`:''}</div>${journey.length>1?`<button type="button" class="btn small journey-toggle ${journeyVisible?'is-active':''}" id="staffJourneyToggle">${journeyVisible?'동선 숨기기':'동선 보기'}</button>`:''}</div>
       </div>
+      ${journeyVisible?floorJourneyLegend(g):''}
       ${asset?`<div class="building-floorplan-wrap floor-activation-shell">
-        <div class="floor-plan-stage building-floor-plan-stage is-floor-activating">
+        <div class="floor-plan-stage building-floor-plan-stage is-floor-activating ${journeyVisible?'is-journey-visible':''}">
           <div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>
           ${state.floorSpaces.filter(x=>x.group_id===g.id).map(x=>floorSpaceOverlay(x)).join('')}
+          ${journeyVisible?floorJourneyOverlay(g):''}
           ${rooms.map(staffFloorMarker).join('')}
         </div>
         <div class="floor-zone-inspector building-zone-inspector" data-staff-floor-zone-inspector>
@@ -312,7 +335,7 @@
         ${hospitalBroadcastCard()}
         ${issues?`<div class="hospital-issue-notice hospital-issue-notice-wide"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}
         <div class="hospital-floor-console-card">
-          <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>확인할 층을 누르면 도면이 열립니다.</p></div></div>
+          <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>층 선택 → 도면의 디스플레이 선택 → 현재 송출과 운영 목적 확인</p></div></div>
           <div class="hospital-floor-console-grid">
             <div class="hospital-floor-list" role="list">${floorGroups.map(staffBuildingFloor).join('')}</div>
             ${staffFloorPanelMarkup(selected)}
@@ -616,8 +639,9 @@
         <div><b>공간 ${spaces.length}</b><span>${spaces.length?'지정됨':'아직 없음'}</span></div>
         <div><b>디스플레이 ${placed.length}/${rooms.length}</b><span>${unplaced.length?`미배치 ${unplaced.length}`:'배치 완료'}</span></div>
       </div>
-      ${placed.length?`<div class="floor-layout-placed"><div class="floor-layout-placed-head"><b>배치된 디스플레이</b><small>도면의 점을 끌어서 바로 이동할 수 있습니다.</small></div>${placed.map(r=>`<div class="floor-layout-placed-row"><span><b>${esc(r.name)}</b><small>${esc(spaceName(r.floor_space_id))}</small></span><button type="button" class="text-action danger-text" data-unplace-display="${r.id}">위치 해제</button></div>`).join('')}</div>`:''}
-      <div class="floor-space-list">${spaces.map(x=>{const linked=rooms.filter(r=>r.floor_space_id===x.id);return `<div class="${x.id===spaceRedrawId?'is-editing':''}"><span><b>${esc(x.name)}</b><small>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===x.space_type)?.[1]||'기타')} · 디스플레이 ${linked.length}개${linked.length?` · ${linked.map(r=>esc(r.name)).join(', ')}`:''}</small></span><div class="floor-space-list-actions"><button class="text-action" type="button" data-staff-redraw-space="${x.id}">다시 그리기</button><button class="text-action danger-text" type="button" data-staff-delete-space="${x.id}">삭제</button></div></div>`;}).join('')||'<span class="muted">지정한 공간이 없습니다.</span>'}</div>
+      ${placed.length?`<div class="floor-layout-placed"><div class="floor-layout-placed-head"><b>배치된 디스플레이</b><small>도면의 점을 끌어서 바로 이동할 수 있습니다.</small></div>${placed.map(r=>`<div class="floor-layout-placed-row"><span><b>${esc(r.name)}</b><small>${esc(spaceName(r.floor_space_id))}</small></span><label class="display-purpose-field"><span>운영 목적</span><input maxlength="120" data-display-purpose="${r.id}" value="${esc(r.display_note||'')}" placeholder="예: 상담 대기 고객에게 브랜드·사례 영상 노출"><button type="button" class="text-action" data-save-display-purpose="${r.id}">저장</button></label><button type="button" class="text-action danger-text" data-unplace-display="${r.id}">위치 해제</button></div>`).join('')}</div>`:''}
+      <div class="floor-space-list-head"><div><b>대표 동선 순서</b><small>오늘 입사한 직원도 공간 흐름을 이해할 수 있도록 환자가 지나가는 순서대로 정렬하세요.</small></div></div>
+      <div class="floor-space-list">${floorJourneySpaces(current).map((x,i,arr)=>{const linked=rooms.filter(r=>r.floor_space_id===x.id);return `<div class="${x.id===spaceRedrawId?'is-editing':''}"><span class="floor-space-order"><i>${i+1}</i><span><b>${esc(x.name)}</b><small>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===x.space_type)?.[1]||'기타')} · 디스플레이 ${linked.length}개${linked.length?` · ${linked.map(r=>esc(r.name)).join(', ')}`:''}</small></span></span><div class="floor-space-list-actions"><button class="text-action" type="button" data-move-floor-space="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button class="text-action" type="button" data-move-floor-space="${x.id}" data-dir="1" ${i===arr.length-1?'disabled':''}>↓</button><button class="text-action" type="button" data-staff-redraw-space="${x.id}">다시 그리기</button><button class="text-action danger-text" type="button" data-staff-delete-space="${x.id}">삭제</button></div></div>`;}).join('')||'<span class="muted">지정한 공간이 없습니다.</span>'}</div>
     </div>`;
   }
   function hospitalSetupProgress(){const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,spaces=state.floorSpaces.length,total=state.rooms.length,placed=state.rooms.filter(roomMapPlaced).length;const steps=[['병원 정보',!!state.site?.name&&!!state.site?.building_label],['도면',custom>0],['공간',spaces>0],['디스플레이',total>0&&placed===total]];const done=steps.filter(x=>x[1]).length;return `<div class="hospital-setup-progress"><div><b>초기 설치</b><span>${done}/${steps.length} 완료</span></div><div>${steps.map(([l,ok],i)=>`<span class="${ok?'is-done':''}"><i>${ok?'✓':i+1}</i>${l}</span>`).join('')}</div></div>`;}
@@ -674,6 +698,18 @@
   function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="hospital-page-intro"><span class="eyebrow">PLAYLIST</span><h2>플레이리스트</h2><p>이미 등록된 영상 중 이 병원에서 사용할 재생 순서만 정합니다.</p></div>${hospitalPlaylistManagerMarkup()}</section>`;}
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   const displaySetupRpcMissing=(error)=>String(error?.code||'')==='PGRST202'||/staff_set_display_setup|schema cache|function/i.test(String(error?.message||''))&&/could not find|not found/i.test(String(error?.message||''));
+  async function saveDisplayPurpose(roomId){
+    const r=roomById(roomId);if(!r)return;
+    const input=qs(`[data-display-purpose="${roomId}"]`),note=String(input?.value||'').trim();
+    const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:displayControlMode(r),p_x:r.map_x_pct??null,p_y:r.map_y_pct??null,p_note:note||null,p_space:r.floor_space_id||null,p_group:canonicalFloorGroupIdForRoom(r)||r.group_id});
+    if(error)return toast(error.message,'error');r.display_note=note||null;toast('운영 목적을 저장했습니다.');renderPreservingUi(true);
+  }
+  async function moveFloorSpace(spaceId,dir){
+    const sp=state.floorSpaces.find(x=>x.id===spaceId);if(!sp)return;const list=floorJourneySpaces({id:sp.group_id}),from=list.findIndex(x=>x.id===spaceId),to=from+dir;if(from<0||to<0||to>=list.length)return;
+    [list[from],list[to]]=[list[to],list[from]];
+    for(let i=0;i<list.length;i++){const sort=(i+1)*10;if(Number(list[i].sort_order||0)===sort)continue;const {error}=await db.from('floor_spaces').update({sort_order:sort}).eq('id',list[i].id).eq('site_id',state.site.id);if(error)return toast(error.message,'error');list[i].sort_order=sort;}
+    toast('대표 동선 순서를 변경했습니다.');renderPreservingUi(true);
+  }
   async function saveDisplaySetup(roomId,x,y,mode,spaceId){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const prev={x:r.map_x_pct,y:r.map_y_pct,mode:r.display_control_mode,space:r.floor_space_id,check:r.manual_check_status};const useMode=mode||displayControlMode(r),gid=canonicalFloorGroupIdForRoom(r)||r.group_id;let resolvedSpace=spaceId===undefined?r.floor_space_id||null:spaceId||null;if(spaceId===null||spaceId==='auto')resolvedSpace=(x===null||x===undefined||y===null||y===undefined)?null:spaceContainingPoint(gid,x,y)?.id||null;
     r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;r.floor_space_id=resolvedSpace;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';renderPreservingUi(true);
     let {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null,p_space:resolvedSpace,p_group:gid}),legacy=false;if(error&&displaySetupRpcMissing(error)){const retry=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});error=retry.error;legacy=!error;}
@@ -728,6 +764,8 @@
     qsa('[data-rename-display]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();renameHospitalDisplay(b.dataset.renameDisplay);}));
     qsa('[data-delete-display]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();deleteHospitalDisplay(b.dataset.deleteDisplay);}));
     qsa('[data-unplace-display]').forEach(b=>b.addEventListener('click',()=>{const r=roomById(b.dataset.unplaceDisplay);if(r)saveDisplaySetup(r.id,null,null,displayControlMode(r),null);}));
+    qsa('[data-save-display-purpose]').forEach(b=>b.addEventListener('click',()=>saveDisplayPurpose(b.dataset.saveDisplayPurpose)));
+    qsa('[data-move-floor-space]').forEach(b=>b.addEventListener('click',()=>moveFloorSpace(b.dataset.moveFloorSpace,Number(b.dataset.dir))));
     qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',e=>{if(layoutEditMode!=='display'||!layoutPlacementRoomId)return;if(e.target.closest('[data-display-marker]'))return;const roomId=layoutPlacementRoomId,r=roomById(roomId);if(!r)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);layoutPlacementRoomId=null;saveDisplaySetup(roomId,p.x,p.y,displayControlMode(r),null);}));
     qsa('[data-display-marker]').forEach(marker=>marker.addEventListener('pointerdown',e=>{if(layoutEditMode!=='display')return;e.preventDefault();e.stopPropagation();const stage=marker.closest('[data-staff-map-stage]');if(!stage)return;const roomId=marker.dataset.displayMarker;marker.setPointerCapture?.(e.pointerId);const move=ev=>{const rect=stage.getBoundingClientRect(),rawX=(ev.clientX-rect.left)/rect.width*100,rawY=(ev.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);marker.style.left=`${p.x}%`;marker.style.top=`${p.y}%`;showDisplaySnapGuides(stage,p);};const up=ev=>{marker.removeEventListener('pointermove',move);marker.removeEventListener('pointerup',up);const rect=stage.getBoundingClientRect(),rawX=(ev.clientX-rect.left)/rect.width*100,rawY=(ev.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);clearDisplaySnapGuides(stage);saveDisplaySetup(roomId,p.x,p.y,displayControlMode(roomById(roomId)),null);};marker.addEventListener('pointermove',move);marker.addEventListener('pointerup',up);}));
   }
@@ -741,7 +779,7 @@
     stage.addEventListener('pointermove',e=>{if(!start||e.pointerId!==start.id||!preview)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);Object.assign(preview.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});showDisplaySnapGuides(stage,p);});
     stage.addEventListener('pointerup',async e=>{if(!start||e.pointerId!==start.id)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);preview?.remove();preview=null;start=null;clearDisplaySnapGuides(stage);if(w<2||h<2)return toast('공간 영역을 조금 더 크게 드래그하세요.','error');const name=(qs('#staffSpaceName')?.value||'').trim(),type=qs('#staffSpaceType')?.value||'other',groupId=stage.dataset.staffSpaceStage;
       if(spaceRedrawId){const id=spaceRedrawId,{error}=await db.from('floor_spaces').update({name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h}).eq('id',id).eq('site_id',state.site.id);if(error)return toast(error.message,'error');const item=state.floorSpaces.find(x=>x.id===id);if(item)Object.assign(item,{name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h});spaceRedrawId=null;layoutEditMode='display';toast('공간을 다시 그렸습니다.');renderPreservingUi(true);return;}
-      const {data,error}=await db.from('floor_spaces').insert({site_id:state.site.id,group_id:groupId,name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h}).select('*').single();if(error)return toast(error.message,'error');if(data)state.floorSpaces.push(data);layoutEditMode='display';toast('공간을 저장했습니다.');renderPreservingUi(true);
+      const nextOrder=Math.max(0,...state.floorSpaces.filter(x=>x.group_id===groupId).map(x=>Number(x.sort_order||0)))+10;const {data,error}=await db.from('floor_spaces').insert({site_id:state.site.id,group_id:groupId,name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h,sort_order:nextOrder}).select('*').single();if(error)return toast(error.message,'error');if(data)state.floorSpaces.push(data);layoutEditMode='display';toast('공간을 저장했습니다.');renderPreservingUi(true);
     });
     stage.addEventListener('pointercancel',()=>{preview?.remove();preview=null;start=null;clearDisplaySnapGuides(stage);});
   }
@@ -819,7 +857,7 @@
 
   function bind(){
     bindHospitalAdminSettings();
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=selectedFloorId===b.dataset.staffSelectFloor?null:b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#staffJourneyToggle')?.addEventListener('click',()=>{journeyVisible=!journeyVisible;renderPreservingUi(false);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=selectedFloorId===b.dataset.staffSelectFloor?null:b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){inspector.innerHTML=staffFloorRoomPreviewHtml(r);qsa('[data-staff-floor-room]').forEach(x=>x.classList.toggle('is-selected',x.dataset.staffFloorRoom===id));const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));
 
     qsa('#hospitalRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
