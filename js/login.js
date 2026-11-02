@@ -3,7 +3,14 @@
   const { db, qs, configError } = Signage;
   const safeNext=(value)=>{if(!value||!value.startsWith('/')||value.startsWith('//'))return null;try{const u=new URL(value,location.origin);return u.origin===location.origin?u.pathname+u.search+u.hash:null;}catch{return null;}};
   const nextTarget=safeNext(new URLSearchParams(location.search).get('next'));
-  const requestedSiteCode=(()=>{try{const u=new URL(nextTarget||'',location.origin);return u.pathname==='/hospital.html'?String(u.searchParams.get('site')||'').trim().toLowerCase():'';}catch{return '';}})();
+  const requestedSiteCode=(()=>{
+    try{
+      const direct=String(new URLSearchParams(location.search).get('site')||'').trim().toLowerCase();
+      if(direct)return direct;
+      const u=new URL(nextTarget||'',location.origin);
+      return u.pathname==='/hospital.html'?String(u.searchParams.get('site')||'').trim().toLowerCase():'';
+    }catch{return '';}
+  })();
   const err = qs('#loginError');
   const form = qs('#loginForm');
   const pinInput = qs('#pin');
@@ -13,7 +20,7 @@
 
   const existing = await Signage.getSession().catch(() => null);
   if (existing?.role) {
-    location.replace(existing.role === 'admin' ? '/admin.html' : '/hospital.html');
+    location.replace(nextTarget || (existing.role === 'admin' ? '/admin.html' : '/hospital.html'));
     return;
   }
 
@@ -34,7 +41,13 @@
     btn.disabled = true;
     pinInput.disabled = true;
     try {
-      const { data, error } = await db.rpc('pin_login', { p_pin: pin, p_client_id: Signage.getClientId(), p_site_code: requestedSiteCode || null });
+      const clientId = Signage.getClientId();
+      let result = await db.rpc('pin_login', { p_pin: pin, p_client_id: clientId, p_site_code: requestedSiteCode || null });
+      if (result.error && (result.error.code === 'PGRST202' || /Could not find the function|schema cache/i.test(String(result.error.message || '')))) {
+        // Temporary compatibility for an operating DB that has not yet received the 3-argument login migration.
+        result = await db.rpc('pin_login', { p_pin: pin, p_client_id: clientId });
+      }
+      const { data, error } = result;
       if (error) throw error;
       if (!data?.ok) {
         if (data?.error === 'locked') {
