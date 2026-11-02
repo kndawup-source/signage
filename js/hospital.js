@@ -158,15 +158,35 @@
   const priorityLabel=(v)=>({broadcast:'전체',broadcast_schedule:'예약',manual:'개별',group:'층·구역',group_schedule:'예약',patient:'개별',session:'개별',default:'기본',emergency:'비상',closed:'운영시간 외'})[String(v||'').toLowerCase()]||'기본';
   function roomProblemRank(r){const k=roomDisplayStatus(r).key;return ({error:0,update:1,offline:2,'manual-warn':3,idle:4,manual:5,live:6})[k]??7;}
   function groupStatusSummary(rooms){
-    const statuses=rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length,manual=statuses.filter(x=>x.key==='manual').length,manualNeedsCheck=statuses.filter(x=>x.key==='manual-warn').length;
-    const issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length,online=rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length;
+    const statuses=rooms.map(roomDisplayStatus);
+    const count=(key)=>statuses.filter(x=>x.key===key).length;
+    const live=count('live'),offline=count('offline'),manual=count('manual'),manualNeedsCheck=count('manual-warn'),errors=count('error'),updates=count('update'),idle=count('idle');
+    const issues=errors+updates+offline+manualNeedsCheck,online=rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length;
     let key='idle',label='대기';
     if(!rooms.length){label='공간 없음';}
-    else if(offline===rooms.length-manual-manualNeedsCheck&&offline>0&&manual+manualNeedsCheck===0){key='offline';label='오프라인';}
-    else if(issues>0){key='issue';label='확인 필요';}
-    else if(live>0){key='live';label='송출 중';}
+    else if(offline===rooms.length-manual-manualNeedsCheck&&offline>0&&manual+manualNeedsCheck===0){key='offline';label='연결 안 됨';}
+    else if(errors>0){key='issue';label='오류';}
+    else if(updates>0){key='issue';label='업데이트 필요';}
+    else if(offline>0){key='issue';label='연결 안 됨';}
+    else if(manualNeedsCheck>0){key='issue';label='수동 확인';}
+    else if(live>0){key='live';label='정상';}
     else if(manual>0){key='manual';label='수동 운영';}
-    return {live,offline,manual,manualNeedsCheck,issues,online,total:rooms.length,key,label};
+    return {live,offline,manual,manualNeedsCheck,errors,updates,idle,issues,online,total:rooms.length,key,label};
+  }
+  function groupIssueParts(st){
+    return [
+      ['오류',st.errors],
+      ['업데이트 필요',st.updates],
+      ['연결 안 됨',st.offline],
+      ['수동 확인',st.manualNeedsCheck]
+    ].filter(([,count])=>Number(count||0)>0);
+  }
+  function groupIssueText(st,{limit=2}={}){
+    const parts=groupIssueParts(st);
+    if(!parts.length)return st.total?'정상':'미사용';
+    const visible=parts.slice(0,limit).map(([label,count])=>`${label} ${count}`);
+    if(parts.length>limit)visible.push(`외 ${parts.length-limit}종`);
+    return visible.join(' · ');
   }
   function groupDisplayName(name){const n=String(name||'미분류').trim();return /^\d+$/.test(n)?`${n}층`:n;}
   function normalizedPurposeName(name){
@@ -245,12 +265,12 @@
   }
   function staffBuildingFloor(g){
     const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),shortName=floorPurposeLabel(g);
-    const status=st.issues?'확인 필요':st.offline?'연결 안 됨':rooms.length?'정상':'미사용';
+    const status=groupIssueText(st);
     const cls=`hospital-floor-row floor-state-${st.key}${selectedFloorId===g.id?' is-selected':''}`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}">
       <span class="hospital-floor-number">${n}F</span>
       <span class="hospital-floor-name">${esc(shortName)}</span>
-      <span class="hospital-floor-state"><i></i>${esc(status)}${st.issues?` ${st.issues}`:''}</span>
+      <span class="hospital-floor-state"><i></i>${esc(status)}</span>
     </button>`;
   }
   function staffFloorMarker(r){
@@ -272,7 +292,7 @@
     return `<section class="hospital-floor-detail">
       <div class="hospital-floor-detail-head">
         <div><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면에서 디스플레이나 공간을 누르면 운영 목적과 현재 영상을 확인할 수 있습니다.')}</span>${g.role_label?`<em class="floor-role-chip">역할 · ${esc(g.role_label)}</em>`:''}${groupContentTopicsMarkup(g)}</div>
-        <div class="hospital-floor-detail-actions"><div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${sum.issues?`<span class="is-alert">확인 필요 <b>${sum.issues}</b></span>`:''}</div></div>
+        <div class="hospital-floor-detail-actions"><div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${groupIssueParts(sum).map(([label,count])=>`<span class="is-alert">${esc(label)} <b>${count}</b></span>`).join('')}</div></div>
       </div>
       ${asset?`<div class="building-floorplan-wrap floor-activation-shell">
         <div class="floor-plan-stage building-floor-plan-stage is-floor-activating">
@@ -333,7 +353,7 @@
       selectedFloorId=preferred?.id||null;
     }
     const selected=floorGroups.find(g=>g.id===selectedFloorId)||null;
-    const statuses=state.rooms.map(roomDisplayStatus),offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
+    const statuses=state.rooms.map(roomDisplayStatus),issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length,allStatus=groupStatusSummary(state.rooms);
     const selectedNo=selected?floorNumber(selected):null;
     return `<section class="hospital-building-dashboard">
       <aside class="hospital-building-visual" aria-label="병원 건물 층별 보기">
@@ -343,7 +363,7 @@
       </aside>
       <div class="hospital-building-console">
         ${hospitalBroadcastCard()}
-        ${issues?`<div class="hospital-issue-notice hospital-issue-notice-wide"><b>확인이 필요한 디스플레이 ${issues}대</b><span>${offline?`연결 안 됨 ${offline}대 포함`:''}</span></div>`:''}
+        ${issues?`<div class="hospital-issue-notice hospital-issue-notice-wide"><b>${esc(groupIssueText(allStatus,{limit:4}))}</b><span>문제가 있는 디스플레이를 선택하면 상세 원인을 확인할 수 있습니다.</span></div>`:''}
         <div class="hospital-floor-console-card">
           <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>층 선택 → 도면의 디스플레이 선택 → 현재 송출과 운영 목적 확인</p></div></div>
           <div class="hospital-floor-console-grid">
@@ -819,7 +839,7 @@
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>병원 콘텐츠 운영</h1><p>공간별 송출 상태와 현재 콘텐츠를 한눈에 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${state.rooms.filter(staffIsOnline).length}<em>대</em></b></div><div class="kpi-issue"><small><i></i>확인 필요</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>병원 콘텐츠 운영</h1><p>공간별 송출 상태와 현재 콘텐츠를 한눈에 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${state.rooms.filter(staffIsOnline).length}<em>대</em></b></div><div class="kpi-issue"><small><i></i>문제 디스플레이</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="hospital-output-tools-body"><details class="staff-space-detail-drawer" open><summary><span><b>공간별 세부 관리</b><small>고급 제어가 필요한 경우에만 사용합니다.</small></span></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
