@@ -3230,3 +3230,59 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 @media(prefers-reduced-motion:reduce){
   .hospital-floor-row,.hospital-floor-row .hospital-floor-number,.hospital-floor-row .hospital-floor-name,.hospital-floor-row .hospital-floor-state,.hospital-floor-row .hospital-floor-chevron,.hospital-floor-detail{transition:none!important;animation:none!important}
 }
+
+
+/* v2.34.93 · make floor selection feedback clearly visible */
+.hospital-floor-row{position:relative;overflow:hidden;isolation:isolate}
+.hospital-floor-row::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(90deg,transparent 0%,rgba(73,63,190,.13) 45%,transparent 100%);
+  transform:translateX(-115%);
+  opacity:0;
+  z-index:0;
+}
+.hospital-floor-row>*{position:relative;z-index:1}
+.hospital-floor-row.is-selected{
+  background:#f2f0ff!important;
+  box-shadow:inset 4px 0 0 #332a9a,inset 0 0 0 1px #6e66d7,0 7px 18px rgba(46,39,140,.10)!important;
+  animation:floorSelectSettle .30s cubic-bezier(.2,.85,.25,1) both!important;
+}
+.hospital-floor-row.is-selected::after{
+  opacity:1;
+  animation:floorSelectSweep .38s ease-out both;
+}
+.hospital-floor-row.is-selected .hospital-floor-number,
+.hospital-floor-row.is-selected .hospital-floor-name{color:#262079}
+@keyframes floorSelectSweep{
+  0%{transform:translateX(-115%);opacity:0}
+  30%{opacity:1}
+  100%{transform:translateX(115%);opacity:0}
+}
+@keyframes floorSelectSettle{
+  0%{transform:translateX(-2px) scale(.992)}
+  60%{transform:translateX(2px) scale(1.004)}
+  100%{transform:translateX(0) scale(1)}
+}
+.hospital-floor-detail{
+  animation:floorDetailReveal .30s cubic-bezier(.2,.78,.25,1) both!important;
+}
+.hospital-floor-detail .building-floor-plan-stage{
+  animation:floorMapReveal .34s cubic-bezier(.2,.78,.25,1) both;
+}
+@keyframes floorDetailReveal{
+  from{opacity:.45;transform:translateY(8px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes floorMapReveal{
+  from{opacity:.55;transform:scale(.992)}
+  to{opacity:1;transform:scale(1)}
+}
+@media(prefers-reduced-motion:reduce){
+  .hospital-floor-row.is-selected,
+  .hospital-floor-row.is-selected::after,
+  .hospital-floor-detail,
+  .hospital-floor-detail .building-floor-plan-stage{animation:none!important}
+}
