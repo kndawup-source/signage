@@ -3078,3 +3078,48 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-space-current-list{padding-top:12px}
 
 @media(max-width:980px){.journey-logic{grid-template-columns:1fr}}
+
+
+/* v2.34.89 · clean selected-space detail layout */
+.hospital-floor-detail .floor-space-focus{
+  display:grid!important;
+  grid-template-columns:220px minmax(240px,.9fr) minmax(0,1.4fr)!important;
+  grid-template-areas:"head purpose why" "current current current"!important;
+  gap:0!important;
+  padding:0!important;
+  align-items:stretch!important;
+}
+.hospital-floor-detail .floor-space-focus .floor-room-focus-head{grid-area:head;padding:18px 20px;border-right:1px solid #eceef1;border-bottom:0!important}
+.hospital-floor-detail .floor-space-focus .floor-room-purpose{grid-area:purpose;padding:18px 22px;border-top:0!important;border-right:1px solid #eceef1}
+.hospital-floor-detail .floor-space-focus .floor-space-why{grid-area:why;padding:18px 22px;border-top:0!important}
+.hospital-floor-detail .floor-space-focus .floor-space-current-list{grid-area:current;padding:14px 20px 16px;border-top:1px solid #eceef1}
+.journey-summary{display:grid;grid-template-columns:minmax(150px,.75fr) minmax(0,1.25fr);gap:10px;margin-top:7px}
+.journey-summary>div{min-width:0;padding:0}
+.journey-summary small{display:block;margin-bottom:4px;font-size:9px!important;font-weight:800;color:#7b818c}
+.journey-summary b{display:block;margin-bottom:3px;font-size:12px;line-height:1.35;color:#1d222c}
+.journey-summary span{display:block;font-size:10px;line-height:1.5;color:#626975}
+.floor-space-current-list>small{margin-bottom:10px}
+.floor-space-display-row{grid-template-columns:52px minmax(0,1fr) auto;gap:12px;padding:10px 0}
+.floor-space-display-row b{font-size:12px}
+.floor-space-display-row em{font-size:10px}
+
+.hospital-floor-detail .floor-room-focus:not(.floor-space-focus){
+  grid-template-columns:180px minmax(220px,.9fr) minmax(0,1.35fr) 260px;
+  grid-template-areas:"head current why controls" "head next next controls";
+}
+.hospital-floor-detail .floor-room-focus:not(.floor-space-focus) .floor-room-why{min-width:0}
+.hospital-floor-detail .floor-room-focus:not(.floor-space-focus) .journey-summary{grid-template-columns:1fr;gap:8px}
+
+@media(max-width:1180px){
+  .hospital-floor-detail .floor-space-focus{grid-template-columns:180px minmax(210px,.8fr) minmax(0,1.2fr)!important}
+  .hospital-floor-detail .floor-room-focus:not(.floor-space-focus){grid-template-columns:1fr 1fr;grid-template-areas:"head current" "next next" "why why" "controls controls"}
+}
+@media(max-width:900px){
+  .hospital-floor-detail .floor-space-focus{grid-template-columns:1fr 1fr!important;grid-template-areas:"head purpose" "why why" "current current"!important}
+  .hospital-floor-detail .floor-space-focus .floor-space-why{border-top:1px solid #eceef1}
+}
+@media(max-width:700px){
+  .hospital-floor-detail .floor-space-focus{grid-template-columns:1fr!important;grid-template-areas:"head" "purpose" "why" "current"!important}
+  .hospital-floor-detail .floor-space-focus .floor-room-focus-head,.hospital-floor-detail .floor-space-focus .floor-room-purpose{border-right:0}
+  .journey-summary{grid-template-columns:1fr}
+}

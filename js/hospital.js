@@ -150,7 +150,7 @@
     });
   }
   function journeyReasonPanel(meta){
-    return `<div class="journey-logic"><div class="journey-logic-card"><small>환자 상황</small><b>${esc(meta.stage)}</b><p>${esc(meta.need)}</p></div><div class="journey-logic-card"><small>필요한 안내</small><b>직원이 설명해야 할 포인트</b><p>${esc(meta.content)}</p></div><div class="journey-logic-card is-strong"><small>왜 이 콘텐츠인가</small><b>지금 이 공간에 맞는 이유</b><p>${esc(meta.why)}</p></div></div>`;
+    return `<div class="journey-summary"><div><small>환자 상황</small><b>${esc(meta.stage)}</b><span>${esc(meta.need)}</span></div><div><small>왜 이 콘텐츠인가</small><b>${esc(meta.content)}</b><span>${esc(meta.why)}</span></div></div>`;
   }
   function roomsForFloorSpace(sp){
     if(!sp)return [];
@@ -167,8 +167,8 @@
     return `<div class="floor-room-focus floor-space-focus">
       <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')}</span></div><em>${rooms.length}대</em></div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(spaceOperationalPurpose(sp))}</p></div>
-      <div class="floor-room-why floor-space-why"><small>이 공간에서 필요한 흐름</small>${journeyReasonPanel(journey)}</div>
-      <div class="floor-space-current-list"><small>이 공간의 현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 디스플레이가 없습니다.</p>'}</div>
+      <div class="floor-room-why floor-space-why"><small>콘텐츠 이유</small>${journeyReasonPanel(journey)}</div>
+      <div class="floor-space-current-list"><small>현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 디스플레이가 없습니다.</p>'}</div>
     </div>`;
   }
   function staffFloorRoomPreviewHtml(r){
@@ -180,7 +180,7 @@
       <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
       <div class="floor-room-current">${staffThumbLink(current,'floor-room-current-thumb','현재 영상 열기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
       <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
-      <div class="floor-room-why"><small>왜 이 콘텐츠가 나오나요?</small>${journeyReasonPanel(journey)}<div class="floor-room-why-copy"><p>${esc(roomBroadcastReason(r))}</p></div></div>
+      <div class="floor-room-why"><small>콘텐츠 이유</small>${journeyReasonPanel(journey)}</div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(roomOperationalPurpose(r))}</p></div>
       <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">실제 화면 보기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">링크 복사</button>`}<button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">수동 디스플레이는 설정만 저장되며 원격 재생 명령은 보내지 않습니다.</small>':''}</div>
     </div>`;
