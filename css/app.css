@@ -3328,3 +3328,84 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     border-bottom:1px solid #e7e9ed;
   }
 }
+
+
+/* v2.34.95 · simpler, readable floor list */
+.hospital-floor-console-grid{
+  grid-template-columns:280px minmax(0,1fr)!important;
+}
+.hospital-floor-row{
+  grid-template-columns:52px minmax(0,1fr) 34px!important;
+  gap:10px!important;
+  min-height:58px!important;
+  padding:8px 14px!important;
+  align-items:center!important;
+}
+.hospital-floor-number{
+  font-size:16px!important;
+  line-height:1!important;
+}
+.hospital-floor-name{
+  min-width:0!important;
+  font-size:12px!important;
+  line-height:1.28!important;
+  font-weight:800!important;
+  white-space:normal!important;
+  overflow:hidden!important;
+  text-overflow:clip!important;
+  display:-webkit-box!important;
+  -webkit-box-orient:vertical!important;
+  -webkit-line-clamp:2!important;
+  word-break:keep-all!important;
+  overflow-wrap:anywhere!important;
+}
+.hospital-floor-state{display:none!important}
+.hospital-floor-status-compact{
+  justify-self:end;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+  min-width:28px;
+  height:28px;
+  padding:0 6px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:900;
+  line-height:1;
+  color:#6d727c;
+  background:#f2f3f5;
+}
+.hospital-floor-status-compact i{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:#9ea3ac;
+  flex:0 0 auto;
+}
+.hospital-floor-status-compact.has-issue{
+  color:#b42318;
+  background:#fff1ef;
+}
+.hospital-floor-status-compact.has-issue i{background:#e7352b}
+.hospital-floor-status-compact.is-ok{
+  min-width:28px;
+  padding:0;
+  background:#edf8f2;
+}
+.hospital-floor-status-compact.is-ok i{background:#16965a}
+.hospital-floor-row.is-selected .hospital-floor-status-compact.has-issue{
+  background:#fff;
+  box-shadow:0 0 0 1px rgba(180,35,24,.10);
+}
+.hospital-floor-row.is-selected .hospital-floor-status-compact.is-ok{background:#fff}
+
+@media(max-width:900px){
+  .hospital-floor-console-grid{grid-template-columns:240px minmax(0,1fr)!important}
+  .hospital-floor-row{grid-template-columns:46px minmax(0,1fr) 32px!important;padding:7px 12px!important}
+}
+@media(max-width:700px){
+  .hospital-floor-console-grid{grid-template-columns:1fr!important}
+  .hospital-floor-list{grid-template-columns:1fr 1fr!important}
+  .hospital-floor-row{min-height:54px!important}
+}

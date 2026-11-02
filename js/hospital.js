@@ -312,12 +312,15 @@
   }
   function staffBuildingFloor(g){
     const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),shortName=floorPurposeLabel(g);
-    const status=groupIssueText(st);
+    const issueText=groupIssueText(st,{limit:4});
     const cls=`hospital-floor-row floor-state-${st.key}${selectedFloorId===g.id?' is-selected':''}`;
+    const compactStatus=st.issues>0
+      ? `<span class="hospital-floor-status-compact has-issue" title="${esc(issueText)}" aria-label="확인 필요 ${st.issues}대 · ${esc(issueText)}"><i></i><b>${st.issues}</b></span>`
+      : `<span class="hospital-floor-status-compact is-ok" title="정상" aria-label="정상"><i></i></span>`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}">
       <span class="hospital-floor-number">${n}F</span>
-      <span class="hospital-floor-name">${esc(shortName)}</span>
-      <span class="hospital-floor-state"><i></i>${esc(status)}</span>
+      <span class="hospital-floor-name" title="${esc(shortName)}">${esc(shortName)}</span>
+      ${compactStatus}
     </button>`;
   }
   function staffFloorMarker(r){
@@ -412,7 +415,7 @@
         ${hospitalBroadcastCard()}
         ${issues?`<div class="hospital-issue-notice hospital-issue-notice-wide"><b>${esc(groupIssueText(allStatus,{limit:4}))}</b><span>문제가 있는 디스플레이를 선택하면 상세 원인을 확인할 수 있습니다.</span></div>`:''}
         <div class="hospital-floor-console-card">
-          <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>층 선택 → 도면의 디스플레이 선택 → 현재 송출과 운영 목적 확인</p></div></div>
+          <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>층을 선택하면 도면과 현재 운영 상태를 확인할 수 있습니다.</p></div></div>
           <div class="hospital-floor-console-grid">
             <div class="hospital-floor-list" role="list">${floorGroups.map(staffBuildingFloor).join('')}</div>
             ${staffFloorPanelMarkup(selected)}
