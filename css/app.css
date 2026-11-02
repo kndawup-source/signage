@@ -2983,3 +2983,14 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     max-width:1080px;
   }
 }
+
+/* v2.34.80 — Narrower desktop canvas for both hospital and super admin pages. */
+@media (min-width:1001px){
+  .admin-page .shell,
+  .hospital-page .shell,
+  .admin-page .topbar-inner,
+  .hospital-page .topbar-inner{
+    width:100%;
+    max-width:1040px;
+  }
+}
