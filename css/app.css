@@ -3123,3 +3123,29 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-detail .floor-space-focus .floor-room-focus-head,.hospital-floor-detail .floor-space-focus .floor-room-purpose{border-right:0}
   .journey-summary{grid-template-columns:1fr}
 }
+
+
+/* v2.34.90 · fix PC clipping in selected-space detail */
+.hospital-floor-detail .floor-space-focus{
+  grid-template-columns:220px minmax(250px,.95fr) minmax(320px,1.25fr)!important;
+}
+.hospital-floor-detail .floor-space-focus .floor-space-why,
+.hospital-floor-detail .floor-space-focus .floor-room-purpose,
+.hospital-floor-detail .floor-space-focus .floor-room-focus-head{min-width:0}
+.hospital-floor-detail .floor-space-focus .floor-space-why{overflow-wrap:break-word;word-break:keep-all}
+.hospital-floor-detail .floor-space-focus .journey-summary{grid-template-columns:minmax(140px,.72fr) minmax(0,1.28fr)}
+
+/* The actual available width is narrower than full page width, so switch earlier on desktop. */
+@media(max-width:1380px){
+  .hospital-floor-detail .floor-space-focus{
+    grid-template-columns:220px minmax(0,1fr)!important;
+    grid-template-areas:"head purpose" "why why" "current current"!important;
+  }
+  .hospital-floor-detail .floor-space-focus .floor-space-why{border-top:1px solid #eceef1}
+}
+@media(max-width:1180px){
+  .hospital-floor-detail .floor-space-focus{
+    grid-template-columns:1fr 1fr!important;
+    grid-template-areas:"head purpose" "why why" "current current"!important;
+  }
+}
