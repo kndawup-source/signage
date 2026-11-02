@@ -2975,3 +2975,11 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .floor-layout-space-instruction{grid-column:1/-1}
   .floor-layout-space-create>#staffCancelSpaceRedraw{justify-self:start}
 }
+
+/* v2.34.79 — Hospital operations page: use a narrower desktop canvas. */
+@media (min-width:1001px){
+  .hospital-page .shell,
+  .hospital-page .topbar-inner{
+    max-width:1080px;
+  }
+}
