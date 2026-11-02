@@ -106,6 +106,52 @@
     const fallback={reception:'접수와 첫 안내를 담당하는 공간',waiting:'대기 고객이 머무르며 안내·브랜드 콘텐츠를 접하는 공간',lounge:'고객이 머무르며 병원 콘텐츠를 접하는 공간',consultation:'상담 전후 설명과 안내가 이루어지는 공간',treatment:'진료와 치료가 이루어지는 공간',lobby:'이동과 방향 안내가 필요한 공용 공간',public:'고객이 공용으로 이용하는 공간',staff:'직원 운영 공간',support:'진료 지원 공간',other:'병원 운영 공간'};
     return fallback[String(sp?.space_type||'other')]||fallback.other;
   }
+
+  function journeyCopyForType(type, meta={}){
+    const topicText=(Array.isArray(meta.topics)?meta.topics:[]).map(x=>String(x||'').trim()).filter(Boolean).slice(0,3).join(' · ');
+    const reasonText=String(meta.reason||'').trim();
+    const waitingText=String(meta.waiting||'').trim();
+    const fallback={
+      reception:{stage:'도착 직후',need:'접수·문진·첫 안내가 필요한 순간',why:'처음 온 고객이 어디서 무엇을 해야 하는지 바로 이해해야 합니다.',content:'접수 방법 · 문진 안내 · 위치 안내'},
+      waiting:{stage:'대기 중',need:'왜 기다리는지와 다음 순서를 알고 싶을 때',why:'대기 불안과 반복 질문을 줄이려면 현재 상황과 다음 단계를 쉽게 이해시켜야 합니다.',content:'대기 안내 · 현재 치료 설명 · 전후 사례'},
+      lounge:{stage:'대기·휴식 중',need:'길지 않은 시간에 편하게 정보를 받아들이는 순간',why:'체류 시간이 있어 병원 이해와 치료 신뢰를 높이는 콘텐츠가 잘 맞습니다.',content:'브랜드 소개 · 치료 사례 · 관리 팁'},
+      consultation:{stage:'상담 전·후',need:'치료를 이해하고 결정에 도움을 받아야 할 때',why:'상담 전후에는 이해와 신뢰 형성이 중요해 설명형 콘텐츠가 필요합니다.',content:'치료 원리 · 사례 · 과정 설명'},
+      treatment:{stage:'진료 중·직후',need:'현재 치료 단계와 이후 관리가 궁금한 순간',why:'치료 맥락과 사후관리를 이해시키면 직원 설명이 쉬워지고 안내가 자연스럽습니다.',content:'현재 치료 설명 · 전후 사례 · 사후관리'},
+      lobby:{stage:'이동 중',need:'위치와 방향을 빠르게 파악해야 할 때',why:'짧게 스쳐 지나가도 바로 이해되는 안내가 필요합니다.',content:'층 안내 · 위치 안내 · 공용 정보'},
+      public:{stage:'공용 이동 중',need:'방향과 기본 정보를 빠르게 확인할 때',why:'공용 공간에서는 한눈에 들어오는 정보가 우선입니다.',content:'층 안내 · 공지 · 기본 안내'},
+      staff:{stage:'직원 운영',need:'현장 운영 상태를 확인해야 할 때',why:'고객용보다는 운영 확인용 정보가 필요합니다.',content:'운영 상태 · 확인 항목'},
+      support:{stage:'진료 지원',need:'내부 운영 흐름을 확인할 때',why:'지원 공간은 고객 안내보다 내부 운영 목적이 큽니다.',content:'운영 상태 · 지원 정보'},
+      other:{stage:'공간 이용 중',need:'이 공간에서 필요한 정보를 빠르게 받아야 할 때',why:'공간 목적에 맞는 핵심 정보가 바로 보여야 합니다.',content:'공간 맞춤 안내'}
+    };
+    const base=fallback[String(type||'other')]||fallback.other;
+    return {
+      stage: base.stage,
+      need: waitingText || base.need,
+      why: reasonText || base.why,
+      content: topicText || base.content
+    };
+  }
+  function journeyMetaForSpace(sp){
+    const g=state.groups.find(x=>x.id===sp?.group_id)||null;
+    return journeyCopyForType(sp?.space_type||'other',{
+      topics: groupContentTopics(g),
+      reason: g?.signage_reason,
+      waiting: g?.waiting_area_note
+    });
+  }
+  function journeyMetaForRoom(r){
+    const sp=roomSpace(r)||spaceContainingPoint(r.group_id,r.map_x_pct,r.map_y_pct);
+    const g=state.groups.find(x=>x.id===r.group_id)||null;
+    const roomReason=String(r?.display_note||'').trim();
+    return journeyCopyForType(sp?.space_type||r?.room_mode||'other',{
+      topics: groupContentTopics(g),
+      reason: roomReason || g?.signage_reason,
+      waiting: g?.waiting_area_note
+    });
+  }
+  function journeyReasonPanel(meta){
+    return `<div class="journey-logic"><div class="journey-logic-card"><small>환자 상황</small><b>${esc(meta.stage)}</b><p>${esc(meta.need)}</p></div><div class="journey-logic-card"><small>필요한 안내</small><b>직원이 설명해야 할 포인트</b><p>${esc(meta.content)}</p></div><div class="journey-logic-card is-strong"><small>왜 이 콘텐츠인가</small><b>지금 이 공간에 맞는 이유</b><p>${esc(meta.why)}</p></div></div>`;
+  }
   function roomsForFloorSpace(sp){
     if(!sp)return [];
     return state.rooms.filter(r=>{
@@ -116,16 +162,17 @@
     });
   }
   function staffFloorSpacePreviewHtml(sp){
-    const rooms=roomsForFloorSpace(sp);
+    const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp);
     const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffThumbLink(current,'floor-space-current-thumb','현재 영상 열기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em></span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
     return `<div class="floor-room-focus floor-space-focus">
       <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')}</span></div><em>${rooms.length}대</em></div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(spaceOperationalPurpose(sp))}</p></div>
+      <div class="floor-room-why floor-space-why"><small>이 공간에서 필요한 흐름</small>${journeyReasonPanel(journey)}</div>
       <div class="floor-space-current-list"><small>이 공간의 현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 디스플레이가 없습니다.</p>'}</div>
     </div>`;
   }
   function staffFloorRoomPreviewHtml(r){
-    const status=roomDisplayStatus(r),current=currentVideoForRoom(r),isManual=displayControlMode(r)==='manual',st=r.player_status||{};
+    const status=roomDisplayStatus(r),current=currentVideoForRoom(r),isManual=displayControlMode(r)==='manual',st=r.player_status||{},journey=journeyMetaForRoom(r);
     const title=isManual?'현장 수동 운영':(current?.title||st.title||'현재 재생 영상 없음');
     const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
     const playback=isManual?'원격 재생 상태 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'오프라인 · 플레이어 연결 끊김');
@@ -133,7 +180,7 @@
       <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
       <div class="floor-room-current">${staffThumbLink(current,'floor-room-current-thumb','현재 영상 열기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
       <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
-      <div class="floor-room-why"><small>송출 이유</small><p>${esc(roomBroadcastReason(r))}</p></div>
+      <div class="floor-room-why"><small>왜 이 콘텐츠가 나오나요?</small>${journeyReasonPanel(journey)}<div class="floor-room-why-copy"><p>${esc(roomBroadcastReason(r))}</p></div></div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(roomOperationalPurpose(r))}</p></div>
       <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">실제 화면 보기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">링크 복사</button>`}<button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">수동 디스플레이는 설정만 저장되며 원격 재생 명령은 보내지 않습니다.</small>':''}</div>
     </div>`;
