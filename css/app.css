@@ -3031,3 +3031,14 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 }
 .floor-space-list-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:14px 0 7px}
 .floor-space-list-head>div{display:grid;gap:2px}.floor-space-list-head b{font-size:12px}.floor-space-list-head small{font-size:10px;color:var(--muted)}
+
+/* v2.34.82 — Slightly wider PC canvas after 1040px felt cramped. */
+@media (min-width:1001px){
+  .admin-page .shell,
+  .hospital-page .shell,
+  .admin-page .topbar-inner,
+  .hospital-page .topbar-inner{
+    width:100%;
+    max-width:1180px;
+  }
+}
