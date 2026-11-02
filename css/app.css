@@ -3149,3 +3149,47 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
     grid-template-areas:"head purpose" "why why" "current current"!important;
   }
 }
+
+
+/* v2.34.91 · selected-space detail is always two-column on desktop */
+.hospital-floor-detail .floor-space-focus{
+  grid-template-columns:minmax(190px,240px) minmax(0,1fr)!important;
+  grid-template-areas:
+    "head purpose"
+    "why why"
+    "current current"!important;
+  width:100%!important;
+  max-width:100%!important;
+  overflow:hidden!important;
+}
+.hospital-floor-detail .floor-space-focus .floor-room-focus-head,
+.hospital-floor-detail .floor-space-focus .floor-room-purpose,
+.hospital-floor-detail .floor-space-focus .floor-space-why,
+.hospital-floor-detail .floor-space-focus .floor-space-current-list{
+  min-width:0!important;
+  max-width:100%!important;
+  box-sizing:border-box!important;
+}
+.hospital-floor-detail .floor-space-focus .floor-space-why{
+  border-top:1px solid #eceef1!important;
+  border-right:0!important;
+}
+.hospital-floor-detail .floor-space-focus .journey-summary{
+  grid-template-columns:minmax(160px,.7fr) minmax(0,1.3fr)!important;
+  width:100%!important;
+}
+.hospital-floor-detail .floor-space-focus .journey-summary>div,
+.hospital-floor-detail .floor-space-focus .journey-summary span,
+.hospital-floor-detail .floor-space-focus .journey-summary b{
+  min-width:0!important;
+  white-space:normal!important;
+  overflow-wrap:anywhere!important;
+  word-break:keep-all!important;
+}
+@media(max-width:700px){
+  .hospital-floor-detail .floor-space-focus{
+    grid-template-columns:1fr!important;
+    grid-template-areas:"head" "purpose" "why" "current"!important;
+  }
+  .hospital-floor-detail .floor-space-focus .journey-summary{grid-template-columns:1fr!important}
+}
