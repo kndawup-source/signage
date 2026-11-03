@@ -24,7 +24,7 @@
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,tab='output';
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,tab='output';
   const floorInlineVideoCache=new Map();
   const floorInlineVideoWarmLimit=6;
   let floorInlineVideoWarmCount=0;
@@ -391,18 +391,34 @@
     const ungrouped=state.rooms.filter(r=>!r.group_id);if(ungrouped.length)out.push({id:'ungrouped',name:'미분류',rooms:ungrouped});
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
   }
+  function floorAreaKey(g){
+    const care=String(g?.care_type||'').toLowerCase();
+    const name=String(g?.name||'').toLowerCase();
+    return care==='minish'||name.includes('미니쉬')||name.includes('minish')?'minish':'general';
+  }
   function staffBuildingFloor(g){
-    const n=floorNumber(g),rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),st=groupStatusSummary(rooms),shortName=floorPurposeLabel(g);
-    const issueText=groupIssueText(st,{limit:4});
-    const cls=`hospital-floor-row floor-state-${st.key}${selectedFloorId===g.id?' is-selected':''}`;
-    const compactStatus=st.issues>0
-      ? `<span class="hospital-floor-status-compact has-issue" title="${esc(issueText)}" aria-label="확인 필요 ${st.issues}대 · ${esc(issueText)}"><i></i><b>${st.issues}</b></span>`
-      : `<span class="hospital-floor-status-compact is-ok" title="정상" aria-label="정상"><i></i></span>`;
+    const n=floorNumber(g),shortName=floorPurposeLabel(g);
+    const cls=`hospital-floor-row${selectedFloorId===g.id?' is-selected':''}`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${g.id}" aria-expanded="${selectedFloorId===g.id?'true':'false'}">
       <span class="hospital-floor-number">${n}F</span>
       <span class="hospital-floor-name" title="${esc(shortName)}">${esc(shortName)}</span>
-      ${compactStatus}
+      <span class="hospital-floor-chevron" aria-hidden="true">›</span>
     </button>`;
+  }
+  function floorAreaSelector(floorGroups){
+    const general=floorGroups.filter(g=>floorAreaKey(g)==='general');
+    const minish=floorGroups.filter(g=>floorAreaKey(g)==='minish');
+    const card=(key,title,desc,groups)=>`<button type="button" class="hospital-area-card area-${key}" data-staff-select-area="${key}">
+      <span class="hospital-area-card-copy"><small>진료 영역</small><b>${title}</b><em>${desc}</em></span>
+      <span class="hospital-area-card-meta"><strong>${groups.length}</strong><small>개 층</small><i aria-hidden="true">→</i></span>
+    </button>`;
+    return `<div class="hospital-area-select">
+      <div class="hospital-area-select-head"><span>콘텐츠 운영</span><h2>어느 진료 영역을 관리할까요?</h2><p>진료 성격을 먼저 선택하면 해당 층만 보여드립니다.</p></div>
+      <div class="hospital-area-select-grid">
+        ${card('general','일반진료층','일반 진료 · 예방 · 기초 · 공용 공간',general)}
+        ${card('minish','미니쉬층','미니쉬 진료 · 상담 · 라운지',minish)}
+      </div>
+    </div>`;
   }
   function staffFloorMarker(r){
     if(!roomMapPlaced(r))return '';
@@ -477,23 +493,27 @@
   }
   function staffBuildingOverview(groups){
     const floorGroups=groups.filter(g=>g.kind==='floor'&&Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));
-    if(selectedFloorId&&!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=null;
     if(!floorGroups.length)return `<section class="hospital-building-empty"><b>등록된 층이 없습니다.</b><p>병원 설정에서 층을 먼저 추가하세요.</p><button type="button" class="btn small" data-staff-open-settings>병원 설정 열기</button></section>`;
-    if(!selectedFloorId){
-      const preferred=floorGroups.find(g=>floorNumber(g)===10&&floorAsset(g))||floorGroups.find(g=>floorAsset(g))||floorGroups.find(g=>groupStatusSummary(g.rooms||[]).issues)||floorGroups[0];
-      selectedFloorId=preferred?.id||null;
+    if(selectedFloorArea&&!['general','minish'].includes(selectedFloorArea))selectedFloorArea=null;
+    if(selectedFloorId&&!floorGroups.some(g=>g.id===selectedFloorId))selectedFloorId=null;
+    if(!selectedFloorArea){
+      selectedFloorId=null;
+      return `<section class="hospital-building-dashboard"><div class="hospital-building-console">${floorAreaSelector(floorGroups)}</div></section>`;
     }
-    const selected=floorGroups.find(g=>g.id===selectedFloorId)||null;
-    const statuses=state.rooms.map(roomDisplayStatus),issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length,allStatus=groupStatusSummary(state.rooms);
-    const selectedNo=selected?floorNumber(selected):null;
+    const areaFloors=floorGroups.filter(g=>floorAreaKey(g)===selectedFloorArea);
+    if(selectedFloorId&&!areaFloors.some(g=>g.id===selectedFloorId))selectedFloorId=null;
+    const selected=areaFloors.find(g=>g.id===selectedFloorId)||null;
+    const areaTitle=selectedFloorArea==='minish'?'미니쉬층':'일반진료층';
+    const areaDesc=selectedFloorArea==='minish'?'미니쉬 진료 · 상담 · 라운지':'일반 진료 · 예방 · 기초 · 공용 공간';
     return `<section class="hospital-building-dashboard">
       <div class="hospital-building-console">
-        ${hospitalBroadcastCard()}
-        ${issues?`<div class="hospital-issue-notice hospital-issue-notice-wide"><b>${esc(groupIssueText(allStatus,{limit:4}))}</b><span>문제가 있는 디스플레이를 선택하면 상세 원인을 확인할 수 있습니다.</span></div>`:''}
         <div class="hospital-floor-console-card">
-          <div class="hospital-floor-console-title"><div><h2>층을 선택하세요</h2><p>층을 선택하면 도면과 현재 운영 상태를 확인할 수 있습니다.</p></div></div>
+          <div class="hospital-floor-console-title hospital-floor-console-title-area">
+            <div><small>진료 영역</small><h2>${areaTitle}</h2><p>${areaDesc}</p></div>
+            <button type="button" class="text-btn hospital-area-change" data-staff-change-area>영역 다시 선택</button>
+          </div>
           <div class="hospital-floor-console-grid">
-            <div class="hospital-floor-list" role="list">${floorGroups.map(staffBuildingFloor).join('')}</div>
+            <div class="hospital-floor-list" role="list">${areaFloors.map(staffBuildingFloor).join('')}</div>
             ${staffFloorPanelMarkup(selected)}
           </div>
         </div>
@@ -975,7 +995,7 @@
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>병원 콘텐츠 운영</h1><p>공간별 송출 상태와 현재 콘텐츠를 한눈에 확인하고 필요한 디스플레이만 변경합니다.</p></div><div class="hospital-output-side"><div class="hospital-output-kpis"><div class="kpi-neutral"><small><i></i>전체 디스플레이</small><b>${state.rooms.length}<em>대</em></b></div><div class="kpi-online"><small><i></i>현재 연결</small><b>${state.rooms.filter(staffIsOnline).length}<em>대</em></b></div><div class="kpi-issue"><small><i></i>문제 디스플레이</small><b>${issues}<em>대</em></b></div></div><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>병원 콘텐츠 운영</h1><p>진료 영역과 층을 선택해 공간별 현재 콘텐츠를 확인하고 변경합니다.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">디스플레이 <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${staffBuildingOverview(groups)}<details class="hospital-output-tools"><summary><span><b>상세 관리</b><small>영상 순서나 세부 제어가 필요할 때만 엽니다.</small></span><em>${live}곳 송출 중</em></summary><div class="hospital-output-tools-body"><details class="staff-space-detail-drawer" open><summary><span><b>공간별 세부 관리</b><small>고급 제어가 필요한 경우에만 사용합니다.</small></span></summary><div class="staff-space-detail-body"><div class="staff-monitor-groups">${groups.map(groupCard).join('')}</div></div></details></div></details>`;
@@ -1016,7 +1036,7 @@
 
   function bind(){
     bindHospitalAdminSettings();
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=selectedFloorId===b.dataset.staffSelectFloor?null:b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
+    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{selectedFloorId=selectedFloorId===b.dataset.staffSelectFloor?null:b.dataset.staffSelectFloor;renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
     const floorStage=qs('.building-floor-plan-stage');
     const setFloorFocus=(kind,id,contextSpaceId=null)=>{if(!floorStage)return;floorStage.classList.add('has-map-focus');floorStage.dataset.focusKind=kind;floorStage.dataset.focusId=id;qsa('[data-staff-floor-room]',floorStage).forEach(x=>{const active=kind==='display'&&x.dataset.staffFloorRoom===id;const room=state.rooms.find(r=>r.id===x.dataset.staffFloorRoom);const linkedSpace=room?roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct):null;const context=(kind==='space'&&linkedSpace?.id===id)||(kind==='display'&&contextSpaceId&&linkedSpace?.id===contextSpaceId);x.classList.toggle('is-selected',active);x.classList.toggle('is-focus-context',!!context);});qsa('[data-floor-space]',floorStage).forEach(x=>{const active=kind==='space'&&x.dataset.floorSpace===id;const context=kind==='display'&&contextSpaceId&&x.dataset.floorSpace===contextSpaceId;x.classList.toggle('is-selected-space',active);x.classList.toggle('is-focus-context',!!context);});};
     qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){const linkedSpace=roomSpace(r)||spaceContainingPoint(r.group_id,r.map_x_pct,r.map_y_pct);setFloorFocus('display',id,linkedSpace?.id||null);inspector.innerHTML=staffFloorRoomPreviewHtml(r);const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>{const drawer=qs('.staff-space-detail-drawer');if(drawer)drawer.open=true;requestAnimationFrame(()=>{const el=qs(`[data-room-card="${id}"]`);if(el){el.open=true;el.scrollIntoView({behavior:'smooth',block:'center'});}});});}}));

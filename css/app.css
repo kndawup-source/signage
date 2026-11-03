@@ -3451,3 +3451,51 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-output-kpis small{font-size:11px!important}
   .hospital-output-kpis b{font-size:25px!important}
 }
+
+/* v2.34.99 · hospital operation entry hierarchy */
+.hospital-area-select{padding:30px;border:1px solid #e5e7eb;border-radius:20px;background:#fff}
+.hospital-area-select-head{max-width:720px;margin-bottom:24px}
+.hospital-area-select-head>span,.hospital-floor-console-title-area>div>small{display:block;margin-bottom:8px;font-size:11px;font-weight:800;letter-spacing:.08em;color:#2f278a;text-transform:uppercase}
+.hospital-area-select-head h2{margin:0;font-size:28px;line-height:1.2;letter-spacing:-.035em}
+.hospital-area-select-head p{margin:9px 0 0;color:#737783;font-size:14px;line-height:1.55}
+.hospital-area-select-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.hospital-area-card{appearance:none;border:1px solid #dedfe6;border-radius:18px;background:#fff;min-height:190px;padding:26px 24px;text-align:left;display:flex;align-items:stretch;justify-content:space-between;gap:20px;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease,background .16s ease}
+.hospital-area-card:hover{border-color:#7f78d8;box-shadow:0 12px 30px rgba(35,30,110,.08);transform:translateY(-2px)}
+.hospital-area-card:active{transform:translateY(0) scale(.995)}
+.hospital-area-card-copy{display:flex;min-width:0;flex-direction:column;align-items:flex-start;justify-content:center}
+.hospital-area-card-copy small{font-size:11px;font-weight:800;color:#7b7f89;margin-bottom:12px}
+.hospital-area-card-copy b{font-size:30px;line-height:1.15;letter-spacing:-.04em;color:#11131a}
+.hospital-area-card-copy em{margin-top:12px;font-size:14px;font-style:normal;line-height:1.5;color:#707580}
+.hospital-area-card-meta{display:flex;flex:0 0 auto;min-width:76px;flex-direction:column;align-items:flex-end;justify-content:center}
+.hospital-area-card-meta strong{font-size:26px;line-height:1;color:#2d267f}
+.hospital-area-card-meta small{margin-top:5px;font-size:11px;color:#858995}
+.hospital-area-card-meta i{display:grid;place-items:center;margin-top:20px;width:38px;height:38px;border-radius:999px;background:#f1efff;color:#2d267f;font-size:20px;font-style:normal}
+.hospital-floor-console-title-area{display:flex!important;align-items:center;justify-content:space-between;gap:20px}
+.hospital-floor-console-title-area h2{margin:0!important}
+.hospital-floor-console-title-area p{margin:5px 0 0!important}
+.hospital-area-change{flex:0 0 auto}
+.hospital-floor-row{grid-template-columns:56px minmax(0,1fr) 24px!important}
+.hospital-floor-chevron{justify-self:end;color:#aaaebe;font-size:22px;line-height:1;transition:transform .15s ease,color .15s ease}
+.hospital-floor-row:hover .hospital-floor-chevron,.hospital-floor-row.is-selected .hospital-floor-chevron{color:#30298f;transform:translateX(2px)}
+.hospital-output-side-simple{display:flex;align-items:center;justify-content:flex-end;gap:14px}
+.hospital-display-total{white-space:nowrap;font-size:13px;color:#717681}
+.hospital-display-total b{font-size:20px;color:#11131a;margin-left:5px}
+
+@media(max-width:700px){
+  .hospital-area-select{padding:20px 16px;border-radius:16px}
+  .hospital-area-select-head{margin-bottom:18px}
+  .hospital-area-select-head h2{font-size:24px}
+  .hospital-area-select-head p{font-size:13px}
+  .hospital-area-select-grid{grid-template-columns:1fr;gap:12px}
+  .hospital-area-card{min-height:150px;padding:20px 18px;border-radius:16px}
+  .hospital-area-card-copy b{font-size:26px}
+  .hospital-area-card-copy em{font-size:13px}
+  .hospital-area-card-meta{min-width:58px}
+  .hospital-area-card-meta strong{font-size:23px}
+  .hospital-area-card-meta i{width:34px;height:34px;margin-top:15px}
+  .hospital-floor-console-title-area{align-items:flex-end!important}
+  .hospital-area-change{font-size:12px!important;padding:8px 0!important}
+  .hospital-floor-list{grid-template-columns:1fr!important}
+  .hospital-floor-row{grid-template-columns:50px minmax(0,1fr) 22px!important;min-height:58px!important}
+  .hospital-output-side-simple{width:100%;justify-content:space-between!important}
+}
