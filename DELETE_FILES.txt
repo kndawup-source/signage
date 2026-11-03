@@ -1,3 +1,4 @@
-assets/building/hospital-cutaway.png
-assets/building/hospital-cutaway-14f.png
-js/admin.js
+admin-product-switcher.js
+camera-admin.html
+hospital-admin.html
+survey-admin.html

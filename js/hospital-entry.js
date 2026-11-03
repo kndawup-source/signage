@@ -1,8 +1,10 @@
 (async function(){
   'use strict';
+  const entryScript=document.currentScript;
+  const entryUrl=new URL(entryScript?.src||location.href,location.href);
+  const version=String(entryUrl.searchParams.get('v')||entryScript?.dataset?.version||'2.34.96').trim();
   const session=await Signage.requireAuth();
   if(!['admin','staff'].includes(session.role)){location.replace('/');return;}
-  const version=String(new URL(document.currentScript?.src||location.href,location.href).searchParams.get('v')||'2.34.95');
   const header=document.querySelector('.topbar-inner');
   if(header){
     const back=session.role==='admin'?'/admin.html':'/hospital.html';

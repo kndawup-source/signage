@@ -54,7 +54,7 @@
           const sec = Math.max(1, Number(data.retry_after_sec || 0));
           err.textContent = `로그인이 잠겼습니다. 약 ${Math.ceil(sec/60)}분 후 다시 시도하세요.`;
         } else {
-          err.textContent = 'PIN 번호를 확인하세요.';
+          err.textContent = requestedSiteCode ? 'PIN 번호를 확인하세요.' : 'PIN 번호를 확인하세요. 병원 관리자는 병원 코드가 포함된 전용 주소로 접속해 주세요.';
         }
         err.classList.remove('hidden');
         pinInput.value = '';

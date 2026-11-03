@@ -81,50 +81,101 @@ begin
   end if;
 end $$;
 
--- 3) Replace all-hospital content wake-ups with site-scoped wake-ups.
-create or replace function public.notify_video_site_rooms() returns trigger
+-- 3) Replace all-hospital content wake-ups with site-scoped, statement-level wake-ups.
+-- Transition tables ensure a multi-row save wakes each affected site only once.
+create or replace function public.notify_video_site_rooms_insert_stmt() returns trigger
 language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
 begin
-  if tg_op='UPDATE' and old.site_id is distinct from new.site_id then
-    perform public.signal_site_rooms_internal(old.site_id);
-    perform public.signal_site_rooms_internal(new.site_id);
-  else
-    perform public.signal_site_rooms_internal(case when tg_op='DELETE' then old.site_id else new.site_id end);
-  end if;
-  if tg_op='DELETE' then return old; end if;
-  return new;
+  for v_site in select distinct site_id from new_rows loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
+end $$;
+create or replace function public.notify_video_site_rooms_update_stmt() returns trigger
+language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
+begin
+  for v_site in select distinct site_id from (select site_id from old_rows union select site_id from new_rows) s loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
+end $$;
+create or replace function public.notify_video_site_rooms_delete_stmt() returns trigger
+language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
+begin
+  for v_site in select distinct site_id from old_rows loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
 end $$;
 
-create or replace function public.notify_playlist_site_rooms() returns trigger
+create or replace function public.notify_playlist_site_rooms_insert_stmt() returns trigger
 language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
 begin
-  if tg_op='UPDATE' and old.site_id is distinct from new.site_id then
-    perform public.signal_site_rooms_internal(old.site_id);
-    perform public.signal_site_rooms_internal(new.site_id);
-  else
-    perform public.signal_site_rooms_internal(case when tg_op='DELETE' then old.site_id else new.site_id end);
-  end if;
-  if tg_op='DELETE' then return old; end if;
-  return new;
+  for v_site in select distinct site_id from new_rows loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
+end $$;
+create or replace function public.notify_playlist_site_rooms_update_stmt() returns trigger
+language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
+begin
+  for v_site in select distinct site_id from (select site_id from old_rows union select site_id from new_rows) s loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
+end $$;
+create or replace function public.notify_playlist_site_rooms_delete_stmt() returns trigger
+language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
+begin
+  for v_site in select distinct site_id from old_rows loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
 end $$;
 
-create or replace function public.notify_playlist_item_site_rooms() returns trigger
+create or replace function public.notify_playlist_item_site_rooms_insert_stmt() returns trigger
 language plpgsql security definer set search_path=public as $$
-declare v_site uuid; v_playlist uuid;
+declare v_site uuid;
 begin
-  v_playlist:=case when tg_op='DELETE' then old.playlist_id else new.playlist_id end;
-  select p.site_id into v_site from public.playlists p where p.id=v_playlist;
-  perform public.signal_site_rooms_internal(v_site);
-  if tg_op='DELETE' then return old; end if;
-  return new;
+  for v_site in select distinct p.site_id from new_rows x join public.playlists p on p.id=x.playlist_id loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
+end $$;
+create or replace function public.notify_playlist_item_site_rooms_update_stmt() returns trigger
+language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
+begin
+  for v_site in
+    select distinct p.site_id
+    from (select playlist_id from old_rows union select playlist_id from new_rows) x
+    join public.playlists p on p.id=x.playlist_id
+  loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
+end $$;
+create or replace function public.notify_playlist_item_site_rooms_delete_stmt() returns trigger
+language plpgsql security definer set search_path=public as $$
+declare v_site uuid;
+begin
+  for v_site in select distinct p.site_id from old_rows x join public.playlists p on p.id=x.playlist_id loop perform public.signal_site_rooms_internal(v_site); end loop;
+  return null;
 end $$;
 
 drop trigger if exists videos_notify on public.videos;
-create trigger videos_notify after insert or update or delete on public.videos for each row execute function public.notify_video_site_rooms();
+drop trigger if exists videos_notify_insert on public.videos;
+drop trigger if exists videos_notify_update on public.videos;
+drop trigger if exists videos_notify_delete on public.videos;
+create trigger videos_notify_insert after insert on public.videos referencing new table as new_rows for each statement execute function public.notify_video_site_rooms_insert_stmt();
+create trigger videos_notify_update after update on public.videos referencing old table as old_rows new table as new_rows for each statement execute function public.notify_video_site_rooms_update_stmt();
+create trigger videos_notify_delete after delete on public.videos referencing old table as old_rows for each statement execute function public.notify_video_site_rooms_delete_stmt();
+
 drop trigger if exists playlists_notify on public.playlists;
-create trigger playlists_notify after insert or update or delete on public.playlists for each row execute function public.notify_playlist_site_rooms();
+drop trigger if exists playlists_notify_insert on public.playlists;
+drop trigger if exists playlists_notify_update on public.playlists;
+drop trigger if exists playlists_notify_delete on public.playlists;
+create trigger playlists_notify_insert after insert on public.playlists referencing new table as new_rows for each statement execute function public.notify_playlist_site_rooms_insert_stmt();
+create trigger playlists_notify_update after update on public.playlists referencing old table as old_rows new table as new_rows for each statement execute function public.notify_playlist_site_rooms_update_stmt();
+create trigger playlists_notify_delete after delete on public.playlists referencing old table as old_rows for each statement execute function public.notify_playlist_site_rooms_delete_stmt();
+
 drop trigger if exists playlist_items_notify on public.playlist_items;
-create trigger playlist_items_notify after insert or update or delete on public.playlist_items for each row execute function public.notify_playlist_item_site_rooms();
+drop trigger if exists playlist_items_notify_insert on public.playlist_items;
+drop trigger if exists playlist_items_notify_update on public.playlist_items;
+drop trigger if exists playlist_items_notify_delete on public.playlist_items;
+create trigger playlist_items_notify_insert after insert on public.playlist_items referencing new table as new_rows for each statement execute function public.notify_playlist_item_site_rooms_insert_stmt();
+create trigger playlist_items_notify_update after update on public.playlist_items referencing old table as old_rows new table as new_rows for each statement execute function public.notify_playlist_item_site_rooms_update_stmt();
+create trigger playlist_items_notify_delete after delete on public.playlist_items referencing old table as old_rows for each statement execute function public.notify_playlist_item_site_rooms_delete_stmt();
 
 -- 4) Login: at most one super-admin hash plus one requested hospital hash are checked.
 -- Direct hospital login uses the site code already present in /hospital.html?site=... .
@@ -191,7 +242,7 @@ revoke all on function public.pin_login(text,text) from public,anon,authenticate
 -- 5) Useful tenant indexes before the tables become large.
 create index if not exists videos_site_sort_idx on public.videos(site_id,sort_order,created_at);
 create index if not exists playlists_site_sort_idx on public.playlists(site_id,sort_order,created_at);
-create index if not exists player_events_created_idx on public.player_events(created_at desc);
+create index if not exists player_events_occurred_idx on public.player_events(occurred_at desc);
 
 -- 6) "오늘 완료" is a Korea-local day, converted back to timestamptz for comparison.
 create or replace function public.hospital_reception_state(p_site uuid)

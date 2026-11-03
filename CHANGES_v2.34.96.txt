@@ -1,0 +1,42 @@
+Clinic Signage v2.34.96
+
+[긴급 복구]
+- supabase/v2.34.78-multisite-scale-safety.sql
+  - player_events.created_at 오타를 occurred_at으로 수정
+  - videos / playlists / playlist_items Realtime wake-up 트리거를 row 단위에서 statement 단위로 변경
+  - player_control_signals.site_id 기반 병원 화면 Realtime 구조 유지
+- supabase/schema.sql에도 동일 수정 반영
+
+[로그인/버전]
+- 병원 코드 없는 주소에서 병원 관리자 PIN 실패 시 전용 병원 주소 안내 문구 표시
+- hospital-entry.js가 await 이후 document.currentScript를 읽던 문제 수정: 스크립트 참조/버전을 await 전에 캡처
+- index/admin/hospital/player, boot/version, player release/SW를 2.34.96으로 통일
+
+[OOGO 혼입 제거]
+- 삭제: admin-product-switcher.js, camera-admin.html, hospital-admin.html, survey-admin.html
+- .vercelignore 추가: 위 OOGO 파일과 SQL/개발용 원본/문서/로컬 서버 폴더를 Vercel 배포에서 제외
+
+[병원 화면]
+- 영상 미리보기가 열려 있으면 background Realtime reload가 DOM을 다시 그리지 않도록 처리
+- IntersectionObserver 자동 선로딩 제거
+- hover/focus/touch 시 최대 6개 영상 metadata만 준비, 실제 클릭 시에만 auto 로드
+- 운영 화면에서 건물 이미지 마크업 자체 제거. 설정 탭에서만 건물 이미지 API/미리보기 사용
+- floor_spaces에 patient_context_note / content_reason 추가
+- 공간별 '환자 상황' / '콘텐츠 이유' 저장 UI 추가
+- 접수/진료실 등 같은 층의 서로 다른 공간이 층 공통 문구로 덮이지 않도록 공간 문구 우선 적용
+- 층 배치 복사 시 공간별 문구도 함께 복사
+
+[CSS]
+- 사용하지 않는 .journey-logic 계열 제거
+- 2.34.89~94에서 반복 덮어쓰던 선택 공간/층 선택 CSS를 2.34.96 규칙으로 통합
+- inline video / 공간별 문구 편집 스타일 추가
+
+[배포 순서]
+1. Supabase에서 수정된 v2.34.78-multisite-scale-safety.sql 실행
+2. 이어서 v2.34.96-release-consistency.sql 실행
+3. 이후 Vercel 코드 배포
+
+SQL 변경 사유:
+- 2.34.78 전체 롤백을 유발하던 잘못된 컬럼 인덱스 수정
+- multi-row 저장 시 디스플레이 신호 중복 발생 방지
+- 공간별 콘텐츠 문맥 저장 필드 추가
