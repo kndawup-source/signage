@@ -3200,3 +3200,152 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .floor-space-content-fields label>span{font-size:10px;font-weight:800;color:var(--muted)}
 .floor-space-content-fields input{width:100%;min-width:0;height:34px;padding:0 9px;border:1px solid #ddd;border-radius:8px;background:#fff;font:inherit;font-size:11px}
 @media(max-width:900px){.floor-space-content-fields{grid-template-columns:1fr}.floor-space-manage-head{align-items:flex-start}}
+
+/* v2.34.97 · mobile hospital information hierarchy */
+@media(max-width:700px){
+  /* Page/section rhythm */
+  .hospital-page .shell{padding-left:16px!important;padding-right:16px!important}
+  .hospital-building-console{gap:16px}
+  .hospital-floor-console-card{border-radius:16px}
+  .hospital-floor-console-title{padding:20px 18px 14px}
+  .hospital-floor-console-title h2{font-size:23px!important;line-height:1.15}
+  .hospital-floor-console-title p{margin-top:5px;font-size:13px;line-height:1.5}
+
+  /* Floor selector: touch-first instead of a compressed desktop table. */
+  .hospital-floor-list{
+    display:flex!important;
+    grid-template-columns:none!important;
+    gap:8px;
+    overflow-x:auto!important;
+    padding:10px 12px 12px;
+    border-right:0;
+    border-bottom:1px solid #e7e9ed;
+    scroll-snap-type:x proximity;
+    -webkit-overflow-scrolling:touch;
+  }
+  .hospital-floor-list::-webkit-scrollbar{display:none}
+  .hospital-floor-row{
+    flex:0 0 auto;
+    min-width:126px;
+    min-height:56px;
+    padding:0 13px;
+    grid-template-columns:38px minmax(0,1fr) 18px;
+    gap:7px;
+    border:1px solid #e2e4e8!important;
+    border-radius:12px;
+    background:#fff;
+    scroll-snap-align:start;
+  }
+  .hospital-floor-row.is-selected{border-color:#2e278f!important;background:#f5f3ff!important;box-shadow:0 0 0 1px #2e278f inset}
+  .hospital-floor-number{font-size:15px!important;font-weight:900}
+  .hospital-floor-name{font-size:13px!important;line-height:1.25}
+
+  /* Selected floor: title is the primary anchor. */
+  .hospital-floor-detail{padding:22px 4px 18px;background:#fff}
+  .hospital-floor-detail-head{display:grid!important;gap:16px;margin:0 0 18px;padding:0 0 18px;border-bottom:1px solid #eceef1}
+  .hospital-floor-detail-head>div:first-child{display:grid!important;gap:0!important;align-items:initial}
+  .hospital-floor-detail-head>div:first-child>b{
+    margin:0;
+    font-size:28px!important;
+    line-height:1.14;
+    letter-spacing:-.045em;
+  }
+  .hospital-floor-detail-head>div:first-child>span{
+    margin-top:8px;
+    font-size:15px!important;
+    line-height:1.55;
+    font-weight:650;
+    color:#737985;
+  }
+  .floor-role-chip{
+    width:max-content;
+    max-width:100%;
+    margin-top:16px;
+    padding:8px 13px;
+    border-radius:999px;
+    font-size:13px!important;
+    line-height:1.2;
+  }
+
+  /* Content is reading material, not metadata. */
+  .floor-content-topics.compact{
+    margin:14px 0 0;
+    padding:17px 18px 18px;
+    border-radius:14px;
+    background:#fafafa;
+  }
+  .floor-content-topics>small{
+    margin-bottom:11px;
+    font-size:13px;
+    letter-spacing:0;
+    color:#676d76;
+  }
+  .floor-content-topics ul{gap:10px}
+  .floor-content-topics li{
+    padding-left:17px;
+    font-size:16px;
+    line-height:1.55;
+    color:#202329;
+  }
+  .floor-content-topics li:before{top:.7em;width:5px;height:5px}
+
+  /* Operational state: scan as individual facts, never as one tiny sentence. */
+  .hospital-floor-detail-actions{display:block;width:100%}
+  .hospital-floor-detail-stats{
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px!important;
+    width:100%;
+  }
+  .hospital-floor-detail-stats>span{
+    display:flex!important;
+    min-width:0;
+    min-height:58px;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:12px 13px;
+    border:1px solid #e7e9ed;
+    border-radius:12px;
+    background:#f8f9fa;
+    font-size:12px!important;
+    line-height:1.25;
+    font-weight:800;
+    color:#6f7580;
+  }
+  .hospital-floor-detail-stats>span b{font-size:19px!important;line-height:1;color:#17191e}
+  .hospital-floor-detail-stats>span.is-alert{border-color:#f0d4d1;background:#fff7f6;color:#c52218}
+  .hospital-floor-detail-stats>span.is-alert b{color:#c52218}
+
+  /* Floor plan and selected display detail */
+  .hospital-floor-detail .building-floorplan-wrap{border-radius:14px;overflow:hidden}
+  .hospital-floor-detail .building-floor-plan-stage{min-height:0!important;aspect-ratio:1.45/1}
+  .hospital-floor-detail .building-zone-inspector{margin-top:10px}
+  .hospital-floor-detail .floor-room-focus{padding:18px 16px;gap:17px;border-radius:14px}
+  .hospital-floor-detail .floor-room-focus-head b{font-size:18px}
+  .hospital-floor-detail .floor-room-current{grid-template-columns:92px minmax(0,1fr);gap:13px}
+  .hospital-floor-detail .floor-room-current-thumb{width:92px}
+  .hospital-floor-detail .floor-room-current-copy small,
+  .hospital-floor-detail .floor-room-next>small,
+  .hospital-floor-detail .floor-room-why>small,
+  .hospital-floor-detail .floor-room-purpose>small{font-size:12px}
+  .hospital-floor-detail .floor-room-current-copy b{font-size:15px;line-height:1.4}
+  .hospital-floor-detail .floor-room-current-copy span,
+  .hospital-floor-detail .floor-room-purpose p{font-size:13px;line-height:1.55}
+  .hospital-floor-detail .floor-room-actions .btn,
+  .hospital-floor-detail .floor-room-actions select{min-height:46px;font-size:14px}
+  .hospital-floor-detail .floor-room-subactions{gap:10px}
+  .hospital-floor-detail .floor-room-subactions .text-btn{min-height:42px;padding:8px 4px;font-size:13px}
+
+  /* Broadcast card and top KPIs need the same mobile reading scale. */
+  .hospital-building-console .hospital-broadcast-card{padding:17px 16px}
+  .hospital-building-console .hospital-broadcast-card small{font-size:12px}
+  .hospital-building-console .hospital-broadcast-card b{font-size:18px}
+  .hospital-building-console .hospital-broadcast-card p{font-size:13px;line-height:1.5}
+  .hospital-output-copy h1{font-size:32px!important}
+  .hospital-output-copy p{font-size:14px!important;line-height:1.55}
+  .hospital-output-kpis{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible!important;width:100%}
+  .hospital-output-kpis>div{min-width:0!important;min-height:76px;padding:13px 14px}
+  .hospital-output-kpis small{font-size:11px}
+  .hospital-output-kpis b{font-size:26px}
+}
