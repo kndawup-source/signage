@@ -25,7 +25,38 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,tab='output';
-  document.addEventListener('click',e=>{const a=e.target.closest?.('a[data-video-link]');if(!a)return;e.stopPropagation();});
+  document.addEventListener('click',e=>{
+    const a=e.target.closest?.('a[data-video-link]');
+    if(a){e.stopPropagation();return;}
+    const btn=e.target.closest?.('[data-floor-inline-video]');
+    if(!btn)return;
+    e.preventDefault();
+    e.stopPropagation();
+    const host=btn.closest('.floor-room-current,.floor-space-display-row');
+    if(!host)return;
+    const url=String(btn.dataset.floorInlineVideo||'').trim();
+    if(!url)return;
+    const title=String(btn.dataset.videoTitle||'현재 영상');
+    const existing=host.querySelector(':scope > .floor-inline-video-panel');
+    if(existing){
+      const same=existing.dataset.videoUrl===url;
+      existing.remove();
+      btn.setAttribute('aria-expanded','false');
+      if(same)return;
+    }
+    document.querySelectorAll('.floor-inline-video-panel').forEach(panel=>{
+      const owner=panel.parentElement?.querySelector('[data-floor-inline-video][aria-expanded="true"]');
+      if(owner)owner.setAttribute('aria-expanded','false');
+      panel.remove();
+    });
+    const panel=document.createElement('div');
+    panel.className='floor-inline-video-panel';
+    panel.dataset.videoUrl=url;
+    panel.innerHTML=`<div class="floor-inline-video-head"><b>${esc(title)}</b><button type="button" class="floor-inline-video-close" aria-label="영상 닫기">닫기</button></div><video controls playsinline preload="metadata" src="${esc(url)}"></video>`;
+    host.appendChild(panel);
+    btn.setAttribute('aria-expanded','true');
+    panel.querySelector('.floor-inline-video-close')?.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();btn.setAttribute('aria-expanded','false');panel.remove();});
+  });
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanUrlCache=new Map();
   const buildingImageUrlCache=new Map();
@@ -65,6 +96,10 @@
   function staffThumbLink(v,className='',label='영상 열기'){
     const inner=staffThumb(v),cls=['video-thumb-link',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();
     return url?`<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-video-link aria-label="${esc(v.title||label)} · ${esc(label)}" title="${esc(v.title||label)} · 클릭하여 영상 열기">${inner}</a>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;
+  }
+  function staffFloorInlineThumb(v,className='',label='현재 영상 보기'){
+    const inner=staffThumb(v),cls=['video-thumb-link','floor-inline-video-trigger',className].filter(Boolean).join(' '),url=String(v?.url||'').trim();
+    return url?`<button type="button" class="${cls}" data-floor-inline-video="${esc(url)}" data-video-title="${esc(v?.title||'현재 영상')}" aria-expanded="false" aria-label="${esc(v?.title||label)} · ${esc(label)}" title="${esc(v?.title||label)} · 아래에서 영상 보기">${inner}</button>`:`<div class="${cls} is-disabled" aria-label="${esc(v?.title||'영상 없음')}">${inner}</div>`;
   }
   function roomPlaylistLabel(r){
     const mode=String(r.player_status?.mode||'');
@@ -163,7 +198,7 @@
   }
   function staffFloorSpacePreviewHtml(sp){
     const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp);
-    const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffThumbLink(current,'floor-space-current-thumb','현재 영상 열기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em></span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
+    const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em></span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
     return `<div class="floor-room-focus floor-space-focus">
       <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')}</span></div><em>${rooms.length}대</em></div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(spaceOperationalPurpose(sp))}</p></div>
@@ -178,7 +213,7 @@
     const playback=isManual?'원격 재생 상태 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'오프라인 · 플레이어 연결 끊김');
     return `<div class="floor-room-focus">
       <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
-      <div class="floor-room-current">${staffThumbLink(current,'floor-room-current-thumb','현재 영상 열기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
+      <div class="floor-room-current">${staffFloorInlineThumb(current,'floor-room-current-thumb','현재 영상 보기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
       <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
       <div class="floor-room-why"><small>콘텐츠 이유</small>${journeyReasonPanel(journey)}</div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(roomOperationalPurpose(r))}</p></div>

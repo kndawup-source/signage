@@ -3409,3 +3409,15 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-floor-list{grid-template-columns:1fr 1fr!important}
   .hospital-floor-row{min-height:54px!important}
 }
+
+/* Floor guide: play current video inline instead of opening a new tab */
+.floor-inline-video-trigger{appearance:none;border:0;padding:0;cursor:pointer;font:inherit;color:inherit}
+.floor-inline-video-trigger[aria-expanded="true"]{outline:2px solid var(--primary);outline-offset:2px}
+.floor-inline-video-panel{grid-column:1/-1;width:100%;min-width:0;margin-top:10px;padding-top:10px;border-top:1px solid #eceef1}
+.floor-inline-video-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.floor-inline-video-head b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.floor-inline-video-close{border:0;background:transparent;padding:4px 0;color:var(--muted);font-size:10px;font-weight:800;cursor:pointer}
+.floor-inline-video-panel video{display:block;width:100%;max-height:360px;background:#000;border-radius:9px;object-fit:contain}
+.floor-room-current:has(> .floor-inline-video-panel){align-items:start}
+.floor-space-display-row:has(> .floor-inline-video-panel){padding-bottom:12px}
+@media(max-width:760px){.floor-inline-video-panel video{max-height:260px}.floor-inline-video-panel{margin-top:8px;padding-top:8px}}
