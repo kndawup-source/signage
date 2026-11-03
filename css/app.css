@@ -1989,7 +1989,7 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .superadmin-inline-summary .superadmin-floor-row.has-issue span{color:#b42318;font-weight:800}
 .superadmin-inline-summary .superadmin-floor-row small{font-size:9px;color:var(--sa-muted)}
 
-.superadmin-inline-summary .superadmin-site-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px;padding-top:18px;border-top:1px solid var(--sa-line)}
+.superadmin-inline-summary .superadmin-site-actions{grid-column:1/-1;grid-row:auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px;padding-top:18px;border-top:1px solid var(--sa-line)}
 .superadmin-inline-summary .superadmin-site-actions .btn,.superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{width:auto;min-width:150px;height:42px;margin:0}
 .superadmin-inline-summary .superadmin-site-actions .superadmin-open-hospital{min-width:220px}
 .superadmin-inline-summary .superadmin-maintenance{margin-top:16px;padding-top:0;border-top:0}
