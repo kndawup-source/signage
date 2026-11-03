@@ -25,6 +25,50 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,tab='output';
+  const floorInlineVideoCache=new Map();
+  const floorInlineVideoWarmLimit=6;
+  let floorInlineVideoWarmCount=0;
+  const floorInlineVideoBin=document.createElement('div');
+  floorInlineVideoBin.hidden=true;
+  document.body.appendChild(floorInlineVideoBin);
+  function warmFloorInlineVideo(url){
+    url=String(url||'').trim();
+    if(!url)return null;
+    const cached=floorInlineVideoCache.get(url);
+    if(cached)return cached;
+    if(floorInlineVideoWarmCount>=floorInlineVideoWarmLimit)return null;
+    const video=document.createElement('video');
+    video.preload='auto';
+    video.playsInline=true;
+    video.muted=true;
+    video.src=url;
+    floorInlineVideoCache.set(url,video);
+    floorInlineVideoWarmCount++;
+    floorInlineVideoBin.appendChild(video);
+    try{video.load();}catch(_){}
+    return video;
+  }
+  function parkFloorInlineVideo(video){
+    if(!video)return;
+    try{video.pause();}catch(_){}
+    video.removeAttribute('controls');
+    video.muted=true;
+    floorInlineVideoBin.appendChild(video);
+  }
+  function warmVisibleFloorInlineVideos(){
+    const buttons=[...document.querySelectorAll('[data-floor-inline-video]')];
+    if(!buttons.length)return;
+    const warm=btn=>warmFloorInlineVideo(btn.dataset.floorInlineVideo);
+    if('IntersectionObserver' in window){
+      const io=new IntersectionObserver(entries=>{entries.forEach(entry=>{if(entry.isIntersecting){warm(entry.target);io.unobserve(entry.target);}});},{rootMargin:'220px 0px'});
+      buttons.forEach(btn=>io.observe(btn));
+    } else {
+      buttons.slice(0,floorInlineVideoWarmLimit).forEach(warm);
+    }
+  }
+  document.addEventListener('pointerover',e=>{const btn=e.target.closest?.('[data-floor-inline-video]');if(btn)warmFloorInlineVideo(btn.dataset.floorInlineVideo);},{passive:true});
+  document.addEventListener('focusin',e=>{const btn=e.target.closest?.('[data-floor-inline-video]');if(btn)warmFloorInlineVideo(btn.dataset.floorInlineVideo);});
+  document.addEventListener('touchstart',e=>{const btn=e.target.closest?.('[data-floor-inline-video]');if(btn)warmFloorInlineVideo(btn.dataset.floorInlineVideo);},{passive:true});
   document.addEventListener('click',e=>{
     const a=e.target.closest?.('a[data-video-link]');
     if(a){e.stopPropagation();return;}
@@ -40,6 +84,7 @@
     const existing=host.querySelector(':scope > .floor-inline-video-panel');
     if(existing){
       const same=existing.dataset.videoUrl===url;
+      parkFloorInlineVideo(existing.querySelector('video'));
       existing.remove();
       btn.setAttribute('aria-expanded','false');
       if(same)return;
@@ -47,15 +92,22 @@
     document.querySelectorAll('.floor-inline-video-panel').forEach(panel=>{
       const owner=panel.parentElement?.querySelector('[data-floor-inline-video][aria-expanded="true"]');
       if(owner)owner.setAttribute('aria-expanded','false');
+      parkFloorInlineVideo(panel.querySelector('video'));
       panel.remove();
     });
     const panel=document.createElement('div');
     panel.className='floor-inline-video-panel';
     panel.dataset.videoUrl=url;
-    panel.innerHTML=`<div class="floor-inline-video-head"><b>${esc(title)}</b><button type="button" class="floor-inline-video-close" aria-label="영상 닫기">닫기</button></div><video controls playsinline preload="metadata" src="${esc(url)}"></video>`;
+    panel.innerHTML=`<div class="floor-inline-video-head"><b>${esc(title)}</b><button type="button" class="floor-inline-video-close" aria-label="영상 닫기">닫기</button></div>`;
+    const video=warmFloorInlineVideo(url)||document.createElement('video');
+    if(!video.src){video.src=url;video.preload='auto';try{video.load();}catch(_){}}
+    video.controls=true;
+    video.playsInline=true;
+    video.muted=false;
+    panel.appendChild(video);
     host.appendChild(panel);
     btn.setAttribute('aria-expanded','true');
-    panel.querySelector('.floor-inline-video-close')?.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();btn.setAttribute('aria-expanded','false');panel.remove();});
+    panel.querySelector('.floor-inline-video-close')?.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();btn.setAttribute('aria-expanded','false');parkFloorInlineVideo(video);panel.remove();});
   });
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
   const floorplanUrlCache=new Map();
@@ -918,6 +970,7 @@
   async function setHospitalBroadcast(active){const playlist=qs('#hospitalBroadcastPlaylist')?.value||null;if(active&&!playlist)return toast('전체 송출할 플레이리스트를 선택하세요.','error');if(!confirm(active?'이 병원의 모든 원격 디스플레이에 전체 송출할까요?':'병원 전체 송출을 종료할까요?'))return;const {error}=await db.rpc('hospital_set_broadcast',{p_site:targetSiteId,p_active:active,p_playlist:playlist,p_notice:null});if(error)return toast(error.message||'전체 송출을 변경하지 못했습니다.','error');toast(active?'병원 전체 송출을 시작했습니다.':'병원 전체 송출을 종료했습니다.');await load();}
 
   function render(){
+    setTimeout(warmVisibleFloorInlineVideos,0);
     const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
     const issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
     const groups=groupedRooms();
