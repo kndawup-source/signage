@@ -2,12 +2,10 @@
   'use strict';
   const current = document.currentScript;
   const entry = String(current?.dataset?.entry || '').trim();
-  const appVersion = String(current?.dataset?.version || '2.34.99').trim();
+  const appVersion = String(current?.dataset?.version || '2.35.00').trim();
   const playerVersion = String(current?.dataset?.playerVersion || appVersion).trim();
   const supabaseVersion = '2.118.0';
-  const supabaseSrc = location.protocol === 'http:'
-    ? '/vendor/supabase.js'
-    : `https://cdn.jsdelivr.net/npm/@supabase/supabase-js@${supabaseVersion}/dist/umd/supabase.js`;
+  const supabaseSrc = `https://cdn.jsdelivr.net/npm/@supabase/supabase-js@${supabaseVersion}/dist/umd/supabase.js`;
 
   const loadScript = (src, attrs = {}) => new Promise((resolve, reject) => {
     const script = document.createElement('script');
@@ -22,7 +20,7 @@
   window.__CLINIC_SIGNAGE_BOOT__ = (async () => {
     try {
       if (!window.supabase?.createClient) {
-        await loadScript(supabaseSrc, location.protocol === 'http:' ? {} : { crossorigin: 'anonymous' });
+        await loadScript(supabaseSrc, { crossorigin: 'anonymous' });
       }
       const version = entry === 'player' ? playerVersion : appVersion;
       if (!window.CLINIC_SIGNAGE_CONFIG) await loadScript(`/js/config.js?v=${version}`);

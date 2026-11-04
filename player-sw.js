@@ -1,6 +1,6 @@
-/* Clinic Signage Player offline runtime — v2.34.99 */
+/* Clinic Signage Player offline runtime — v2.35.00 */
 'use strict';
-const VERSION='2.34.99';
+const VERSION='2.35.00';
 const SHELL_CACHE=`clinic-signage-player-shell-${VERSION}`;
 const MEDIA_CACHE='clinic-signage-playlist-media-v1';
 const RUNTIME_CACHE='clinic-signage-player-runtime-v1';
@@ -65,7 +65,13 @@ self.addEventListener('fetch',event=>{
   const request=event.request;if(request.method!=='GET')return;
   const url=new URL(request.url);
   if(request.destination==='video'){
-    event.respondWith((async()=>{try{const response=await fetch(request);if(response&&response.status<500)return response;}catch(_){}return (await cachedVideoResponse(request))||Response.error();})());return;
+    event.respondWith((async()=>{
+      // Complete, previously downloaded media should play locally, without a second R2 round trip.
+      // Cache entries are keyed by exact URL (including query string).
+      try{const cached=await cachedVideoResponse(request);if(cached)return cached;}catch(_){}
+      try{const response=await fetch(request);if(response&&response.status<500)return response;}catch(_){}
+      return Response.error();
+    })());return;
   }
   if(request.mode==='navigate'&&url.origin===self.location.origin&&url.pathname==='/player.html'){
     event.respondWith(networkFirst(request,async()=>{const cache=await caches.open(SHELL_CACHE);return (await cache.match('/player.html'))||Response.error();},{cacheRuntime:false}));return;

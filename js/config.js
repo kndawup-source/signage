@@ -6,7 +6,7 @@ window.CLINIC_SIGNAGE_CONFIG = Object.freeze({
   supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0emNocnB3Z2p2YWx2YWxsZnJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNzcwMTEsImV4cCI6MjEwNzk1MzAxMX0.FDD6cycD3kd0K1IBLp0P-4Jn7x3izEwGz6Q3trBsNqE',
 
   // Player: fallback full-state poll (Realtime wake-up is the primary path).
-  pollMs: 60000,
+  pollMs: 20000,
   // Player: analytics heartbeat (재생률 통계).
   heartbeatMs: 60000,
   // Player: presence report when nothing changed. State changes are reported immediately.

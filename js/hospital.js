@@ -108,7 +108,7 @@
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
   const ackState=new Map();
   const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res),roomIds:()=>state.rooms.map(r=>r.id)});
-  async function signalRoom(room){try{await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});}catch(_){}}
+  async function signalRoom(room){try{const {error}=await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});if(error)throw error;return true;}catch(e){console.warn('Clinic Signage signal failed:',e);toast('송출 변경 신호 전달 실패 · 플레이어가 다음 자동 동기화에서 반영할 수 있습니다.','error');return false;}}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
@@ -1098,10 +1098,10 @@
     const issuedAt=monitor.markIssue();
     let result;try{result=await op();}catch(e){result={error:e};}finally{busy=false;}
     if(result?.error){toast(result.error.message||String(result.error),'error');return false;}
-    if(signal&&room)await signalRoom(room);
-    if(okMessage)toast(okMessage);
+    const signalled=signal&&room?await signalRoom(room):false;
+    if(okMessage)toast(signalled||!signal?okMessage:'설정은 저장됐지만 화면에 변경 신호를 전달하지 못했습니다. 플레이어 자동 동기화를 확인하세요.',signalled||!signal?undefined:'error');
     await load().catch(e=>toast(e.message||String(e),'error'));
-    if(room&&signal)void confirmDelivery(room,issuedAt);
+    if(room&&signal&&signalled)void confirmDelivery(room,issuedAt);
     return true;
   }
   async function confirmDelivery(room,issuedAt){

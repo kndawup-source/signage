@@ -10,7 +10,7 @@
   const OFFLINE_READY_KEY = `clinic-signage:offline-ready:${key || 'none'}`;
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
-  const OFFLINE_CACHE_START_DELAY_MS = 5000;
+  const OFFLINE_CACHE_START_DELAY_MS = 30000;
   const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.11');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
@@ -119,7 +119,7 @@
       try{await navigator.storage?.persist?.();}catch(_){}
       const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
       const signature=playlistSignature(snapshot),previousMeta=readJsonStorage(OFFLINE_CACHE_META_KEY);
-      const forceRefresh=Boolean(previousMeta?.playlist_signature&&previousMeta.playlist_signature!==signature);
+      const forceRefresh=false; // Cache is keyed by exact media URL; playlist edits must not redownload unchanged video files.
       let complete=0;
       for(const v of items){
         if(token!==offlineCacheSyncToken)return false;
@@ -151,7 +151,7 @@
     if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(state)){
       offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;return;
     }
-    offlineCacheTimer=setTimeout(()=>void syncOfflinePlaylistCache(),force?250:OFFLINE_CACHE_START_DELAY_MS);
+    offlineCacheTimer=setTimeout(()=>{if(confirmedPlaybackState!=='playing'||transitionInProgress){scheduleOfflinePlaylistCache(false);return;}void syncOfflinePlaylistCache();},OFFLINE_CACHE_START_DELAY_MS);
   }
   function playlistSignature(s) {
     return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}`).join(',')}`;
@@ -664,7 +664,7 @@
   }
 
 
-  const PLAYER_FALLBACK_MS=Math.max(60000,Number(Signage.cfg.pollMs)||0);
+  const PLAYER_FALLBACK_MS=Math.max(15000,Number(Signage.cfg.pollMs)||20000);
   const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
   const PLAYBACK_PRESENCE_STALE_MS=25000;
   const PLAYBACK_PRESENCE_RETRY_MS=10000;
