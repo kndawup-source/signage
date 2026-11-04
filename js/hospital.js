@@ -123,6 +123,19 @@
     try{const path=await roomPlayerPath(roomId);if(!path)throw new Error('환자 화면 주소를 찾을 수 없습니다.');window.open(path,'_blank','noopener,noreferrer');}
     catch(e){toast(e.message||String(e),'error');}
   }
+  // Delegation covers inspector HTML inserted after initial bind().
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-staff-video-link-copy]');
+    if(!button)return;
+    event.preventDefault();
+    event.stopPropagation();
+    void copyOutputVideoLink(button);
+  });
+  function videoCopyButton(video,extraClass=''){
+    if(!video)return '';
+    const available=String(video.url||'').trim();
+    return `<button type="button" class="staff-video-copy-btn ${extraClass}" data-staff-video-link-copy="${esc(video.id)}" aria-label="${esc(video.title||'영상')} 링크 복사" title="${esc(video.title||'영상')} 링크 복사" ${available?'':'disabled'}>링크 복사</button>`;
+  }
   async function copyOutputVideoLink(button){
     const video=state.videos.find(v=>String(v.id)===String(button.dataset.staffVideoLinkCopy));
     const raw=String(video?.url||'').trim();
@@ -176,7 +189,7 @@
     const ids=staffBaseIds(r).filter(Boolean),currentId=String(r.player_status?.video_id||'');
     const videos=ids.map(id=>state.videos.find(v=>v.id===id)).filter(Boolean).filter(v=>String(v.id)!==currentId);
     if(!videos.length)return '<div class="floor-video-strip-empty">다음 영상이 없습니다.</div>';
-    return `<div class="floor-video-strip" aria-label="${esc(r.name)} 다음 영상">${videos.slice(0,6).map((v,i)=>`<div class="floor-video-thumb" title="${esc(v.title)}">${staffThumbLink(v,'floor-video-thumb-media','영상 열기')}<small>${i+1}. ${esc(v.title)}</small></div>`).join('')}${videos.length>6?`<span class="floor-video-more">+${videos.length-6}</span>`:''}</div>`;
+    return `<div class="floor-video-strip" aria-label="${esc(r.name)} 다음 영상">${videos.slice(0,6).map((v,i)=>`<div class="floor-video-thumb" title="${esc(v.title)}">${staffThumbLink(v,'floor-video-thumb-media','영상 열기')}<small>${i+1}. ${esc(v.title)}</small>${videoCopyButton(v,'floor-video-copy-btn')}</div>`).join('')}${videos.length>6?`<span class="floor-video-more">+${videos.length-6}</span>`:''}</div>`;
   }
   function roomBroadcastReason(r){
     const g=state.groups.find(x=>x.id===r.group_id)||null;
@@ -261,7 +274,7 @@
   }
   function staffFloorSpacePreviewHtml(sp){
     const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp);
-    const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em></span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
+    const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em>${videoCopyButton(current,'floor-space-copy-btn')}</span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
     return `<div class="floor-room-focus floor-space-focus">
       <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')}</span></div><em>${rooms.length}대</em></div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(spaceOperationalPurpose(sp))}</p></div>
@@ -276,14 +289,14 @@
     const playback=isManual?'원격 재생 상태 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'오프라인 · 플레이어 연결 끊김');
     return `<div class="floor-room-focus">
       <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
-      <div class="floor-room-current">${staffFloorInlineThumb(current,'floor-room-current-thumb','현재 영상 보기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span></div></div>
+      <div class="floor-room-current">${staffFloorInlineThumb(current,'floor-room-current-thumb','현재 영상 보기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span>${videoCopyButton(current,'floor-current-copy-btn')}</div></div>
       <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
       <div class="floor-room-why"><small>콘텐츠 이유</small>${journeyReasonPanel(journey)}</div>
       <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(roomOperationalPurpose(r))}</p></div>
       <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">실제 화면 보기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">링크 복사</button>`}<button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">수동 디스플레이는 설정만 저장되며 원격 재생 명령은 보내지 않습니다.</small>':''}</div>
     </div>`;
   }
-  function staffOutputList(r){const items=staffRoomOutputItems(r);return `<div class="staff-output-list">${items.map((x,i)=>`<div class="staff-output-item ${x.rule?.enabled===false?'is-disabled':''}">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<b>${esc(x.video.title)}</b><button type="button" class="staff-video-copy-btn" data-staff-video-link-copy="${esc(x.id)}" title="${esc(x.video.title)} 링크 복사" aria-label="${esc(x.video.title)} 링크 복사" ${String(x.video.url||'').trim()?'':'disabled'}>링크 복사</button><label class="switch"><input type="checkbox" data-staff-video-toggle="${r.id}" data-video-id="${x.id}" ${x.rule?.enabled===false?'':'checked'} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;}
+  function staffOutputList(r){const items=staffRoomOutputItems(r);return `<div class="staff-output-list">${items.map((x,i)=>`<div class="staff-output-item ${x.rule?.enabled===false?'is-disabled':''}">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<b>${esc(x.video.title)}</b>${videoCopyButton(x.video)}<label class="switch"><input type="checkbox" data-staff-video-toggle="${r.id}" data-video-id="${x.id}" ${x.rule?.enabled===false?'':'checked'} ${['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(String(r.player_status?.mode||''))?'disabled':''}><i></i></label><div><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="-1" ${i===0?'disabled':''}>↑</button><button data-staff-video-move="${r.id}" data-video-id="${x.id}" data-dir="1" ${i===items.length-1?'disabled':''}>↓</button></div></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;}
   const displayControlMode=(r)=>String(r?.display_control_mode||'remote');
   const displayControlLabel=(r)=>CONTROL_MODES.find(([v])=>v===displayControlMode(r))?.[1]||'원격 제어';
   const roomHealth=(r)=>Signage.roomHealth(r,monitor.serverNow());
@@ -1065,7 +1078,6 @@
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply)));
     qsa('[data-staff-player-open]').forEach(b=>b.addEventListener('click',()=>openRoomPlayer(b.dataset.staffPlayerOpen)));
     qsa('[data-staff-player-copy]').forEach(b=>b.addEventListener('click',()=>copyRoomPlayer(b.dataset.staffPlayerCopy)));
-    qsa('[data-staff-video-link-copy]').forEach(b=>b.addEventListener('click',()=>copyOutputVideoLink(b)));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd)));
     qsa('[data-staff-manual-clear]').forEach(b=>b.addEventListener('click',()=>clearRoomManual(b.dataset.staffManualClear)));
     qsa('[data-manual-check]').forEach(b=>b.addEventListener('click',()=>markManualChecked(b.dataset.manualCheck)));

@@ -3507,3 +3507,12 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .staff-video-copy-btn:focus-visible{outline:2px solid var(--primary,#273447);outline-offset:2px}
 .staff-video-copy-btn:disabled{opacity:.38;cursor:not-allowed}
 @media(max-width:760px){.staff-output-item{grid-template-columns:46px minmax(0,1fr) auto auto;gap:7px}.staff-video-copy-btn{grid-column:2;justify-self:start}.staff-output-item>.switch{grid-column:3;grid-row:1}.staff-output-item>div:last-child{grid-column:3/5;grid-row:2;justify-self:end}}
+
+/* v2.34.99b: exposed video links in the primary output dashboard */
+.floor-current-copy-btn,.floor-space-copy-btn{margin-top:7px;justify-self:start;align-self:start;width:max-content}
+.floor-room-current-copy{display:flex;flex-direction:column;align-items:flex-start}
+.floor-video-copy-btn{min-height:28px;padding:4px 6px;font-size:10px;width:100%;margin-top:5px}
+.floor-video-thumb{min-width:0}
+.floor-video-thumb .floor-video-copy-btn{white-space:nowrap}
+.floor-space-display-row>span:nth-child(2){justify-items:start}
+@media(max-width:760px){.floor-current-copy-btn,.floor-space-copy-btn{min-height:34px;font-size:12px}.floor-video-copy-btn{min-height:32px}}
