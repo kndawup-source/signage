@@ -625,10 +625,26 @@
      inside one playlist stay "active" so they do not wake every admin tab or write analytics. */
   function statusClassKey(st){
     const p=String(st?.playback_state||'');
-    const c=['playing','loading','ended'].includes(p)?'active':p;
+    // Initial loading -> first real video frame must wake the admin immediately.
+    // A playing-to-playing playlist transition keeps the same key, avoiding per-video wake-ups.
+    const c=p==='emergency'?'playing':p;
     return `${c}|${st?.mode||''}|${st?.error?1:0}|${st?.recovery_stage||0}|${st?.update_pending_version||''}|${st?.offline_cache_error?1:0}|${Number(st?.failed_video_count||0)>0?1:0}`;
   }
-  let lastWakeKey=null,lastWakeAt=0,lastHeartbeatKey=null;
+  let lastWakeKey=null,lastWakeAt=0,lastHeartbeatKey=null,wakeRetryTimer=null;
+  function notifyAdminOnStatusChange(wakeKey){
+    if(wakeKey===lastWakeKey){clearTimeout(wakeRetryTimer);wakeRetryTimer=null;return;}
+    clearTimeout(wakeRetryTimer);wakeRetryTimer=null;
+    const isFirstPlayback=wakeKey.startsWith('playing|')&&!String(lastWakeKey||'').startsWith('playing|');
+    const delay=isFirstPlayback?0:Math.max(0,10000-(Date.now()-lastWakeAt));
+    const send=()=>{
+      wakeRetryTimer=null;
+      // Confirm the current state before waking: never send a stale 'playing' notification.
+      const latest=statusClassKey(buildLiveStatus());
+      if(latest===lastWakeKey)return;
+      lastWakeKey=latest;lastWakeAt=Date.now();void broadcastStatusWake();
+    };
+    if(delay)wakeRetryTimer=setTimeout(send,delay);else send();
+  }
   /* Admin wake-up goes out through the Realtime REST endpoint. Players no longer join the
      site status channel, so one player's wake is not fanned out to every other player
      in the hospital (Realtime bills per delivered message). */
@@ -657,8 +673,9 @@
       if(error)throw error;
       lastReportAt=Date.now();
       const wakeKey=statusClassKey(status);
-      /* At most one wake per 10s: a flapping player must not drive admin refreshes. */
-      if(shouldWake&&wakeKey!==lastWakeKey&&Date.now()-lastWakeAt>=10000){lastWakeKey=wakeKey;lastWakeAt=Date.now();void broadcastStatusWake();}
+      /* Wake as soon as playback first succeeds. If another wake happened within
+         10 seconds, defer (rather than drop) this transition notification. */
+      if(shouldWake)notifyAdminOnStatusChange(wakeKey);
     }catch(e){console.warn('Clinic Signage live report failed:',e?.message||e);if(shouldWake)reportWakePending=true;}
     finally{reportInFlight=false;if(reportQueued){reportQueued=false;scheduleReport(250,reportWakePending);}}
   }
@@ -807,7 +824,7 @@
       void fetch(url,{method:'POST',keepalive:true,cache:'no-store',headers:{apikey:cfg.supabaseAnonKey,Authorization:`Bearer ${cfg.supabaseAnonKey}`,'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
     }catch(_){}
   });
-  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
+  window.addEventListener('beforeunload',()=>{clearTimeout(wakeRetryTimer);clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
   setTimeout(()=>void checkForPlayerUpdate(true),8000);
   /* Fallback only: Realtime wake-ups are primary. Closed rooms back off to 10 minutes. */
   scheduleStatePoll();
