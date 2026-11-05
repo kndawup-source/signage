@@ -3561,3 +3561,24 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-unified-ops .hospital-floor-detail{padding-bottom:8px!important}
 @media(max-width:1050px){.hospital-unified-ops .hospital-floor-console-grid{grid-template-columns:1fr!important}.hospital-unified-ops .hospital-floor-list{display:flex!important;overflow-x:auto!important;overflow-y:hidden!important;gap:8px!important;padding:10px 12px!important}.hospital-unified-ops .hospital-floor-row{flex:0 0 158px!important;width:158px!important;min-width:158px!important}.hospital-unified-ops .hospital-floor-ops-content{width:100%}}
 @media(max-width:720px){.hospital-ops-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.hospital-ops-summary>div{padding:14px}.hospital-ops-summary strong{font-size:26px}.hospital-ops-status-note{padding:0 2px}.floor-ops-tv-grid{grid-template-columns:1fr}.floor-ops-tv-section{padding:16px 12px 20px}.floor-ops-tv{padding:14px}.floor-ops-assign{grid-template-columns:1fr}.floor-ops-assign .btn{width:100%}.hospital-unified-ops .hospital-floor-row{flex-basis:145px!important;width:145px!important;min-width:145px!important}.hospital-unified-ops .hospital-floor-console-title h2{font-size:20px}}
+
+/* v2.35.08: one compact TV list; existing controls expand inside the selected TV. */
+.floor-ops-tv-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.floor-ops-tv{display:block;padding:0;border-radius:12px;overflow:hidden}
+.floor-ops-tv>summary{list-style:none;display:grid;grid-template-columns:minmax(0,1fr) auto 16px;gap:16px;align-items:center;padding:17px 19px;cursor:pointer;min-height:76px}
+.floor-ops-tv>summary::-webkit-details-marker{display:none}
+.floor-ops-tv>summary:focus-visible{outline:2px solid #34317f;outline-offset:-3px}
+.floor-ops-tv-main{min-width:0;display:flex;flex-direction:column;gap:5px}
+.floor-ops-tv-main>b{font-size:17px;font-weight:850;color:#141925}
+.floor-ops-tv .floor-ops-video{display:block;min-width:0;font-size:12px;font-weight:550;color:#677180;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.floor-ops-tv .floor-ops-state{white-space:nowrap}
+.floor-ops-expand{font-size:22px;color:#8790a0;transform:rotate(0);transition:transform .15s}
+.floor-ops-tv[open] .floor-ops-expand{transform:rotate(180deg)}
+.floor-ops-tv[open]>summary{background:#f7f8fc;border-bottom:1px solid #e6e9ef}
+.floor-ops-tv-expanded{padding:12px 18px 18px}
+.floor-ops-tv-expanded .floor-ops-reason{margin:0 0 10px;min-height:0}
+.floor-ops-tv-expanded>.monitor-room{border:0!important;box-shadow:none!important;padding:0!important;margin:0!important;background:transparent!important}
+.floor-ops-tv-expanded>.monitor-room>summary{display:none!important}
+.floor-ops-tv-expanded>.monitor-room>.monitor-room-controls{display:block!important;padding:0!important;border:0!important}
+.floor-ops-tv-expanded .staff-room-control-body{min-width:0}
+@media(max-width:720px){.floor-ops-tv>summary{padding:14px 12px;gap:8px;min-height:70px}.floor-ops-tv-main>b{font-size:15px}.floor-ops-tv-expanded{padding:12px}.floor-ops-tv .floor-ops-state{font-size:10px}}
