@@ -399,8 +399,9 @@
       if(!(await waitUntilPlayable(el,token,5000))||!stillInactive())return false;
       const desiredMuted=el.muted,desiredVolume=el.volume;
       el.muted=true;el.volume=0;
-      let started=false;
-      try{await el.play();started=true;}catch(_){}
+      // A pending play() on the hidden slot must not block preroll forever.
+      // A real switch may take ownership of this slot while we are waiting.
+      const started=await playWithDeadline(el,3500);
       if(!started||!stillInactive())return false;
       if(!(await waitForRenderedFrame(el,token,1200))||!stillInactive())return false;
       // Never pause a slot after it has become the active display.
@@ -449,20 +450,33 @@
 
     if(readyPreroll){
       transitionInProgress=true;
-      /* The first frame is already decoded. Put it on screen before asking playback to resume. */
-      nextEl.classList.add('is-active');
-      activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
-      currentEl?.classList.remove('is-active');
       const muted=nextEl.dataset.prerollMuted==='1';
       const volume=Number(nextEl.dataset.prerollVolume);
       nextEl.muted=state?.room?.force_mute?true:muted;
       if(Number.isFinite(volume))nextEl.volume=volume;
       nextEl.dataset.prerolled='';prerolledIndex=-1;prerolledSlot=-1;
-      const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
-      if(!started||token!==switchToken){transitionInProgress=false;return false;}
-      confirmedPlaybackState=emergencyPlaying?'emergency':'playing';
-      /* A hidden Edge window may suspend requestAnimationFrame indefinitely.
-         Finalize the successful switch now, rather than leaving the player locked. */
+      // Do NOT commit the new slot until play() has succeeded. Previously a
+      // rejected/expired play() left the failed video visible and the old ended
+      // video hidden: both the loop and the watchdog then appeared stuck.
+      let started=false;
+      try{started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);}catch(e){console.warn('[Clinic Signage] preroll resume failed:',e);}
+      if(!started||token!==switchToken){
+        if(token===switchToken){
+          try{nextEl.pause();}catch(_){}
+          nextEl.classList.remove('is-active');
+          currentEl?.classList.add('is-active');
+          confirmedPlaybackState='error';
+          lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);
+          scheduleReport(0);
+          transitionInProgress=false;
+        }
+        return false;
+      }
+      nextEl.classList.add('is-active');
+      activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
+      currentEl?.classList.remove('is-active');
+      lastProgressAt=Date.now();lastProgressTime=nextEl.currentTime||0;
+      watchForPreroll(nextEl,targetSlot);
       if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
       transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
       return true;
@@ -486,9 +500,13 @@
     if(!started||token!==switchToken){
       if(coldStart){nextEl.classList.remove('is-active');currentEl?.classList.add('is-active');activeSlot=targetSlot===0?1:0;}
       // A timed-out source must never keep playing invisibly after a later switch.
-      if(token===switchToken){try{nextEl.pause();}catch(_){}}
-      transitionInProgress=false;
-      if(token===switchToken){confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);}
+      if(token===switchToken){
+        try{nextEl.pause();}catch(_){}
+        nextEl.classList.remove('is-active');
+        if(!coldStart)currentEl?.classList.add('is-active');
+        transitionInProgress=false;
+        confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);
+      }
       return false;
     }
 
@@ -511,7 +529,7 @@
     if(emergencyPlaying)return;
     const items=list(); if(items.length<2)return;
     const nextIndex=nextPlayableIndex(),nextVideo=items[nextIndex],el=slots[inactiveSlotIndex()];
-    if(nextIndex===index%items.length||!nextVideo||!mediaUrl(nextVideo))return;
+    if(nextIndex===index%items.length||!nextVideo||!mediaUrl(nextVideo)||prerollBusy)return;
     /* Signage favors instant switching over bandwidth savings: keep the next item hot. */
     loadSlot(el,nextVideo,nextIndex,'auto');
   }
