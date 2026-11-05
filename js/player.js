@@ -55,6 +55,8 @@
   let transitionInProgress = false;
   let confirmedPlaybackState = 'loading';
   let pauseConfirmTimer = null;
+  let unexpectedPauseRecoveryAt = 0;
+  let unexpectedPauseRecovering = false;
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
   let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
@@ -229,8 +231,11 @@
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
-        pauseConfirmTimer=setTimeout(()=>{
+        pauseConfirmTimer=setTimeout(async()=>{
           if(slotIndex!==activeSlot||transitionInProgress||!el.paused||el.ended)return;
+          // Browsers can suspend background video. Try a bounded resume only
+          // when the hospital has NOT intentionally paused the display.
+          if(await resumeUnexpectedPause(el))return;
           confirmedPlaybackState='paused';
           pushLiveStatusNow();
           queueHeartbeat(true);
@@ -307,6 +312,19 @@
       queueHeartbeat(true);
       return false;
     }
+  }
+  async function resumeUnexpectedPause(el){
+    if(!el||el!==activeVideoEl()||!el.paused||el.ended||transitionInProgress||
+       !state||state.mode==='closed'||state.room?.paused||!list().length||
+       unexpectedPauseRecovering)return false;
+    // Avoid repeated play() calls if browser policy blocks background playback.
+    if(Date.now()-unexpectedPauseRecoveryAt<5000)return false;
+    unexpectedPauseRecoveryAt=Date.now();unexpectedPauseRecovering=true;
+    try{
+      const resumed=await playElement(el);
+      if(resumed&&!el.paused){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';pushLiveStatusNow();return true;}
+      return false;
+    }finally{unexpectedPauseRecovering=false;}
   }
   async function waitForRenderedFrame(el,token,timeoutMs=1500){
     if(!el||token!==switchToken)return false;
@@ -574,7 +592,7 @@
   function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(confirmedPlaybackState==='playing')return 'playing';if(el.readyState<3)return 'loading';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,visibility_state:document.visibilityState,media_paused:Boolean(el?.paused),error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
   /* Live status report: meaningful changes wake admin/staff immediately; presence stays low-frequency. */
   async function broadcastStatusWake(){
@@ -683,7 +701,11 @@
     // before background timer throttling, and resync immediately on return.
     void acquireWake();
     scheduleReport(0,true);
-    if(document.visibilityState==='visible')void checkForPlayerUpdate(true);
+    if(document.visibilityState==='visible'){
+      // Recover a browser-suspended player after returning to foreground.
+      const el=activeVideoEl();if(el?.paused&&!state?.room?.paused)void resumeUnexpectedPause(el);
+      void checkForPlayerUpdate(true);
+    }
   });
   window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
