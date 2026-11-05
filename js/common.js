@@ -297,8 +297,8 @@
   }
 
   // Shared health rules for admin + staff room cards (server-clock based).
-  const LIVE_DELAY_MS = 60000;
-  const LIVE_OFFLINE_MS = Math.max(90000, Number(cfg.onlineThresholdMs) || 0);
+  const LIVE_DELAY_MS = 7 * 60 * 1000;
+  const LIVE_OFFLINE_MS = Math.max(10 * 60 * 1000, Number(cfg.onlineThresholdMs) || 0);
   function roomAgeMs(room, now = Date.now()) {
     const ts = room?.last_seen_at ? new Date(room.last_seen_at).getTime() : 0;
     return ts > 0 ? Math.max(0, now - ts) : Infinity;

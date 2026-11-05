@@ -10,11 +10,11 @@ window.CLINIC_SIGNAGE_CONFIG = Object.freeze({
   // Player: fallback poll while the Realtime control channel is subscribed.
   pollMsRealtime: 60000,
   // Player: analytics heartbeat (재생률 통계).
-  heartbeatMs: 60000,
+  heartbeatMs: 300000,
   // Player: presence report when nothing changed. State changes are reported immediately.
-  livePresenceMs: 30000,
+  livePresenceMs: 300000,
   // Admin / staff: changed-rows-only status poll while the tab is visible. 0 = off.
-  livePollMs: 30000,
+  livePollMs: 60000,
   // Admin / staff: no presence for this long -> offline.
-  onlineThresholdMs: 90000
+  onlineThresholdMs: 600000
 });

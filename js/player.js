@@ -644,7 +644,7 @@
   function scheduleReport(delay=250,wake=true){if(wake)reportWakePending=true;if(reportTimer)return;reportTimer=setTimeout(()=>{reportTimer=null;void reportLive({wake:reportWakePending});},delay);}
   function reportNow(){clearTimeout(reportTimer);reportTimer=null;void reportLive({wake:true});}
   function pushLiveStatusNow(){scheduleReport(100,true);}
-  function presenceTick(){const limit=state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS*0.8;if(Date.now()-lastReportAt>=limit)void reportLive({wake:false});}
+  function presenceTick(){const limit=state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS;if(Date.now()-lastReportAt>=limit)void reportLive({wake:false});}
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;if(state?.mode==='closed'&&Date.now()-lastHeartbeatAt<5*60*1000)return;heartbeatInFlight=true;
     try{
@@ -719,12 +719,12 @@
 
 
   const PLAYER_FALLBACK_MS=Math.max(15000,Number(Signage.cfg.pollMs)||20000);
-  const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
+  const LIVE_PRESENCE_MS=Math.max(30000,Number(Signage.cfg.livePresenceMs)||300000);
   /* Admin marks a room "delayed" after 150s and offline after 180s, so a playback presence
      write every ~55s still leaves two missed reports of margin. */
   const PLAYBACK_PRESENCE_STALE_MS=Math.max(25000,LIVE_PRESENCE_MS-5000);
   const PLAYBACK_PRESENCE_RETRY_MS=10000;
-  const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
+  const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||300000);
   const CLOSED_FALLBACK_MS=10*60*1000;
   /* While the Realtime control channel is subscribed it is the primary path, so the
      full-state fallback poll backs off. If the socket drops, the short interval returns. */

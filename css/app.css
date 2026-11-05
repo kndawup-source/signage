@@ -3609,3 +3609,36 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-page .floor-ops-tv-expanded .quick-detail-grid select{width:100%;min-width:0;background:#fff}
 .hospital-page .floor-ops-tv-expanded .quick-detail p{margin:12px 0 0;font-size:11px;color:#697486;line-height:1.6}
 @media(max-width:600px){.hospital-page .floor-ops-tv-expanded .quick-room-panel{padding:13px}.hospital-page .floor-ops-tv-expanded .quick-treatment{flex:1 1 auto;min-height:42px;padding:10px 12px}.hospital-page .floor-ops-tv-expanded .quick-detail-grid{grid-template-columns:1fr}}
+
+
+/* v2.35.10: high-contrast broadcast state on hospital floor plan only.
+   Red = no confirmed active playback; blue = a linked display reports live.
+   Settings geometry editor remains neutral to avoid confusing layout editing. */
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-live{
+  opacity:1!important;filter:none!important;border:2px solid #1d4ed8!important;
+  background:rgba(37,99,235,.34)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.30),0 4px 14px rgba(29,78,216,.22)!important;
+}
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-offline{
+  opacity:1!important;filter:none!important;border:2px solid #dc2626!important;
+  background:rgba(220,38,38,.31)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),0 4px 14px rgba(220,38,38,.18)!important;
+}
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-live>span,
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-offline>span{
+  color:#fff!important;font-weight:900!important;font-size:10px!important;padding:4px 7px!important;
+}
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-live>span{background:#1d4ed8!important}
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-offline>span{background:#dc2626!important}
+.hospital-page .building-floor-plan-stage.has-map-focus .floor-space-overlay:not(.is-selected-space):not(.is-focus-context){opacity:.38!important}
+.hospital-page .building-floor-plan-stage.has-map-focus .floor-space-overlay.is-selected-space,
+.hospital-page .building-floor-plan-stage.has-map-focus .floor-space-overlay.is-focus-context{opacity:1!important}
+.hospital-page .hospital-floor-detail .floor-display-pin.status-live .floor-display-dot-only{
+  background:#1d4ed8!important;box-shadow:0 0 0 2px #fff,0 0 0 5px rgba(29,78,216,.30)!important
+}
+.hospital-page .hospital-floor-detail .floor-display-pin:not(.status-live) .floor-display-dot-only{
+  background:#dc2626!important;box-shadow:0 0 0 2px #fff,0 0 0 5px rgba(220,38,38,.27)!important
+}
+.hospital-page .floor-ops-state.status-live{background:#dbeafe!important;color:#1d4ed8!important;font-weight:900}
+.hospital-page .floor-ops-state.status-offline,
+.hospital-page .floor-ops-state.status-idle,
+.hospital-page .floor-ops-state.status-delayed,
+.hospital-page .floor-ops-state.status-error{background:#fee2e2!important;color:#b91c1c!important;font-weight:900}

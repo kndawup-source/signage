@@ -275,6 +275,13 @@
       return spaceContainingPoint(sp.group_id,r.map_x_pct,r.map_y_pct)?.id===sp.id;
     });
   }
+  function floorSpaceBroadcastStatus(sp){
+    const rooms=roomsForFloorSpace(sp);
+    // A room must have fresh playback telemetry, not merely an assigned playlist.
+    if(rooms.some(r=>roomDisplayStatus(r).key==='live'))return {key:'live',label:'송출 중'};
+    // Empty, paused, manual, stale and offline spaces are deliberately marked not broadcasting.
+    return {key:'offline',label:'송출 안 됨'};
+  }
   function staffFloorSpacePreviewHtml(sp){
     const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp);
     const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em>${videoCopyButton(current,'floor-space-copy-btn')}</span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
@@ -624,7 +631,7 @@
   const floorplanVersionsFor=(floor)=>state.floorplanVersions.filter(v=>Number(v.floor_number)===Number(floor)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const floorAsset=(g)=>{const n=floorNumber(g);return n&&floorplanMeta(n)?n:null;};
   const roomMapPlaced=(r)=>r?.map_x_pct!==null&&r?.map_x_pct!==undefined&&r?.map_y_pct!==null&&r?.map_y_pct!==undefined&&Number.isFinite(Number(r.map_x_pct))&&Number.isFinite(Number(r.map_y_pct));
-  function floorSpaceOverlay(x,editable=false){return `<button type="button" class="floor-space-overlay ${editable?'is-editable':''}" data-floor-space="${x.id}" style="left:${Number(x.x_pct)}%;top:${Number(x.y_pct)}%;width:${Number(x.width_pct)}%;height:${Number(x.height_pct)}%"><span>${esc(x.name)}</span></button>`;}
+  function floorSpaceOverlay(x,editable=false){const st=floorSpaceBroadcastStatus(x);return `<button type="button" class="floor-space-overlay ${editable?'is-editable':`status-${st.key}`}" data-floor-space="${x.id}" title="${esc(x.name)} · ${esc(st.label)}" aria-label="${esc(x.name)} · ${esc(st.label)}" style="left:${Number(x.x_pct)}%;top:${Number(x.y_pct)}%;width:${Number(x.width_pct)}%;height:${Number(x.height_pct)}%"><span>${esc(x.name)}</span></button>`;}
   function displayMarker(r,editable=false){if(!roomMapPlaced(r))return '';const mode=displayControlMode(r),space=roomSpace(r),label=`${r.name} · ${space?space.name+' · ':''}${displayControlLabel(r)}`;return `<button type="button" class="display-map-marker control-${mode} ${editable?'is-editable':''}" data-display-marker="${r.id}" style="left:${Number(r.map_x_pct)}%;top:${Number(r.map_y_pct)}%" title="${esc(label)}" aria-label="${esc(label)}"><i></i></button>`;}
   function revokeFloorplanCache(){
     floorplanUrlCache.clear();
@@ -1307,7 +1314,7 @@
     for(const r of state.rooms){if(full||String(r.player_status?.playback_state||'').toLowerCase()==='playing')updateStaffRoomDom(r);}
     if(full)paintStaffSummary();
   },1000);
-  const verifyTimer=setInterval(()=>{void verifyUncertainPlayback();},15000);
+  const verifyTimer=setInterval(()=>{void verifyUncertainPlayback();},60000);
   function stopPageRuntime(){clearInterval(verifyTimer);clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);statusWakeTimers.clear();monitor.stop();stopRealtime();}
   window.addEventListener('pagehide',stopPageRuntime);
   window.addEventListener('pageshow',e=>{if(e.persisted){startRealtime();monitor.start(Signage.cfg.livePollMs);void load({background:true}).catch(()=>{});}});
