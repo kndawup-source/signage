@@ -25,40 +25,39 @@
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,tab='output';
+  // Preview stays click-to-load. Parked elements are capped and evicted LRU.
   const floorInlineVideoCache=new Map();
-  const floorInlineVideoWarmLimit=6;
-  let floorInlineVideoWarmCount=0;
+  const floorInlineVideoCacheLimit=3;
   const floorInlineVideoBin=document.createElement('div');
   floorInlineVideoBin.hidden=true;
   document.body.appendChild(floorInlineVideoBin);
   function warmFloorInlineVideo(url){
     url=String(url||'').trim();
     if(!url)return null;
-    const cached=floorInlineVideoCache.get(url);
-    if(cached)return cached;
-    if(floorInlineVideoWarmCount>=floorInlineVideoWarmLimit)return null;
-    const video=document.createElement('video');
-    video.preload='metadata';
+    let video=floorInlineVideoCache.get(url);
+    if(video){floorInlineVideoCache.delete(url);floorInlineVideoCache.set(url,video);return video;}
+    if(floorInlineVideoCache.size>=floorInlineVideoCacheLimit){
+      const [oldUrl,oldVideo]=floorInlineVideoCache.entries().next().value;
+      floorInlineVideoCache.delete(oldUrl);
+      try{oldVideo.pause();oldVideo.removeAttribute('src');oldVideo.load();oldVideo.remove();}catch(_){}
+    }
+    video=document.createElement('video');
+    video.preload='none';
     video.playsInline=true;
     video.muted=true;
     video.src=url;
     floorInlineVideoCache.set(url,video);
-    floorInlineVideoWarmCount++;
     floorInlineVideoBin.appendChild(video);
-    try{video.load();}catch(_){}
     return video;
   }
   function parkFloorInlineVideo(video){
     if(!video)return;
-    try{video.pause();}catch(_){}
+    try{video.pause();video.currentTime=0;}catch(_){}
     video.removeAttribute('controls');
     video.muted=true;
-    video.preload='metadata';
+    video.preload='none';
     floorInlineVideoBin.appendChild(video);
   }
-  document.addEventListener('pointerover',e=>{const btn=e.target.closest?.('[data-floor-inline-video]');if(btn)warmFloorInlineVideo(btn.dataset.floorInlineVideo);},{passive:true});
-  document.addEventListener('focusin',e=>{const btn=e.target.closest?.('[data-floor-inline-video]');if(btn)warmFloorInlineVideo(btn.dataset.floorInlineVideo);});
-  document.addEventListener('touchstart',e=>{const btn=e.target.closest?.('[data-floor-inline-video]');if(btn)warmFloorInlineVideo(btn.dataset.floorInlineVideo);},{passive:true});
   document.addEventListener('click',e=>{
     const a=e.target.closest?.('a[data-video-link]');
     if(a){e.stopPropagation();return;}
@@ -89,16 +88,16 @@
     panel.className='floor-inline-video-panel';
     panel.dataset.videoUrl=url;
     panel.innerHTML=`<div class="floor-inline-video-head"><b>${esc(title)}</b><button type="button" class="floor-inline-video-close" aria-label="영상 닫기">닫기</button></div>`;
-    const video=warmFloorInlineVideo(url)||document.createElement('video');
-    if(!video.src)video.src=url;
+    const video=warmFloorInlineVideo(url);
+    if(!video)return;
     video.preload='auto';
-    try{video.load();}catch(_){}
     video.controls=true;
     video.playsInline=true;
     video.muted=false;
     panel.appendChild(video);
     host.appendChild(panel);
     btn.setAttribute('aria-expanded','true');
+    video.play().catch(()=>{}); // muted/autoplay policy can require an explicit press of Play.
     panel.querySelector('.floor-inline-video-close')?.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();btn.setAttribute('aria-expanded','false');parkFloorInlineVideo(video);panel.remove();});
   });
   qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
