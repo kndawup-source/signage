@@ -55,8 +55,6 @@
   let transitionInProgress = false;
   let confirmedPlaybackState = 'loading';
   let pauseConfirmTimer = null;
-  let unexpectedPauseRecoveryAt = 0;
-  let unexpectedPauseRecovering = false;
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
   let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
@@ -103,8 +101,10 @@
     if(!(await storageHasRoomFor(size)))throw new Error('offline_cache_quota');
     const response=await fetch(url,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store'});
     if(!response.ok)throw new Error(`offline_cache_http_${response.status}`);
-    if(token!==offlineCacheSyncToken)return false;
-    await cache.put(url,response.clone());
+    if(token!==offlineCacheSyncToken){try{await response.body?.cancel();}catch(_){}return false;}
+    /* Store the response directly. response.clone() tees the body and the unread branch
+       buffers the whole video in memory (hundreds of MB on a kiosk). */
+    await cache.put(url,response);
     return true;
   }
   async function prunePlaylistCache(cache,keepUrls){
@@ -207,7 +207,7 @@
     if(now-lastReportAt<PLAYBACK_PRESENCE_STALE_MS)return;
     if(now-lastPlaybackPresenceAttemptAt<PLAYBACK_PRESENCE_RETRY_MS)return;
     lastPlaybackPresenceAttemptAt=now;
-    scheduleReport(0,false);
+    scheduleReport(0);
   }
 
   function ensureSurface(){
@@ -227,15 +227,12 @@
       el.dataset.playerBound='1';
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&!el.paused&&!el.ended&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
-        pauseConfirmTimer=setTimeout(async()=>{
+        pauseConfirmTimer=setTimeout(()=>{
           if(slotIndex!==activeSlot||transitionInProgress||!el.paused||el.ended)return;
-          // Browsers can suspend background video. Try a bounded resume only
-          // when the hospital has NOT intentionally paused the display.
-          if(await resumeUnexpectedPause(el))return;
           confirmedPlaybackState='paused';
           pushLiveStatusNow();
           queueHeartbeat(true);
@@ -313,19 +310,6 @@
       return false;
     }
   }
-  async function resumeUnexpectedPause(el){
-    if(!el||el!==activeVideoEl()||!el.paused||el.ended||transitionInProgress||
-       !state||state.mode==='closed'||state.room?.paused||!list().length||
-       unexpectedPauseRecovering)return false;
-    // Avoid repeated play() calls if browser policy blocks background playback.
-    if(Date.now()-unexpectedPauseRecoveryAt<5000)return false;
-    unexpectedPauseRecoveryAt=Date.now();unexpectedPauseRecovering=true;
-    try{
-      const resumed=await playElement(el);
-      if(resumed&&!el.paused){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';pushLiveStatusNow();return true;}
-      return false;
-    }finally{unexpectedPauseRecovering=false;}
-  }
   async function waitForRenderedFrame(el,token,timeoutMs=1500){
     if(!el||token!==switchToken)return false;
     if(typeof el.requestVideoFrameCallback==='function'){
@@ -353,7 +337,8 @@
   async function prerollNext(){
     if(prerollBusy||emergencyPlaying||state?.room?.paused||state?.mode==='closed')return false;
     const items=list();if(items.length<2)return false;
-    const targetIndex=(index+1)%items.length;
+    const targetIndex=nextPlayableIndex();
+    if(targetIndex===index%items.length)return false;
     if(prerolledIndex===targetIndex&&prerolledSlot===inactiveSlotIndex())return true;
     const v=items[targetIndex],slot=inactiveSlotIndex(),el=slots[slot];
     if(!v||!mediaUrl(v)||!el)return false;
@@ -469,14 +454,23 @@
   function prepareNext(){
     if(emergencyPlaying)return;
     const items=list(); if(items.length<2)return;
-    const nextIndex=(index+1)%items.length,nextVideo=items[nextIndex],el=slots[inactiveSlotIndex()];
-    if(!nextVideo||!mediaUrl(nextVideo))return;
+    const nextIndex=nextPlayableIndex(),nextVideo=items[nextIndex],el=slots[inactiveSlotIndex()];
+    if(nextIndex===index%items.length||!nextVideo||!mediaUrl(nextVideo))return;
     /* Signage favors instant switching over bandwidth savings: keep the next item hot. */
     loadSlot(el,nextVideo,nextIndex,'auto');
   }
+  /* A video that already failed MEDIA_FAILURE_LIMIT times is skipped for the cooldown period.
+     Previously only the failure handler honoured the block list, so every natural advance
+     retried the broken file: one failed load, an error report and a status flip per cycle. */
+  function mediaBlocked(v,now=Date.now()){const f=mediaFailures.get(String(v?.id||mediaUrl(v)||'unknown'));return !!(f&&f.count>=MEDIA_FAILURE_LIMIT&&now-f.lastAt<MEDIA_FAILURE_COOLDOWN_MS);}
+  function nextPlayableIndex(){
+    const items=list();if(!items.length)return 0;const now=Date.now();
+    for(let step=1;step<=items.length;step++){const i=(index+step)%items.length;if(!mediaBlocked(items[i],now))return i;}
+    return (index+1)%items.length;
+  }
   async function advanceSeamless(){
     const items=list(); if(!items.length)return;
-    const target=(index+1)%items.length;
+    const target=nextPlayableIndex();
     const ok=await switchToIndex(target);
     if(!ok)handleMediaFailure(items[target]);
   }
@@ -516,8 +510,12 @@
     queueHeartbeat(true);
   }
 
-  async function fetchState(){
-    if(fetchInFlight){ fetchQueued=true; return; }
+  /* fromPoll=true only for the fallback timer. A fallback poll that finds nothing new must not
+     rewrite synced_at or push a status write: that used to change the status fingerprint every
+     poll, which turned the admin delta query into a full-table read and doubled DB writes. */
+  async function fetchState(opts){
+    const fromPoll=opts?.fromPoll===true;
+    if(fetchInFlight){ fetchQueued=true; if(!fromPoll)fetchQueuedUrgent=true; return; }
     if(!db)return;
     fetchInFlight=true;const requestStarted=Date.now();
     try{
@@ -532,11 +530,12 @@
       state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}else{clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}subscribePlayerRealtime();
       const fetchedAt=data.server_time||null;
       lastStateSig=newStateSig;
-      if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();syncedAt=fetchedAt;queueHeartbeat(true);}
-      else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}syncedAt=fetchedAt;}
-      reportNow();
+      const meaningful=!fromPoll||playlistChanged||stateChanged||!syncedAt;
+      if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
+      else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}if(meaningful)syncedAt=fetchedAt;}
+      if(meaningful)reportNow();
     }catch(e){lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
-    finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){fetchQueued=false;queueMicrotask(fetchState);}}
+    finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){const urgent=fetchQueuedUrgent;fetchQueued=false;fetchQueuedUrgent=false;queueMicrotask(()=>fetchState({fromPoll:!urgent}));}}
   }
   function loadSaved(){
     try{
@@ -552,7 +551,7 @@
     const size=Number(state?.emergency_video?.size||0);if(size>MAX_EMERGENCY_CACHE_BYTES)return false;
     const cache=await caches.open(EMERGENCY_CACHE),existing=await cache.match(url);if(existing)return true;
     const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw new Error(`emergency_http_${response.status}`);
-    await cache.put(url,response.clone());const keys=await cache.keys();await Promise.all(keys.filter(r=>r.url!==new URL(url,location.href).href).map(r=>cache.delete(r)));return true;
+    await cache.put(url,response);const keys=await cache.keys();await Promise.all(keys.filter(r=>r.url!==new URL(url,location.href).href).map(r=>cache.delete(r)));return true;
   }
   async function playEmergencyCached(){
     const url=emergencyUrl();if(!url||!('caches' in window))return false;
@@ -572,8 +571,15 @@
     catch(_){try{await fetch(url,{method:'HEAD',mode:'no-cors',cache:'no-store'});return true;}catch(__){return false;}}
   }
   function scheduleRecovery(){clearTimeout(recoveryTimer);recoveryTimer=setTimeout(async()=>{await fetchState();if(await probeMedia()){emergencyPlaying=false;await renderFull();}else scheduleRecovery();},15000);}
+  /* The active slot's 'error' event and the caller of a failed switch can both report the same
+     failure. Only one recovery pass runs at a time so failures are not double-counted. */
+  let mediaFailureBusy=false;
   async function handleMediaFailure(v){
-    if(state?.mode==='closed')return;
+    if(state?.mode==='closed'||mediaFailureBusy)return;
+    mediaFailureBusy=true;
+    try{await handleMediaFailureOnce(v);}finally{mediaFailureBusy=false;}
+  }
+  async function handleMediaFailureOnce(v){
     const id=String(v?.id||mediaUrl(v)||'unknown'),prev=mediaFailures.get(id)||{count:0,lastAt:0};
     const nextFailure={count:prev.count+1,lastAt:Date.now()};mediaFailures.set(id,nextFailure);
     lastError=`재생 실패: ${v?.title||'영상'}`;cycleFailures++;queueHeartbeat(true);scheduleReport(0);
@@ -588,24 +594,33 @@
 
   function scheduleExpiry(){clearTimeout(expireTimer);if(!state?.session_expires_at)return;const ms=new Date(state.session_expires_at).getTime()-serverNow();if(ms>0)expireTimer=setTimeout(fetchState,ms+1200);}
   function scheduleTransition(){clearTimeout(transitionTimer);if(!state?.next_transition_at)return;const ms=new Date(state.next_transition_at).getTime()-serverNow();if(ms>0)transitionTimer=setTimeout(fetchState,ms+500);}
-  // This status reflects media playback, not whether the browser window is visible.
-  function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(confirmedPlaybackState==='playing')return 'playing';if(el.readyState<3)return 'loading';return 'playing';}
-  // Evidence of decoded media progress; never infer playback from tab visibility alone.
-  function playbackProgressAgeMs(){
-    const el=activeVideoEl();
-    if(!el||el.paused||el.ended||!Number.isFinite(lastProgressAt))return null;
-    return Math.max(0,Date.now()-lastProgressAt);
-  }
+  function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(el.readyState<3)return 'loading';if(confirmedPlaybackState==='playing')return 'playing';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,visibility_state:document.visibilityState,media_paused:Boolean(el?.paused),media_progress_age_ms:playbackProgressAgeMs(),error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
   /* Live status report: meaningful changes wake admin/staff immediately; presence stays low-frequency. */
+  /* Status class: what an admin card can actually show differently. Video-to-video transitions
+     inside one playlist stay "active" so they do not wake every admin tab or write analytics. */
+  function statusClassKey(st){
+    const p=String(st?.playback_state||'');
+    const c=['playing','loading','ended'].includes(p)?'active':p;
+    return `${c}|${st?.mode||''}|${st?.error?1:0}|${st?.recovery_stage||0}|${st?.update_pending_version||''}|${st?.offline_cache_error?1:0}|${Number(st?.failed_video_count||0)>0?1:0}`;
+  }
+  let lastWakeKey=null,lastWakeAt=0,lastHeartbeatKey=null;
+  /* Admin wake-up goes out through the Realtime REST endpoint. Players no longer join the
+     site status channel, so one player's wake is not fanned out to every other player
+     in the hospital (Realtime bills per delivered message). */
   async function broadcastStatusWake(){
-    if(!statusBroadcastChannel||!statusBroadcastReady||!state?.room?.id)return false;
+    const cfg=Signage.cfg,site=state?.room?.site_id;
+    if(!state?.room?.id||!site||!cfg?.supabaseUrl)return false;
     try{
-      const result=await statusBroadcastChannel.send({type:'broadcast',event:'changed',payload:{room_id:state.room.id,at:new Date().toISOString()}});
-      return result==='ok'||result===true||result===undefined;
+      const r=await fetch(`${String(cfg.supabaseUrl).replace(/\/+$/,'')}/realtime/v1/api/broadcast`,{
+        method:'POST',cache:'no-store',keepalive:true,
+        headers:{apikey:cfg.supabaseAnonKey,Authorization:`Bearer ${cfg.supabaseAnonKey}`,'Content-Type':'application/json'},
+        body:JSON.stringify({messages:[{topic:`clinic-signage-status:${site}`,event:'changed',payload:{room_id:state.room.id,at:new Date().toISOString()},private:false}]})
+      });
+      return r.ok;
     }catch(_){return false;}
   }
   async function reportLive({wake=false}={}){
@@ -619,7 +634,9 @@
       if(error&&reportRpc!=='player_live_ping'&&Signage.isMissingFunction(error)){reportRpc='player_live_ping';({error}=await db.rpc(reportRpc,{p_key:key,p_status:status}));}
       if(error)throw error;
       lastReportAt=Date.now();
-      if(shouldWake)void broadcastStatusWake();
+      const wakeKey=statusClassKey(status);
+      /* At most one wake per 10s: a flapping player must not drive admin refreshes. */
+      if(shouldWake&&wakeKey!==lastWakeKey&&Date.now()-lastWakeAt>=10000){lastWakeKey=wakeKey;lastWakeAt=Date.now();void broadcastStatusWake();}
     }catch(e){console.warn('Clinic Signage live report failed:',e?.message||e);if(shouldWake)reportWakePending=true;}
     finally{reportInFlight=false;if(reportQueued){reportQueued=false;scheduleReport(250,reportWakePending);}}
   }
@@ -631,9 +648,10 @@
   async function heartbeat(){
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;if(state?.mode==='closed'&&Date.now()-lastHeartbeatAt<5*60*1000)return;heartbeatInFlight=true;
     try{
-      const {error}=await db.rpc('player_heartbeat',{p_key:key,p_status:buildLiveStatus()});
+      const status=buildLiveStatus();
+      const {error}=await db.rpc('player_heartbeat',{p_key:key,p_status:status});
       if(error)throw error;
-      lastHeartbeatAt=Date.now();
+      lastHeartbeatAt=Date.now();lastHeartbeatKey=statusClassKey(status);
     }catch(e){
       console.warn('Clinic Signage heartbeat failed:',e?.message||e);
       /* Live presence must never depend on the heavier analytics heartbeat. */
@@ -656,11 +674,19 @@
     finally{lastProgressAt=Date.now();stallRecovering=false;}
   }
   function pushHeartbeatNow(){clearTimeout(heartbeatTimer);heartbeatTimer=null;void heartbeat();}
-  function queueHeartbeat(immediate=false){clearTimeout(heartbeatTimer);const wait=immediate?Math.max(0,1200-(Date.now()-lastHeartbeatAt)):1200;heartbeatTimer=setTimeout(heartbeat,wait);}
+  /* The analytics heartbeat (row lock on rooms + daily upsert + event insert) runs on its
+     60s interval. An early heartbeat is sent only when the status class changed
+     (playing -> paused/error/closed/mode change), not on every video transition. */
+  function queueHeartbeat(immediate=false){
+    if(immediate&&lastHeartbeatKey!==null&&state?.room&&statusClassKey(buildLiveStatus())===lastHeartbeatKey)return;
+    /* Early heartbeats are spaced at least 10s apart so a flapping state cannot hammer the
+       analytics write path; the latest status is what gets sent when the timer fires. */
+    clearTimeout(heartbeatTimer);const wait=immediate?Math.max(0,10000-(Date.now()-lastHeartbeatAt)):1200;heartbeatTimer=setTimeout(heartbeat,wait);
+  }
   async function acquireWake(){try{if(navigator.wakeLock&&document.visibilityState==='visible'){try{await wakeLock?.release();}catch(_){}wakeLock=await navigator.wakeLock.request('screen');}}catch(_){}}
 
-  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,statusBroadcastChannel=null,statusBroadcastReady=false,realtimeFetchTimer=null,statePollTimer=null;
-  let reportWakePending=false;
+  let realtimeRoomId=null,realtimeDbChannel=null,roomBroadcastChannel=null,realtimeFetchTimer=null,statePollTimer=null,realtimeControlReady=false,realtimeControlWasReady=false;
+  let reportWakePending=false,fetchQueuedUrgent=false;
   function requestRealtimeState(){
     clearTimeout(realtimeFetchTimer);
     /* room:{key} and player_control_signals can fire for one action; 150ms coalesces
@@ -673,50 +699,59 @@
     if(!roomBroadcastChannel){
       roomBroadcastChannel=db.channel(`room:${key}`).on('broadcast',{event:'refresh'},requestRealtimeState).subscribe();
     }
-    if(!statusBroadcastChannel){
-      statusBroadcastChannel=db.channel(`clinic-signage-status:${state?.room?.site_id||'unknown'}`,{config:{broadcast:{ack:false}}});
-      statusBroadcastChannel.subscribe(status=>{statusBroadcastReady=status==='SUBSCRIBED';});
-    }
     if(!roomId||realtimeRoomId===roomId)return;
     if(realtimeDbChannel)db.removeChannel(realtimeDbChannel);
-    realtimeRoomId=roomId;
+    realtimeRoomId=roomId;realtimeControlReady=false;
     // Canonical control wake-up channel. This table has a public SELECT policy by design,
     // so anonymous player screens can receive its Realtime UPDATE even though rooms and
     // other admin tables remain protected by RLS.
     realtimeDbChannel=db.channel(`clinic-player-control-${roomId}`)
       .on('postgres_changes',{event:'*',schema:'public',table:'player_control_signals',filter:`room_id=eq.${roomId}`},requestRealtimeState)
-      .subscribe();
+      .subscribe(status=>{
+        const ready=status==='SUBSCRIBED';
+        if(ready===realtimeControlReady)return;
+        const reconnected=ready&&realtimeControlWasReady;
+        realtimeControlReady=ready;if(ready)realtimeControlWasReady=true;
+        /* Reconnected: catch up on anything missed while the socket was down. */
+        if(reconnected)requestRealtimeState();else if(!ready)scheduleStatePoll();
+      });
   }
 
 
   const PLAYER_FALLBACK_MS=Math.max(15000,Number(Signage.cfg.pollMs)||20000);
   const LIVE_PRESENCE_MS=Math.max(60000,Number(Signage.cfg.livePresenceMs)||60000);
-  const PLAYBACK_PRESENCE_STALE_MS=15000;
+  /* Admin marks a room "delayed" after 150s and offline after 180s, so a playback presence
+     write every ~55s still leaves two missed reports of margin. */
+  const PLAYBACK_PRESENCE_STALE_MS=Math.max(25000,LIVE_PRESENCE_MS-5000);
   const PLAYBACK_PRESENCE_RETRY_MS=10000;
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||60000);
   const CLOSED_FALLBACK_MS=10*60*1000;
+  /* While the Realtime control channel is subscribed it is the primary path, so the
+     full-state fallback poll backs off. If the socket drops, the short interval returns. */
+  const PLAYER_REALTIME_FALLBACK_MS=Math.max(PLAYER_FALLBACK_MS,Number(Signage.cfg.pollMsRealtime)||60000);
   function scheduleStatePoll(){
     clearTimeout(statePollTimer);
-    const wait=state?.mode==='closed'?CLOSED_FALLBACK_MS:PLAYER_FALLBACK_MS;
-    statePollTimer=setTimeout(()=>void fetchState(),wait);
+    const wait=state?.mode==='closed'?CLOSED_FALLBACK_MS:(realtimeControlReady?PLAYER_REALTIME_FALLBACK_MS:PLAYER_FALLBACK_MS);
+    statePollTimer=setTimeout(()=>void fetchState({fromPoll:true}),wait);
   }
 
   ensureSurface();void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
-  document.addEventListener('visibilitychange',()=>{
-    // Visibility is not a playback state. Report the actual video element state
-    // before background timer throttling, and resync immediately on return.
-    void acquireWake();
-    scheduleReport(0,true);
-    if(document.visibilityState==='visible'){
-      // Recover a browser-suspended player after returning to foreground.
-      const el=activeVideoEl();if(el?.paused&&!state?.room?.paused)void resumeUnexpectedPause(el);
-      void checkForPlayerUpdate(true);
-    }
-  });
+  document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){scheduleReport();void checkForPlayerUpdate(true);}});
   window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
   window.addEventListener('offline',()=>{const cached=offlineReadyState();if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
-  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel,statusBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
+  // Best-effort shutdown notice. A covered/background window does not trigger pagehide.
+  // The browser may drop requests during a crash/power loss; server-side TTL is still authoritative.
+  window.addEventListener('pagehide',()=>{
+    if(!state?.room?.id||!db)return;
+    try{
+      const cfg=Signage.cfg;
+      const url=`${String(cfg.supabaseUrl).replace(/\/+$/,'')}/rest/v1/rpc/player_report`;
+      const payload={p_key:key,p_status:{...buildLiveStatus(),playback_state:'stopped',online:false}};
+      void fetch(url,{method:'POST',keepalive:true,cache:'no-store',headers:{apikey:cfg.supabaseAnonKey,Authorization:`Bearer ${cfg.supabaseAnonKey}`,'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
+    }catch(_){}
+  });
+  window.addEventListener('beforeunload',()=>{clearEmergencyObjectUrl();clearTimeout(realtimeFetchTimer);clearTimeout(statePollTimer);clearTimeout(reportTimer);clearTimeout(offlineCacheTimer);[realtimeDbChannel,roomBroadcastChannel].forEach(ch=>{if(ch)db?.removeChannel(ch);});});
   setTimeout(()=>void checkForPlayerUpdate(true),8000);
   /* Fallback only: Realtime wake-ups are primary. Closed rooms back off to 10 minutes. */
   scheduleStatePoll();

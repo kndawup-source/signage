@@ -112,7 +112,11 @@
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
   const genderLabel=(v)=>GENDER_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
-  const roomById=(id)=>state.rooms.find(r=>r.id===id)||null;
+  /* O(1) lookups. The live-status repaint calls these for every room every tick, so linear
+     scans over rooms/videos/patients added up to O(rooms x videos) work per second. Each index
+     is rebuilt only when load() replaces the underlying array. */
+  const lookupCache={rooms:null,roomMap:new Map(),videos:null,videoMap:new Map(),patients:null,patientMap:new Map()};
+  const roomById=(id)=>{if(lookupCache.rooms!==state.rooms){lookupCache.rooms=state.rooms;lookupCache.roomMap=new Map(state.rooms.map(r=>[r.id,r]));}return lookupCache.roomMap.get(id)||null;};
   async function roomPlayerPath(roomId){
     const {data,error}=await db.rpc('hospital_room_player_path',{p_room:roomId});
     if(error)throw error;
@@ -304,23 +308,14 @@
     const mode=displayControlMode(r);
     if(mode==='manual')return r.manual_check_status==='checked'?{key:'manual',label:'수동 운영'}:{key:'manual-warn',label:'수동 확인 필요'};
     const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase(),ack=ackState.get(r.id);
-    if(h==='offline')return {key:'offline',label:mode==='hybrid'?'원격 연결 끊김':'오프라인'};
+    if(h==='offline'||play==='stopped')return {key:'offline',label:mode==='hybrid'?'원격 연결 끊김':'오프라인'};
     if(st.update_error||st.update_pending_version)return {key:'update',label:'업데이트 필요'};
     if(ack?.status==='error'||ack?.status==='unconfirmed'||h==='error'||h==='recovering'||st.error||st.offline_cache_error||Number(st.failed_video_count||0)>0)return {key:'error',label:'오류'};
     // A delayed heartbeat must not be reported as verified playback (or ordinary idle).
     // A pending control acknowledgement is separate from the playback telemetry.
     if(h==='delayed')return {key:'delayed',label:'상태 확인 지연'};
-    // The browser can throttle telemetry when a window is hidden. Only recent
-    // decoded-media progress may override an ambiguous (loading/paused) report.
-    // It must never override explicit operator pause or closed hours.
-    if(st.mode==='closed'||play==='closed'||r.paused)return {key:'idle',label:'대기'};
-    const progressAge=Number(st.media_progress_age_ms);
-    const recentProgress=st.media_progress_age_ms!==null&&st.media_progress_age_ms!==undefined&&Number.isFinite(progressAge)&&progressAge>=0&&progressAge<=45000;
-    const mediaActive=st.media_paused===false;
-    if(['playing','emergency'].includes(play)&&st.media_paused!==true)return {key:'live',label:'송출 중'};
-    if(recentProgress&&mediaActive)return {key:'live',label:'송출 중'};
-    if(st.visibility_state==='hidden'&&play!=='paused'&&play!=='idle'&&play!=='ended')return {key:'delayed',label:'상태 확인 지연'};
-    if(play==='paused'&&mediaActive)return {key:'delayed',label:'상태 확인 지연'};
+    if(st.mode==='closed'||play==='closed'||r.paused||play==='paused')return {key:'idle',label:'대기'};
+    if(['playing','emergency'].includes(play))return {key:'live',label:'송출 중'};
     return {key:'idle',label:'대기'};
   }
   function lastReportLabel(r){
@@ -334,7 +329,7 @@
     const mode=displayControlMode(r);
     if(mode==='manual')return r.manual_check_status==='checked'?(r.manual_checked_at?`수동 확인 · ${new Date(r.manual_checked_at).toLocaleDateString('ko-KR')}`:'수동 확인 완료'):'현장 수동 확인 필요';
     const h=roomHealth(r),st=r.player_status||{},ack=ackState.get(r.id);
-    if(h==='offline')return `플레이어 연결 끊김 · ${lastReportLabel(r)}`;
+    if(h==='offline'||String(st.playback_state||'').toLowerCase()==='stopped')return `플레이어 연결 종료 · ${lastReportLabel(r)}`;
     if(st.update_error||st.update_pending_version)return '업데이트 필요';
     if(st.offline_cache_error)return '캐시 오류';
     if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}개 건너뜀`;
@@ -396,15 +391,17 @@
     if(stripped&&!/^\d+\s*(?:층|F)?$/i.test(stripped))return stripped;
     return raw;
   }
-  const currentVideoForRoom=(r)=>state.videos.find(v=>v.id===r.player_status?.video_id)||null;
+  const currentVideoForRoom=(r)=>{const id=r?.player_status?.video_id;if(!id)return null;if(lookupCache.videos!==state.videos){lookupCache.videos=state.videos;lookupCache.videoMap=new Map(state.videos.map(v=>[v.id,v]));}return lookupCache.videoMap.get(id)||null;};
   const playbackLabel=(v)=>({playing:'재생 중',paused:'일시정지',loading:'불러오는 중',error:'오류',connected:'연결됨',closed:'운영시간 외'})[String(v||'').toLowerCase()]||'상태 확인 안 됨';
   const activePatients=()=>state.patients.filter(p=>['waiting','assigned','in_progress'].includes(p.status));
   const elapsedMinutes=(start,end=Date.now())=>start?Math.max(0,Math.floor((new Date(end).getTime()-new Date(start).getTime())/60000)):0;
   const waitText=(p)=>`${elapsedMinutes(p.waiting_started_at||p.created_at,p.assigned_at||Date.now())}분 대기`;
-  const patientForRoom=(id)=>activePatients().find(x=>x.room_id===id)||null;
+  const patientForRoom=(id)=>{if(lookupCache.patients!==state.patients){lookupCache.patients=state.patients;lookupCache.patientMap=new Map();for(const p of activePatients()){if(p.room_id&&!lookupCache.patientMap.has(p.room_id))lookupCache.patientMap.set(p.room_id,p);}}return lookupCache.patientMap.get(id)||null;};
   const isQuickSession=(r)=>!!r.session_treatment&&!patientForRoom(r.id);
 
+  let lastLoadStartedAt=0;
   async function load({background=false}={}){
+    lastLoadStartedAt=Date.now();
     const [reception,building]=await Promise.all([db.rpc('hospital_reception_state',{p_site:targetSiteId}),db.rpc('hospital_building_asset',{p_site:targetSiteId})]);
     if(reception.error)throw reception.error;if(building.error)throw building.error;
     const data=reception.data||{},baseRooms=data.rooms||[];
@@ -644,7 +641,10 @@
     if(state.site?.id)params.set('siteId',state.site.id);
     const data=await apiJson(`/api/floorplan?${params}`);
     if(!data?.url)throw new Error('FLOORPLAN_URL_MISSING');
-    floorplanUrlCache.set(cacheKey,{url:data.url,expiresAt:Date.now()+240000});
+    /* The API signs on an hourly bucket, so the URL stays identical for up to an hour and the
+       browser reuses the downloaded floor plan instead of fetching a new signed URL every 4 min. */
+    const signedUntil=Date.parse(data.expiresAt||'');
+    floorplanUrlCache.set(cacheKey,{url:data.url,expiresAt:Number.isFinite(signedUntil)?signedUntil-5*60*1000:Date.now()+240000});
     return data.url;
   }
   async function loadFloorplanSvgs(root=qs('#hospitalRoot')){
@@ -1177,8 +1177,11 @@
   function applyLiveResult(res){
     if(!res)return;
     const seen=new Map((res.seen||[]).map(x=>[x.room_id,x.last_seen_at]));
-    (res.rows||[]).forEach(row=>{seen.delete(row.room_id);const a=ackState.get(row.room_id);if(a&&monitor.verdict(row,a.at)==='ok')ackState.delete(row.room_id);mergePlayerLiveStatus(row);});
+    let changed=0;
+    (res.rows||[]).forEach(row=>{seen.delete(row.room_id);const a=ackState.get(row.room_id);if(a&&monitor.verdict(row,a.at)==='ok')ackState.delete(row.room_id);if(mergePlayerLiveStatus(row))changed++;});
     seen.forEach((lastSeen,roomId)=>{const r=roomById(roomId);if(r&&lastSeen)r.last_seen_at=lastSeen;});
+    /* One summary repaint per result instead of one per row (was O(rows x rooms)). */
+    if(changed)paintStaffSummary();
   }
   const roomForPatient=(id)=>state.patients.find(p=>p.id===id)?.room_id||null;
 
@@ -1246,10 +1249,15 @@
     card.className=`monitor-group staff-monitor-group group-state-${x.key}`;const badge=qs('[data-staff-group-status]',card);if(badge){badge.className=`group-status-badge status-${x.key}`;badge.textContent=x.label;}set('[data-staff-group-total]',x.total);set('[data-staff-group-live]',x.live);set('[data-staff-group-online]',x.online);set('[data-staff-group-issues]',x.issues);const p=qs('[data-staff-group-summary]',card);if(p)p.textContent=x.key==='live'?`${x.live}곳 송출 중`:x.key==='issue'?`문제 공간 ${x.issues}곳`:x.key==='offline'?'모든 공간 연결 끊김':'현재 재생 대기';
   }
   function mergePlayerLiveStatus(live){
-    if(!live?.room_id)return;const idx=state.rooms.findIndex(r=>r.id===live.room_id);if(idx<0)return;state.rooms[idx]={...state.rooms[idx],last_seen_at:live.last_seen_at||state.rooms[idx].last_seen_at,player_status:live.player_status||state.rooms[idx].player_status};updateStaffRoomDom(state.rooms[idx]);paintStaffSummary();
+    if(!live?.room_id)return false;const r=roomById(live.room_id);if(!r)return false;
+    r.last_seen_at=live.last_seen_at||r.last_seen_at;r.player_status=live.player_status||r.player_status;
+    updateStaffRoomDom(r);return true;
   }
   let stateReloadTimer=null;
-  function scheduleStaffStateReload(){clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(!document.hidden&&!busy)load({background:true}).catch(()=>{});},250);}
+  /* A staff action already reloads after its own write. Its player_control_signals echo
+     arrives ~100ms later and used to trigger a second full reception-state load. Skip the
+     echo when a load started after the signal was received. */
+  function scheduleStaffStateReload(){const signalAt=Date.now();clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(document.hidden||busy||lastLoadStartedAt>=signalAt-50)return;load({background:true}).catch(()=>{});},250);}
 
   async function refreshLiveRoom(roomId){
     if(!roomId||document.hidden)return;
@@ -1291,7 +1299,15 @@
   }
 
   try{await load();startRealtime();monitor.start(Signage.cfg.livePollMs);}catch(e){qs('#hospitalRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
-  const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();},1000);
+  /* Every second only playing rooms change (progress estimate). Age-based health
+     (delayed/offline) and the summaries are refreshed every 5 seconds. */
+  let uiTick=0;
+  const uiTimer=setInterval(()=>{
+    if(document.hidden)return;
+    const full=(++uiTick%5)===0;
+    for(const r of state.rooms){if(full||String(r.player_status?.playback_state||'').toLowerCase()==='playing')updateStaffRoomDom(r);}
+    if(full)paintStaffSummary();
+  },1000);
   const verifyTimer=setInterval(()=>{void verifyUncertainPlayback();},15000);
   function stopPageRuntime(){clearInterval(verifyTimer);clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);statusWakeTimers.clear();monitor.stop();stopRealtime();}
   window.addEventListener('pagehide',stopPageRuntime);

@@ -6,6 +6,7 @@
     supabaseUrl: '',
     supabaseAnonKey: '',
     pollMs: 60000,
+    pollMsRealtime: 60000,
     heartbeatMs: 60000,
     livePresenceMs: 60000,
     livePollMs: 30000,
@@ -296,8 +297,8 @@
   }
 
   // Shared health rules for admin + staff room cards (server-clock based).
-  const LIVE_DELAY_MS = 150000;
-  const LIVE_OFFLINE_MS = Math.max(180000, Number(cfg.onlineThresholdMs) || 0);
+  const LIVE_DELAY_MS = 60000;
+  const LIVE_OFFLINE_MS = Math.max(90000, Number(cfg.onlineThresholdMs) || 0);
   function roomAgeMs(room, now = Date.now()) {
     const ts = room?.last_seen_at ? new Date(room.last_seen_at).getTime() : 0;
     return ts > 0 ? Math.max(0, now - ts) : Infinity;
