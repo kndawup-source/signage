@@ -310,8 +310,17 @@
     // A delayed heartbeat must not be reported as verified playback (or ordinary idle).
     // A pending control acknowledgement is separate from the playback telemetry.
     if(h==='delayed')return {key:'delayed',label:'상태 확인 지연'};
-    if(st.mode==='closed'||play==='closed'||r.paused||play==='paused')return {key:'idle',label:'대기'};
-    if(['playing','emergency'].includes(play))return {key:'live',label:'송출 중'};
+    // The browser can throttle telemetry when a window is hidden. Only recent
+    // decoded-media progress may override an ambiguous (loading/paused) report.
+    // It must never override explicit operator pause or closed hours.
+    if(st.mode==='closed'||play==='closed'||r.paused)return {key:'idle',label:'대기'};
+    const progressAge=Number(st.media_progress_age_ms);
+    const recentProgress=st.media_progress_age_ms!==null&&st.media_progress_age_ms!==undefined&&Number.isFinite(progressAge)&&progressAge>=0&&progressAge<=45000;
+    const mediaActive=st.media_paused===false;
+    if(['playing','emergency'].includes(play)&&st.media_paused!==true)return {key:'live',label:'송출 중'};
+    if(recentProgress&&mediaActive)return {key:'live',label:'송출 중'};
+    if(st.visibility_state==='hidden'&&play!=='paused'&&play!=='idle'&&play!=='ended')return {key:'delayed',label:'상태 확인 지연'};
+    if(play==='paused'&&mediaActive)return {key:'delayed',label:'상태 확인 지연'};
     return {key:'idle',label:'대기'};
   }
   function lastReportLabel(r){
