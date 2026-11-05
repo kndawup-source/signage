@@ -307,18 +307,42 @@
     if(h==='offline')return {key:'offline',label:mode==='hybrid'?'원격 연결 끊김':'오프라인'};
     if(st.update_error||st.update_pending_version)return {key:'update',label:'업데이트 필요'};
     if(ack?.status==='error'||ack?.status==='unconfirmed'||h==='error'||h==='recovering'||st.error||st.offline_cache_error||Number(st.failed_video_count||0)>0)return {key:'error',label:'오류'};
-    if(st.mode==='closed'||play==='closed'||r.paused||play==='paused'||ack?.status==='pending'||h==='delayed')return {key:'idle',label:'대기'};
+    // A delayed heartbeat must not be reported as verified playback (or ordinary idle).
+    // A pending control acknowledgement is separate from the playback telemetry.
+    if(h==='delayed')return {key:'delayed',label:'상태 확인 지연'};
+    if(st.mode==='closed'||play==='closed'||r.paused||play==='paused')return {key:'idle',label:'대기'};
     if(['playing','emergency'].includes(play))return {key:'live',label:'송출 중'};
     return {key:'idle',label:'대기'};
   }
-  function roomIssueReason(r){const mode=displayControlMode(r);if(mode==='manual')return r.manual_check_status==='checked'?(r.manual_checked_at?`수동 확인 · ${new Date(r.manual_checked_at).toLocaleDateString('ko-KR')}`:'수동 확인 완료'):'현장 수동 확인 필요';const h=roomHealth(r),st=r.player_status||{},ack=ackState.get(r.id);if(h==='offline')return mode==='hybrid'?'원격 연결 끊김 · 수동 운영 가능':'플레이어 연결 끊김';if(st.update_error||st.update_pending_version)return '업데이트 필요';if(st.offline_cache_error)return '캐시 오류';if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}개 건너뜀`;if(st.error)return String(st.error).slice(0,60);if(ack?.status==='error'||ack?.status==='unconfirmed')return '최근 변경 적용 확인 실패';if(st.mode==='closed')return '운영시간 외';return '';}
+  function lastReportLabel(r){
+    if(!r?.last_seen_at)return '최근 연결 기록 없음';
+    const ms=new Date(r.last_seen_at).getTime();
+    if(!Number.isFinite(ms))return '최근 연결 기록 없음';
+    const age=Math.max(0,Math.floor((monitor.serverNow()-ms)/1000));
+    return age<60?`마지막 보고 ${age}초 전`:`마지막 보고 ${Math.floor(age/60)}분 전`;
+  }
+  function roomIssueReason(r){
+    const mode=displayControlMode(r);
+    if(mode==='manual')return r.manual_check_status==='checked'?(r.manual_checked_at?`수동 확인 · ${new Date(r.manual_checked_at).toLocaleDateString('ko-KR')}`:'수동 확인 완료'):'현장 수동 확인 필요';
+    const h=roomHealth(r),st=r.player_status||{},ack=ackState.get(r.id);
+    if(h==='offline')return `플레이어 연결 끊김 · ${lastReportLabel(r)}`;
+    if(st.update_error||st.update_pending_version)return '업데이트 필요';
+    if(st.offline_cache_error)return '캐시 오류';
+    if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}개 건너뜀`;
+    if(st.error)return String(st.error).slice(0,60);
+    if(ack?.status==='error'||ack?.status==='unconfirmed')return '최근 변경 적용 확인 실패';
+    if(h==='delayed')return `상태 보고 지연 · ${lastReportLabel(r)}`;
+    if(ack?.status==='pending')return `영상 변경 확인 중 · ${lastReportLabel(r)}`;
+    if(st.mode==='closed')return '운영시간 외';
+    return lastReportLabel(r);
+  }
   const priorityLabel=(v)=>({broadcast:'전체',broadcast_schedule:'예약',manual:'개별',group:'층·구역',group_schedule:'예약',patient:'개별',session:'개별',default:'기본',emergency:'비상',closed:'운영시간 외'})[String(v||'').toLowerCase()]||'기본';
-  function roomProblemRank(r){const k=roomDisplayStatus(r).key;return ({error:0,update:1,offline:2,'manual-warn':3,idle:4,manual:5,live:6})[k]??7;}
+  function roomProblemRank(r){const k=roomDisplayStatus(r).key;return ({error:0,update:1,offline:2,delayed:3,'manual-warn':4,idle:5,manual:6,live:7})[k]??7;}
   function groupStatusSummary(rooms){
     const statuses=rooms.map(roomDisplayStatus);
     const count=(key)=>statuses.filter(x=>x.key===key).length;
     const live=count('live'),offline=count('offline'),manual=count('manual'),manualNeedsCheck=count('manual-warn'),errors=count('error'),updates=count('update'),idle=count('idle');
-    const issues=errors+updates+offline+manualNeedsCheck,online=rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length;
+    const delayed=count('delayed'),issues=errors+updates+offline+manualNeedsCheck+delayed,online=rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length;
     let key='idle',label='대기';
     if(!rooms.length){label='공간 없음';}
     else if(offline===rooms.length-manual-manualNeedsCheck&&offline>0&&manual+manualNeedsCheck===0){key='offline';label='연결 안 됨';}
@@ -326,15 +350,17 @@
     else if(updates>0){key='issue';label='업데이트 필요';}
     else if(offline>0){key='issue';label='연결 안 됨';}
     else if(manualNeedsCheck>0){key='issue';label='수동 확인';}
+    else if(delayed>0){key='issue';label='상태 확인 지연';}
     else if(live>0){key='live';label='정상';}
     else if(manual>0){key='manual';label='수동 운영';}
-    return {live,offline,manual,manualNeedsCheck,errors,updates,idle,issues,online,total:rooms.length,key,label};
+    return {live,offline,manual,manualNeedsCheck,errors,updates,delayed,idle,issues,online,total:rooms.length,key,label};
   }
   function groupIssueParts(st){
     return [
       ['오류',st.errors],
       ['업데이트 필요',st.updates],
       ['연결 안 됨',st.offline],
+      ['상태 확인 지연',st.delayed],
       ['수동 확인',st.manualNeedsCheck]
     ].filter(([,count])=>Number(count||0)>0);
   }
@@ -430,7 +456,7 @@
     const n=floorNumber(g),shortName=floorPurposeLabel(g);
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id);
     const statuses=rooms.map(roomDisplayStatus),live=statuses.filter(s=>s.key==='live').length;
-    const needs=statuses.filter(s=>['offline','error','update','manual-warn'].includes(s.key)).length;
+    const needs=statuses.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length;
     const message=needs?`${needs}대 확인 필요`:live?`${live}/${rooms.length}대 송출 중`:`${rooms.length}대 · 재생 대기`;
     const cls=`hospital-floor-row${selectedFloorId===g.id?' is-selected':''}${needs?' has-issue':''}`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${esc(g.id)}" aria-pressed="${selectedFloorId===g.id?'true':'false'}">
@@ -530,14 +556,14 @@
   function hospitalOperationsSummary(){
     const status=state.rooms.map(roomDisplayStatus);
     const live=status.filter(s=>s.key==='live').length;
-    const problem=status.filter(s=>['offline','error','update','manual-warn'].includes(s.key)).length;
-    const idle=status.length-live-problem;
+    const problem=status.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length;
+    const idle=Math.max(0,status.length-live-problem);
     return `<div class="hospital-ops-summary" aria-label="병원 전체 TV 상태">
       <div><small>전체 TV</small><strong data-staff-stat-total>${state.rooms.length}</strong></div>
       <div><small>송출 중</small><strong data-staff-stat-live>${live}</strong></div>
       <div class="${problem?'has-problems':''}"><small>확인 필요</small><strong data-staff-stat-issues>${problem}</strong></div>
       <div><small>대기 · 수동 확인 완료</small><strong data-staff-stat-idle>${idle}</strong></div>
-    </div><p class="hospital-ops-status-note">‘송출 중’은 TV 연결 플레이어가 실제 재생 상태를 보고한 경우입니다. 원본 MP4를 열거나 미리보기만 재생해도 송출 중으로 집계되지 않습니다.</p>`;
+    </div><p class="hospital-ops-status-note">‘송출 중’은 최근 상태 보고에서 재생이 확인된 경우입니다. 보고가 늦으면 ‘상태 확인 지연’으로 분리됩니다. 원본 MP4를 열거나 미리보기만 재생해도 송출 중으로 집계되지 않습니다.</p>`;
   }
   function floorQuickTvList(rooms){
     if(!rooms.length)return '<div class="floor-ops-empty">이 층에는 등록된 TV가 없습니다. 설정에서 TV를 추가하세요.</div>';
@@ -560,7 +586,7 @@
     if(!floors.length)return `<section class="hospital-building-empty"><b>등록된 층이 없습니다.</b><p>설정에서 층을 먼저 추가하세요.</p><button type="button" class="btn small" data-staff-open-settings>병원 설정 열기</button></section>`;
     if(selectedFloorId&&!floors.some(g=>g.id===selectedFloorId))selectedFloorId=null;
     // Choose the first problematic floor on the first visit, otherwise the highest floor.
-    if(!selectedFloorId){const firstIssue=floors.find(g=>(g.rooms||state.rooms.filter(r=>r.group_id===g.id)).some(r=>['offline','error','update','manual-warn'].includes(roomDisplayStatus(r).key)));selectedFloorId=(firstIssue||floors[0]).id;}
+    if(!selectedFloorId){const firstIssue=floors.find(g=>(g.rooms||state.rooms.filter(r=>r.group_id===g.id)).some(r=>['offline','error','update','manual-warn','delayed'].includes(roomDisplayStatus(r).key)));selectedFloorId=(firstIssue||floors[0]).id;}
     const selected=floors.find(g=>g.id===selectedFloorId)||floors[0];
     return `<section class="hospital-building-dashboard hospital-unified-ops"><div class="hospital-building-console"><div class="hospital-floor-console-card">
       <div class="hospital-floor-console-title"><div><small>층별 송출 관리</small><h2>몇 층을 확인할까요?</h2><p>층을 선택하면 도면과 해당 층 TV가 함께 나옵니다.</p></div></div>
@@ -1038,7 +1064,7 @@
 
   function render(){
     const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
-    const issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
+    const issues=statuses.filter(x=>['error','update','offline','manual-warn','delayed'].includes(x.key)).length;
     const groups=groupedRooms();
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
@@ -1194,16 +1220,16 @@
     const thumb=qs('[data-staff-live-thumb]',card),thumbKey=String(video?.id||'');if(thumb&&thumb.dataset.videoId!==thumbKey){thumb.innerHTML=staffThumbLink(video,'monitor-current-thumb-link','현재 영상 열기');thumb.dataset.videoId=thumbKey;}
     const title=qs('[data-staff-live-title]',card);if(title)title.textContent=displayControlMode(r)==='manual'?'현장 수동 운영':(st.title||'대기 중');
     const next=qs('[data-staff-live-next]',card);if(next)next.textContent=st.next_title||'—';
-    const detail=qs('[data-staff-live-detail]',card);if(detail)detail.textContent=displayControlMode(r)==='manual'?roomIssueReason(r):(on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}${roomIssueReason(r)?` · ${roomIssueReason(r)}`:''}`:'오프라인 · 플레이어 연결 끊김');
+    const detail=qs('[data-staff-live-detail]',card);if(detail)detail.textContent=displayControlMode(r)==='manual'?roomIssueReason(r):(on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''} · ${roomIssueReason(r)}`:`${display.label} · ${roomIssueReason(r)}`);
   }
   function paintStaffSummary(){
-    const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','update','offline','manual-warn'].includes(x.key)).length;
+    const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','update','offline','manual-warn','delayed'].includes(x.key)).length;
     const set=(sel,val)=>{const el=qs(sel);if(el)el.textContent=String(val);};set('[data-staff-stat-total]',state.rooms.length);set('[data-staff-stat-live]',live);set('[data-staff-stat-issues]',issues);set('[data-staff-stat-offline]',offline);set('[data-staff-stat-online]',state.rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length);
     set('[data-staff-stat-idle]',Math.max(0,state.rooms.length-live-issues));
     qsa('[data-ops-state]').forEach(el=>{const r=roomById(el.dataset.opsState);if(!r)return;const s=roomDisplayStatus(r);el.className=`floor-ops-state status-${s.key}`;el.textContent=s.label;el.closest('.floor-ops-tv')?.setAttribute('class',`floor-ops-tv status-${s.key}`);});
     qsa('[data-ops-video]').forEach(el=>{const r=roomById(el.dataset.opsVideo);if(r)el.textContent=displayControlMode(r)==='manual'?'현장 수동 운영':(currentVideoForRoom(r)?.title||r.player_status?.title||'현재 재생 영상 없음');});
     qsa('[data-ops-reason]').forEach(el=>{const r=roomById(el.dataset.opsReason);if(r)el.textContent=roomIssueReason(r)||(roomDisplayStatus(r).key==='idle'?'TV 연결됨 · 재생 대기':' ');});
-    qsa('[data-ops-floor-status]').forEach(el=>{const group=state.groups.find(g=>g.id===el.dataset.opsFloorStatus);if(!group)return;const rs=state.rooms.filter(r=>r.group_id===group.id);const ss=rs.map(roomDisplayStatus),issuesHere=ss.filter(s=>['offline','error','update','manual-warn'].includes(s.key)).length,playing=ss.filter(s=>s.key==='live').length;el.textContent=issuesHere?`${issuesHere}대 확인 필요`:playing?`${playing}/${rs.length}대 송출 중`:`${rs.length}대 · 재생 대기`;el.closest('.hospital-floor-row')?.classList.toggle('has-issue',issuesHere>0);});
+    qsa('[data-ops-floor-status]').forEach(el=>{const group=state.groups.find(g=>g.id===el.dataset.opsFloorStatus);if(!group)return;const rs=state.rooms.filter(r=>r.group_id===group.id);const ss=rs.map(roomDisplayStatus),issuesHere=ss.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length,playing=ss.filter(s=>s.key==='live').length;el.textContent=issuesHere?`${issuesHere}대 확인 필요`:playing?`${playing}/${rs.length}대 송출 중`:`${rs.length}대 · 재생 대기`;el.closest('.hospital-floor-row')?.classList.toggle('has-issue',issuesHere>0);});
     groupedRooms().forEach(g=>paintStaffGroup(g));
   }
   function paintStaffGroup(group){
@@ -1224,6 +1250,20 @@
     if(!roomId||!roomById(roomId))return;clearTimeout(statusWakeTimers.get(roomId));
     statusWakeTimers.set(roomId,setTimeout(()=>{statusWakeTimers.delete(roomId);void refreshLiveRoom(roomId);},80));
   }
+  let verificationCursor=0;
+  let verificationBusy=false;
+  async function verifyUncertainPlayback(){
+    if(document.hidden||busy||verificationBusy)return;
+    const candidates=state.rooms.filter(r=>displayControlMode(r)!=='manual'&&['idle','delayed'].includes(roomDisplayStatus(r).key)&&roomHealth(r)!=='offline');
+    if(!candidates.length)return;
+    const start=verificationCursor%candidates.length;
+    const ids=Array.from({length:Math.min(4,candidates.length)},(_,i)=>candidates[(start+i)%candidates.length].id);
+    verificationCursor=(start+ids.length)%candidates.length;
+    verificationBusy=true;
+    try{applyLiveResult(await monitor.fetchStatus({roomIds:ids}));}
+    catch(e){console.warn('Clinic Signage playback verification failed:',e?.message||e);}
+    finally{verificationBusy=false;}
+  }
   function stopRealtime(){
     try{if(signalChannel)db.removeChannel(signalChannel);if(statusWakeChannel)db.removeChannel(statusWakeChannel);}catch(_){}
     signalChannel=null;statusWakeChannel=null;
@@ -1243,7 +1283,8 @@
 
   try{await load();startRealtime();monitor.start(Signage.cfg.livePollMs);}catch(e){qs('#hospitalRoot').innerHTML=`<p class="error">${esc(e.message||e)}</p>`;}
   const uiTimer=setInterval(()=>{if(document.hidden)return;state.rooms.forEach(updateStaffRoomDom);paintStaffSummary();},1000);
-  function stopPageRuntime(){clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);statusWakeTimers.clear();monitor.stop();stopRealtime();}
+  const verifyTimer=setInterval(()=>{void verifyUncertainPlayback();},15000);
+  function stopPageRuntime(){clearInterval(verifyTimer);clearTimeout(stateReloadTimer);statusWakeTimers.forEach(clearTimeout);statusWakeTimers.clear();monitor.stop();stopRealtime();}
   window.addEventListener('pagehide',stopPageRuntime);
   window.addEventListener('pageshow',e=>{if(e.persisted){startRealtime();monitor.start(Signage.cfg.livePollMs);void load({background:true}).catch(()=>{});}});
   window.addEventListener('beforeunload',()=>{clearInterval(uiTimer);stopPageRuntime();});
