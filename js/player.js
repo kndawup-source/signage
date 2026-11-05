@@ -319,30 +319,38 @@
       el.addEventListener('canplay',onReady,{once:true});el.addEventListener('loadeddata',onReady,{once:true});el.addEventListener('error',onError,{once:true});
     });
   }
+  // Edge may leave HTMLVideoElement.play() pending indefinitely while a source is
+  // buffering. A bounded attempt lets the playlist skip that clip instead of
+  // leaving transitionInProgress set forever.
+  function playWithDeadline(el,timeoutMs=6000){
+    let timer;
+    const deadline=new Promise(resolve=>{timer=setTimeout(()=>resolve(false),timeoutMs);});
+    return Promise.race([Promise.resolve().then(()=>el.play()).then(()=>true,()=>false),deadline])
+      .finally(()=>clearTimeout(timer));
+  }
   async function playElement(el){
     if(!el)return false;
     if(state?.room?.paused)return true;
     const forceMute=Boolean(state?.room?.force_mute);
     const targetVolume=Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));
     el.volume=targetVolume;
-    /* Kiosk Chrome is launched with --autoplay-policy=no-user-gesture-required, so try
-       the configured audio state first. Standard browsers fall back to muted playback below. */
+    /* Kiosk Chrome may permit unmuted autoplay, but ordinary Edge can reject it. */
     el.muted=forceMute;
-    try{
-      await el.play();
+    if(await playWithDeadline(el)){
       lastError=null;
       return true;
-    }catch(firstError){
-      /* Even after an operator enabled sound, fall back to muted playback rather
-         than sacrificing video output. */
-      if(!el.muted){
-        el.muted=true;
-        try{await el.play();lastError=null;return true;}catch(_){}
-      }
-      lastError='자동재생 차단';
-      queueHeartbeat(true);
-      return false;
     }
+    /* Keep video running silently rather than getting stuck on an audio policy. */
+    if(!el.muted){
+      el.muted=true;
+      if(await playWithDeadline(el,4000)){
+        lastError=null;
+        return true;
+      }
+    }
+    lastError='영상 재생 시작 실패 또는 시간 초과';
+    queueHeartbeat(true);
+    return false;
   }
   async function waitForRenderedFrame(el,token,timeoutMs=1500){
     if(!el||token!==switchToken)return false;
@@ -353,7 +361,13 @@
         el.requestVideoFrameCallback(()=>{if(done)return;done=true;clearTimeout(timer);resolve(token===switchToken);});
       });
     }
-    return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(token===switchToken&&el.readyState>=2))));
+    // requestAnimationFrame may pause in a covered Edge window. Always settle.
+    return new Promise(resolve=>{
+      let done=false;
+      const finish=()=>{if(done)return;done=true;clearTimeout(timer);resolve(token===switchToken&&el.readyState>=2);};
+      const timer=setTimeout(finish,timeoutMs);
+      requestAnimationFrame(()=>requestAnimationFrame(finish));
+    });
   }
   async function startWithBroadcastSync(el){
     if(state?.room?.paused)return true;
@@ -471,6 +485,8 @@
     const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
     if(!started||token!==switchToken){
       if(coldStart){nextEl.classList.remove('is-active');currentEl?.classList.add('is-active');activeSlot=targetSlot===0?1:0;}
+      // A timed-out source must never keep playing invisibly after a later switch.
+      if(token===switchToken){try{nextEl.pause();}catch(_){}}
       transitionInProgress=false;
       if(token===switchToken){confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);}
       return false;
@@ -508,11 +524,22 @@
     for(let step=1;step<=items.length;step++){const i=(index+step)%items.length;if(!mediaBlocked(items[i],now))return i;}
     return (index+1)%items.length;
   }
+  let playlistAdvanceBusy=false;
   async function advanceSeamless(){
-    const items=list(); if(!items.length)return;
-    const target=nextPlayableIndex();
-    const ok=await switchToIndex(target);
-    if(!ok)handleMediaFailure(items[target]);
+    // A duplicated ended/transition event must not start two competing switches.
+    if(playlistAdvanceBusy)return;
+    const items=list();if(!items.length)return;
+    playlistAdvanceBusy=true;
+    try{
+      const target=nextPlayableIndex();
+      const ok=await switchToIndex(target);
+      if(!ok)await handleMediaFailure(items[target]);
+    }catch(e){
+      console.warn('[Clinic Signage] playlist advance failed:',e?.message||e);
+      await handleMediaFailure(items[nextPlayableIndex()]);
+    }finally{
+      playlistAdvanceBusy=false;
+    }
   }
   function blankPlayer(){
     ensureSurface();
