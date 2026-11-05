@@ -1153,7 +1153,7 @@
       tab='output';layoutPanelOpen=true;spaceEditorGroupId=selectedFloorId||state.groups.find(g=>g.kind==='floor')?.id||null;layoutEditMode='display';spaceRedrawId=null;layoutPlacementRoomId=null;layoutCopyOpen=false;
       renderPreservingUi(false);requestAnimationFrame(()=>qs('#hospitalLayoutWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'}));
     });
-    qs('#staffStatusRefresh')?.addEventListener('click',()=>load().catch(e=>toast(e.message||String(e),'error')));qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{const id=b.dataset.staffSelectFloor;if(selectedFloorId!==id){selectedFloorId=id;spaceEditorGroupId=id;spaceRedrawId=null;layoutPlacementRoomId=null;layoutEditMode='display';layoutCopyOpen=false;}renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
+    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{const id=b.dataset.staffSelectFloor;if(selectedFloorId!==id){selectedFloorId=id;spaceEditorGroupId=id;spaceRedrawId=null;layoutPlacementRoomId=null;layoutEditMode='display';layoutCopyOpen=false;}renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
     const floorStage=qs('.building-floor-plan-stage');
     const setFloorFocus=(kind,id,contextSpaceId=null)=>{if(!floorStage)return;floorStage.classList.add('has-map-focus');floorStage.dataset.focusKind=kind;floorStage.dataset.focusId=id;qsa('[data-staff-floor-room]',floorStage).forEach(x=>{const active=kind==='display'&&x.dataset.staffFloorRoom===id;const room=state.rooms.find(r=>r.id===x.dataset.staffFloorRoom);const linkedSpace=room?roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct):null;const context=(kind==='space'&&linkedSpace?.id===id)||(kind==='display'&&contextSpaceId&&linkedSpace?.id===contextSpaceId);x.classList.toggle('is-selected',active);x.classList.toggle('is-focus-context',!!context);});qsa('[data-floor-space]',floorStage).forEach(x=>{const active=kind==='space'&&x.dataset.floorSpace===id;const context=kind==='display'&&contextSpaceId&&x.dataset.floorSpace===contextSpaceId;x.classList.toggle('is-selected-space',active);x.classList.toggle('is-focus-context',!!context);});};
     qsa('.floor-ops-tv [data-staff-open-room-detail]').forEach(b=>b.addEventListener('click',()=>openInlineTvDetail(b.dataset.staffOpenRoomDetail)));
@@ -1290,6 +1290,27 @@
      echo when a load started after the signal was received. */
   function scheduleStaffStateReload(){const signalAt=Date.now();clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(document.hidden||busy||lastLoadStartedAt>=signalAt-50)return;load({background:true}).catch(()=>{});},250);}
 
+  // User-initiated check reads current persisted player status without reloading
+  // playlists, floor plans, or draft settings. It cannot force a disconnected TV
+  // to report immediately; the displayed presence age remains authoritative.
+  let manualStatusRefreshInFlight=false;
+  async function refreshVisibleStatuses(button){
+    if(manualStatusRefreshInFlight||document.hidden)return;
+    manualStatusRefreshInFlight=true;
+    if(button){button.disabled=true;button.textContent='확인 중…';}
+    try{
+      const result=await monitor.fetchStatus({roomIds:state.rooms.map(r=>r.id)});
+      applyLiveResult(result);
+      for(const r of state.rooms)updateStaffRoomDom(r);
+      paintStaffSummary();
+      toast('최근 보고된 TV 상태를 확인했습니다.');
+    }catch(e){
+      toast(`TV 상태 확인 실패 · ${e?.message||String(e)}`,'error');
+    }finally{
+      manualStatusRefreshInFlight=false;
+      if(button?.isConnected){button.disabled=false;button.textContent='새로고침';}
+    }
+  }
   async function refreshLiveRoom(roomId){
     if(!roomId||document.hidden)return;
     try{applyLiveResult(await monitor.fetchStatus({roomIds:[roomId]}));}catch(e){console.warn('Clinic Signage hospital room status refresh failed:',e?.message||e);}
