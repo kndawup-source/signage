@@ -524,8 +524,9 @@
     const n=floorNumber(g),online=rooms.filter(staffIsOnline).length;
     return `<section class="hospital-floor-detail">
       <div class="hospital-floor-detail-head">
-        <div><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면에서 디스플레이나 공간을 누르면 운영 목적과 현재 영상을 확인할 수 있습니다.')}</span>${g.role_label?`<em class="floor-role-chip">역할 · ${esc(g.role_label)}</em>`:''}${groupContentTopicsMarkup(g)}</div>
+        <div class="hospital-floor-detail-intro"><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면에서 디스플레이나 공간을 누르면 운영 목적과 현재 영상을 확인할 수 있습니다.')}</span></div>
         <div class="hospital-floor-detail-actions"><div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${groupIssueParts(sum).map(([label,count])=>`<span class="is-alert">${esc(label)} <b>${count}</b></span>`).join('')}</div></div>
+        ${(g.role_label||groupContentTopics(g).length)?`<div class="hospital-floor-detail-context">${g.role_label?`<span class="floor-role-chip">${esc(g.role_label)}</span>`:''}${groupContentTopicsMarkup(g)}</div>`:''}
       </div>
       ${asset?`<div class="building-floorplan-wrap floor-activation-shell">
         <div class="floor-plan-stage building-floor-plan-stage is-floor-activating">
