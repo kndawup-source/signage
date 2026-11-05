@@ -86,7 +86,7 @@
   let offlineCacheTimer=null,offlineCacheSyncToken=0,offlineCacheBusy=false;
   let offlineCacheReady=false,offlineCacheCount=0,offlineCacheTotal=0,offlineCacheUpdatedAt=null,offlineCacheError=null;
   const mediaFailures=new Map();
-  const MEDIA_FAILURE_LIMIT=2,MEDIA_FAILURE_COOLDOWN_MS=10*60*1000;
+  const MEDIA_FAILURE_LIMIT=2; // telemetry only; never exclude a clip for a whole playlist lap
 
   if (!key) { console.error('Clinic Signage: missing player key'); if(root)root.innerHTML='<div class="player-message">플레이어 주소에 key가 없습니다. 관리자 화면의 공간 플레이어 링크를 사용하세요.</div>'; return; }
 
@@ -474,6 +474,7 @@
       }
       nextEl.classList.add('is-active');
       activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
+      if(v?.id)mediaFailures.delete(String(v.id));
       currentEl?.classList.remove('is-active');
       lastProgressAt=Date.now();lastProgressTime=nextEl.currentTime||0;
       watchForPreroll(nextEl,targetSlot);
@@ -520,6 +521,7 @@
       currentEl?.classList.remove('is-active');
     }
     confirmedPlaybackState='playing';
+    if(v?.id)mediaFailures.delete(String(v.id));
     /* Do not depend on a rendering callback when the TV is behind another window. */
     if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
     transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
@@ -533,14 +535,12 @@
     /* Signage favors instant switching over bandwidth savings: keep the next item hot. */
     loadSlot(el,nextVideo,nextIndex,'auto');
   }
-  /* A video that already failed MEDIA_FAILURE_LIMIT times is skipped for the cooldown period.
-     Previously only the failure handler honoured the block list, so every natural advance
-     retried the broken file: one failed load, an error report and a status flip per cycle. */
-  function mediaBlocked(v,now=Date.now()){const f=mediaFailures.get(String(v?.id||mediaUrl(v)||'unknown'));return !!(f&&f.count>=MEDIA_FAILURE_LIMIT&&now-f.lastAt<MEDIA_FAILURE_COOLDOWN_MS);}
+  /* Playlist order must not silently shrink after transient Edge buffering/timeouts.
+     Every item is reconsidered on the next lap. During one error-recovery pass we
+     still attempt each other item at most once (see handleMediaFailureOnce). */
   function nextPlayableIndex(){
-    const items=list();if(!items.length)return 0;const now=Date.now();
-    for(let step=1;step<=items.length;step++){const i=(index+step)%items.length;if(!mediaBlocked(items[i],now))return i;}
-    return (index+1)%items.length;
+    const items=list();
+    return items.length?(index+1)%items.length:0;
   }
   let playlistAdvanceBusy=false;
   async function advanceSeamless(){
@@ -669,11 +669,12 @@
     const id=String(v?.id||mediaUrl(v)||'unknown'),prev=mediaFailures.get(id)||{count:0,lastAt:0};
     const nextFailure={count:prev.count+1,lastAt:Date.now()};mediaFailures.set(id,nextFailure);
     lastError=`재생 실패: ${v?.title||'영상'}`;cycleFailures++;queueHeartbeat(true);scheduleReport(0);
-    const items=list(),now=Date.now();
-    for(let step=1;step<=items.length;step++){
-      const candidateIndex=(index+step)%items.length,candidate=items[candidateIndex],key=String(candidate?.id||mediaUrl(candidate)||'unknown'),f=mediaFailures.get(key);
-      const blocked=f&&f.count>=MEDIA_FAILURE_LIMIT&&now-f.lastAt<MEDIA_FAILURE_COOLDOWN_MS;
-      if(candidate&&candidate!==v&&!blocked){const ok=await switchToIndex(candidateIndex);if(ok)return;}
+    const items=list();
+    for(let step=1;step<items.length;step++){
+      const candidateIndex=(index+step)%items.length,candidate=items[candidateIndex];
+      // Skip the failed item only for THIS recovery pass, not for ten minutes.
+      // A failed file should get another chance on the next full playlist lap.
+      if(candidate&&candidate!==v){const ok=await switchToIndex(candidateIndex);if(ok)return;}
     }
     cycleFailures=0;if(await playEmergencyCached())return;scheduleRecovery();
   }
