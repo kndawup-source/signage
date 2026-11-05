@@ -607,6 +607,7 @@
       let {data,error}=await db.rpc(stateRpc,{p_key:key});
       if(error&&stateRpc!=='player_get_state'&&Signage.isMissingFunction(error)){stateRpc='player_get_state';({data,error}=await db.rpc(stateRpc,{p_key:key}));}
       if(error)throw error;
+      if(fromPoll)consecutivePollFailures=0;
       if(!data){if(!state){root.innerHTML='<div class="player-message">등록되지 않은 플레이어 주소입니다. 관리자 화면에서 링크를 다시 복사하세요.</div>';slots=[];}return;}
       updateServerClock(data.server_time,requestStarted,Date.now());
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
@@ -619,7 +620,7 @@
       if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;recoveryAttempts=0;recoveryStage=0;lastProgressAt=Date.now();emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
       else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}if(meaningful)syncedAt=fetchedAt;}
       if(meaningful)reportNow();
-    }catch(e){lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
+    }catch(e){if(fromPoll)consecutivePollFailures=Math.min(4,consecutivePollFailures+1);lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
     finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){const urgent=fetchQueuedUrgent;fetchQueued=false;fetchQueuedUrgent=false;queueMicrotask(()=>fetchState({fromPoll:!urgent}));}}
   }
   function loadSaved(){
@@ -833,6 +834,9 @@
     realtimeFetchTimer=setTimeout(()=>fetchState(),150);
   }
   function subscribePlayerRealtime(){
+    // Default scale profile: do not open two persistent Realtime channels per TV.
+    // Polling still catches remote configuration changes; first boot loads immediately.
+    if(Signage.cfg.enablePlayerRealtime!==true)return;
     if(!db)return;
     const roomId=state?.room?.id||null;
     if(!roomBroadcastChannel){
@@ -868,9 +872,14 @@
   /* While the Realtime control channel is subscribed it is the primary path, so the
      full-state fallback poll backs off. If the socket drops, the short interval returns. */
   const PLAYER_REALTIME_FALLBACK_MS=Math.max(PLAYER_FALLBACK_MS,Number(Signage.cfg.pollMsRealtime)||60000);
+  let consecutivePollFailures=0;
   function scheduleStatePoll(){
     clearTimeout(statePollTimer);
-    const wait=state?.mode==='closed'?CLOSED_FALLBACK_MS:(realtimeControlReady?PLAYER_REALTIME_FALLBACK_MS:PLAYER_FALLBACK_MS);
+    const base=state?.mode==='closed'?CLOSED_FALLBACK_MS:(realtimeControlReady?PLAYER_REALTIME_FALLBACK_MS:PLAYER_FALLBACK_MS);
+    // Per-device jitter disperses startup/reconnect storms across 100 hospitals.
+    // Failed requests back off (max 10min); successful polls reset the delay.
+    const backoff=Math.min(600000,base*Math.pow(2,Math.min(consecutivePollFailures,4)));
+    const wait=Math.round(backoff*(0.85+Math.random()*0.30));
     statePollTimer=setTimeout(()=>void fetchState({fromPoll:true}),wait);
   }
 

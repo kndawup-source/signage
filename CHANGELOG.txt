@@ -1,0 +1,26 @@
+Clinic Signage 2.35.20 — 100-site scaling safety patch
+BASE: signage-main(8).zip (2.35.19)
+
+APPLY:
+1. Copy files in this ZIP to the same paths in the original repository.
+2. Supabase SQL Editor: run supabase/v2.35.20-scale-heartbeat.sql only after staging/backups.
+3. Verify deployment config: node scripts/check-release.js
+4. Commit and deploy to Vercel, validate one test TV before larger rollout.
+
+CHANGES:
+- Realtime control subscriptions now opt-in (enablePlayerRealtime=false). Remote changes
+  are picked up by fallback polling ~120 sec, dispersed +/-15% per TV.
+- Full-state poll failures back off exponentially up to 10 min, plus jitter.
+- Presence (5min) and analytics heartbeat (5min) unchanged.
+- Analytics SQL now caps a heartbeat interval at 360s and reconnects at >600s.
+- Canonical fresh-install schema.sql updated to match migration.
+- Static repository-only folders excluded via .vercelignore.
+- All entry HTML/CSS/JS cache refs and player release/SW set to 2.35.20.
+- Added Node release consistency checker.
+
+TRADEOFFS / NOT FIXED:
+- Remote playlist/control changes can take about 2 min to show instead of instant Realtime.
+- No production DB, RLS policy, R2 ownership, or 2000-client load test was performed.
+- This patch does not enforce strict device sessions or address historical statistics.
+- Daily aggregate estimate from 5-minute samples is approximate, not frame-accurate.
+- Do NOT claim site isolation/security certification without RLS and API tests.

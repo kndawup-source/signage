@@ -434,8 +434,11 @@ begin
   select is_open,start_time,end_time into v_open,v_start,v_end from public.signage_room_operating_window(v_room,v_day);
   v_in_hours:=v_open and v_local_time>=v_start and v_local_time<v_end;
   if v_last is not null then
-    v_delta:=greatest(0,least(60,extract(epoch from (v_now-v_last))::int));
-    if extract(epoch from (v_now-v_last))>30 then v_reconnect:=1; end if;
+    -- Up to one 5-minute telemetry interval, with margin for timer jitter.
+    -- Older 60-second caps undercounted playback by ~80% at 5-minute intervals.
+    v_delta:=greatest(0,least(360,extract(epoch from (v_now-v_last))::int));
+    -- A normal 5-minute interval is not a reconnect.
+    if extract(epoch from (v_now-v_last))>600 then v_reconnect:=1; end if;
   end if;
   if coalesce(clean->>'error','')<>'' and coalesce(v_prev->>'error','')='' then v_error_transition:=1; end if;
   if v_in_hours and v_delta>0 then
