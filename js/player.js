@@ -240,7 +240,7 @@
       if(el.dataset.playerBound==='1')return;
       el.dataset.playerBound='1';
       el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}advanceSeamless();}});
-      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);transitionInProgress=false;confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);/* The switch owner clears transitionInProgress only after slot commit. */confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();recoveryStage=0;recoveryAttempts=0;if(lastError&&String(lastError).startsWith('재생 정체 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
@@ -349,7 +349,7 @@
     slots.forEach(el=>{if(el)el.dataset.prerolled='';});
   }
   async function prerollNext(){
-    if(prerollBusy||emergencyPlaying||state?.room?.paused||state?.mode==='closed')return false;
+    if(prerollBusy||transitionInProgress||emergencyPlaying||state?.room?.paused||state?.mode==='closed')return false;
     const items=list();if(items.length<2)return false;
     const targetIndex=nextPlayableIndex();
     if(targetIndex===index%items.length)return false;
@@ -357,16 +357,20 @@
     const v=items[targetIndex],slot=inactiveSlotIndex(),el=slots[slot];
     if(!v||!mediaUrl(v)||!el)return false;
     prerollBusy=true;
-    const token=++switchToken;
+    // Preroll must NEVER invalidate the actual video switch token.
+    const token=switchToken,sourceActiveSlot=activeSlot;
+    const stillInactive=()=>token===switchToken&&sourceActiveSlot===activeSlot&&slot===inactiveSlotIndex()&&!transitionInProgress;
     try{
       loadSlot(el,v,targetIndex,'auto');
-      if(!(await waitUntilPlayable(el,token,5000))||token!==switchToken)return false;
+      if(!(await waitUntilPlayable(el,token,5000))||!stillInactive())return false;
       const desiredMuted=el.muted,desiredVolume=el.volume;
       el.muted=true;el.volume=0;
       let started=false;
       try{await el.play();started=true;}catch(_){}
-      if(!started||token!==switchToken){transitionInProgress=false;return false;}
-      if(!(await waitForRenderedFrame(el,token,1200))||token!==switchToken)return false;
+      if(!started||!stillInactive())return false;
+      if(!(await waitForRenderedFrame(el,token,1200))||!stillInactive())return false;
+      // Never pause a slot after it has become the active display.
+      if(!stillInactive())return false;
       try{el.pause();}catch(_){}
       /* Keep the decoded first frame resident. Do not seek back to 0 here; seeking can drop the decoded frame. */
       el.dataset.prerolled='1';
@@ -406,6 +410,8 @@
 
     const targetSlot=inactiveSlotIndex(),nextEl=slots[targetSlot];
     const readyPreroll=prerolledIndex===normalized&&prerolledSlot===targetSlot&&nextEl?.dataset.prerolled==='1'&&slotMatches(nextEl,v);
+    // Any pending preroll is now stale; invalidate it before awaiting play().
+    const token=++switchToken;
 
     if(readyPreroll){
       transitionInProgress=true;
@@ -419,7 +425,7 @@
       if(Number.isFinite(volume))nextEl.volume=volume;
       nextEl.dataset.prerolled='';prerolledIndex=-1;prerolledSlot=-1;
       const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
-      if(!started){transitionInProgress=false;return false;}
+      if(!started||token!==switchToken){transitionInProgress=false;return false;}
       confirmedPlaybackState=emergencyPlaying?'emergency':'playing';
       /* A hidden Edge window may suspend requestAnimationFrame indefinitely.
          Finalize the successful switch now, rather than leaving the player locked. */
@@ -429,7 +435,6 @@
     }
 
     transitionInProgress=true;
-    const token=++switchToken;
     loadSlot(nextEl,v,normalized,'auto');
 
     /* Cold start must be visible immediately. The previous implementation played
