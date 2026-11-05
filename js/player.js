@@ -2,6 +2,11 @@
   'use strict';
   const { db, qs, esc } = Signage;
   const key = new URLSearchParams(location.search).get('key');
+  /* preview=1: staff "실제 화면 보기" tab. It plays the same state but must never report as the
+     TV (status/heartbeat/"stopped" on close), download the playlist into the staff PC cache,
+     or install the kiosk service worker. */
+  const PREVIEW = new URLSearchParams(location.search).get('preview') === '1';
+  let intentionalNavigation = false;
   const root = qs('#playerRoot');
   const savedKey = `clinic-signage:last-state:${key || 'none'}`;
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
@@ -147,6 +152,7 @@
     }finally{offlineCacheBusy=false;}
   }
   function scheduleOfflinePlaylistCache(force=false){
+    if(PREVIEW)return;
     clearTimeout(offlineCacheTimer);
     if(!navigator.onLine||!state?.playlist?.length||state?.mode==='closed')return;
     const meta=readJsonStorage(OFFLINE_CACHE_META_KEY);
@@ -178,6 +184,7 @@
   function versionCompare(a,b){const aa=versionParts(a),bb=versionParts(b);for(let i=0;i<3;i++){const d=(aa[i]||0)-(bb[i]||0);if(d)return d;}return 0;}
   function reloadForUpdate(){
     if(!updatePendingVersion)return;
+    intentionalNavigation=true;
     try{const u=new URL(location.href);u.searchParams.set('_player_release',updatePendingVersion);u.searchParams.set('_reload',String(Date.now()));location.replace(u.toString());}
     catch(_){location.reload();}
   }
@@ -378,13 +385,13 @@
     if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
     else requestAnimationFrame(tick);
   }
-  async function switchToIndex(targetIndex,{sync=false}={}){
+  async function switchToIndex(targetIndex,{sync=false,force=false}={}){
     const items=list(); if(!items.length){blankPlayer();return false;}
     const normalized=((targetIndex%items.length)+items.length)%items.length;
     const v=items[normalized];
     ensureSurface();
     const currentEl=activeVideoEl();
-    if(slotMatches(currentEl,v)){
+    if(!force&&slotMatches(currentEl,v)){
       index=normalized;
       if(currentEl.ended){try{currentEl.currentTime=0;}catch(_){}if(!state?.room?.paused&&!(await playElement(currentEl)))return false;}
       applyLiveControls();prepareNext();return true;
@@ -407,10 +414,10 @@
       const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
       if(!started){transitionInProgress=false;return false;}
       confirmedPlaybackState=emergencyPlaying?'emergency':'playing';
-      requestAnimationFrame(()=>{
-        if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
-        transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
-      });
+      /* A hidden Edge window may suspend requestAnimationFrame indefinitely.
+         Finalize the successful switch now, rather than leaving the player locked. */
+      if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
+      transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
       return true;
     }
 
@@ -432,7 +439,9 @@
     const started=sync?await startWithBroadcastSync(nextEl):await playElement(nextEl);
     if(!started||token!==switchToken){
       if(coldStart){nextEl.classList.remove('is-active');currentEl?.classList.add('is-active');activeSlot=targetSlot===0?1:0;}
-      transitionInProgress=false;return false;
+      transitionInProgress=false;
+      if(token===switchToken){confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);}
+      return false;
     }
 
     if(!coldStart){
@@ -445,10 +454,9 @@
       currentEl?.classList.remove('is-active');
     }
     confirmedPlaybackState='playing';
-    requestAnimationFrame(()=>{
-      if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
-      transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
-    });
+    /* Do not depend on a rendering callback when the TV is behind another window. */
+    if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
+    transitionInProgress=false;prepareNext();queueHeartbeat(true);pushLiveStatusNow();
     return true;
   }
   function prepareNext(){
@@ -525,13 +533,13 @@
       if(!data){if(!state){root.innerHTML='<div class="player-message">등록되지 않은 플레이어 주소입니다. 관리자 화면에서 링크를 다시 복사하세요.</div>';slots=[];}return;}
       updateServerClock(data.server_time,requestStarted,Date.now());
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
-      else if(data.room.reload_nonce!==lastNonce){try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
+      else if(data.room.reload_nonce!==lastNonce){intentionalNavigation=true;try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
       state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}else{clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}subscribePlayerRealtime();
       const fetchedAt=data.server_time||null;
       lastStateSig=newStateSig;
       const meaningful=!fromPoll||playlistChanged||stateChanged||!syncedAt;
-      if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
+      if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;recoveryAttempts=0;recoveryStage=0;lastProgressAt=Date.now();emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
       else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}if(meaningful)syncedAt=fetchedAt;}
       if(meaningful)reportNow();
     }catch(e){lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
@@ -546,6 +554,7 @@
   }
 
   async function cacheEmergency(){
+    if(PREVIEW)return false;
     const url=emergencyUrl();if(!('caches' in window))return false;
     if(state?.mode==='closed')return false;if(!url){await caches.delete(EMERGENCY_CACHE);return false;}
     const size=Number(state?.emergency_video?.size||0);if(size>MAX_EMERGENCY_CACHE_BYTES)return false;
@@ -624,6 +633,7 @@
     }catch(_){return false;}
   }
   async function reportLive({wake=false}={}){
+    if(PREVIEW)return;
     if(wake)reportWakePending=true;
     if(reportInFlight){reportQueued=true;return;}if(!db||!state?.room)return;reportInFlight=true;
     clearTimeout(reportTimer);reportTimer=null;
@@ -644,8 +654,12 @@
   function scheduleReport(delay=250,wake=true){if(wake)reportWakePending=true;if(reportTimer)return;reportTimer=setTimeout(()=>{reportTimer=null;void reportLive({wake:reportWakePending});},delay);}
   function reportNow(){clearTimeout(reportTimer);reportTimer=null;void reportLive({wake:true});}
   function pushLiveStatusNow(){scheduleReport(100,true);}
-  function presenceTick(){const limit=state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS;if(Date.now()-lastReportAt>=limit)void reportLive({wake:false});}
+  /* limit must be shorter than the interval. With limit==interval the tick fires a few ms
+     "early" relative to lastReportAt (set after the RPC returns), skips, and an idle/paused/closed
+     TV ends up reporting every 2x interval (600s) — exactly the 10-min offline threshold. */
+  function presenceTick(){const limit=(state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS)*0.8;if(Date.now()-lastReportAt>=limit)void reportLive({wake:false});}
   async function heartbeat(){
+    if(PREVIEW)return;
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;if(state?.mode==='closed'&&Date.now()-lastHeartbeatAt<5*60*1000)return;heartbeatInFlight=true;
     try{
       const status=buildLiveStatus();
@@ -660,17 +674,45 @@
   }
 
   async function playbackWatchdog(){
-    const el=activeVideoEl();if(state?.mode==='closed')return;if(!el||!state||state.room?.paused||emergencyPlaying||document.hidden)return;
-    if(el.paused||el.ended||el.readyState<2)return;
-    if(Date.now()-lastProgressAt<25000||stallRecovering)return;
-    stallRecovering=true;recoveryAttempts++;recoveryStage=Math.min(5,recoveryAttempts);lastError=`재생 정체 자동 복구 ${recoveryStage}단계`;queueHeartbeat(true);
+    /* Detect a stopped video AND a failed transition that left the previous video on
+       screen. Checking only !paused && readyState >= 2 missed both failure modes. */
+    if(!state||state.mode==='closed'||state.room?.paused||emergencyPlaying||!list().length||stallRecovering)return;
+    const el=activeVideoEl(),desired=current();
+    const mismatched=!slotMatches(el,desired);
+    const stopped=!el||el.paused||el.ended||el.error||el.readyState<2;
+    const stalled=Date.now()-lastProgressAt>=20000;
+    if(!mismatched&&!stopped&&!stalled)return;
+    /* Allow initial loading / normal short transitions to finish. */
+    if(Date.now()-lastProgressAt<12000)return;
+    stallRecovering=true;
+    recoveryAttempts++;
+    recoveryStage=Math.min(5,recoveryAttempts);
+    lastError=`재생 자동 복구 ${recoveryStage}단계`;
+    queueHeartbeat(true);scheduleReport(0);
     try{
-      if(recoveryStage===1){try{el.currentTime=Math.max(0,(el.currentTime||0)-.15);}catch(_){}await playElement(el);}
-      else if(recoveryStage===2){await advanceSeamless();}
-      else if(recoveryStage===3){const target=inactiveSlotIndex();resetSlot(slots[target]);const ok=await switchToIndex(index);if(!ok)await advanceSeamless();}
-      else if(recoveryStage===4){await fetchState();const ok=await switchToIndex(index);if(!ok)await advanceSeamless();}
-      else {queueHeartbeat(true);setTimeout(()=>location.reload(),1200);}
-    }catch(_){handleMediaFailure(current());}
+      let recovered=false;
+      if(recoveryStage===1&&el&&!mismatched&&!el.error){
+        if(el.ended){try{el.currentTime=0;}catch(_){}}
+        if(el.readyState<2){try{el.load();}catch(_){}}
+        recovered=await playElement(el);
+      }else if(recoveryStage===2||recoveryStage===3){
+        cancelPreroll();
+        resetSlot(slots[inactiveSlotIndex()]);
+        recovered=await switchToIndex(index,{force:true});
+      }else if(recoveryStage===4){
+        await fetchState();
+        if(state?.mode==='closed'||state?.room?.paused)return;
+        cancelPreroll();resetSlot(slots[inactiveSlotIndex()]);
+        recovered=await switchToIndex(index,{force:true});
+      }else{
+        intentionalNavigation=true;
+        location.reload();
+        return;
+      }
+      /* play() resolving is not proof of frame progress. The next timeupdate will
+         reset attempts. If frames remain stuck, escalate instead of retrying forever. */
+      if(!recovered&&recoveryStage>=2)void handleMediaFailure(desired);
+    }catch(e){console.warn('Clinic Signage playback recovery failed:',e?.message||e);if(recoveryStage>=2)void handleMediaFailure(desired);}
     finally{lastProgressAt=Date.now();stallRecovering=false;}
   }
   function pushHeartbeatNow(){clearTimeout(heartbeatTimer);heartbeatTimer=null;void heartbeat();}
@@ -720,8 +762,8 @@
 
   const PLAYER_FALLBACK_MS=Math.max(15000,Number(Signage.cfg.pollMs)||20000);
   const LIVE_PRESENCE_MS=Math.max(30000,Number(Signage.cfg.livePresenceMs)||300000);
-  /* Admin marks a room "delayed" after 150s and offline after 180s, so a playback presence
-     write every ~55s still leaves two missed reports of margin. */
+  /* Admin (common.js) marks a room "delayed" after 7 min and offline after onlineThresholdMs
+     (10 min) and polls every 60s, so a ~5-min presence write leaves one missed report of margin. */
   const PLAYBACK_PRESENCE_STALE_MS=Math.max(25000,LIVE_PRESENCE_MS-5000);
   const PLAYBACK_PRESENCE_RETRY_MS=10000;
   const ANALYTICS_HEARTBEAT_MS=Math.max(60000,Number(Signage.cfg.heartbeatMs)||300000);
@@ -735,7 +777,7 @@
     statePollTimer=setTimeout(()=>void fetchState({fromPoll:true}),wait);
   }
 
-  ensureSurface();void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
+  ensureSurface();if(!PREVIEW)void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
   document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){scheduleReport();void checkForPlayerUpdate(true);}});
   window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
@@ -743,7 +785,9 @@
   // Best-effort shutdown notice. A covered/background window does not trigger pagehide.
   // The browser may drop requests during a crash/power loss; server-side TTL is still authoritative.
   window.addEventListener('pagehide',()=>{
-    if(!state?.room?.id||!db)return;
+    /* Skip for our own reloads (update/remote reload/stall recovery): the new page reports
+       within seconds, and a late keepalive "stopped" could overwrite that fresh status. */
+    if(PREVIEW||intentionalNavigation||!state?.room?.id||!db)return;
     try{
       const cfg=Signage.cfg;
       const url=`${String(cfg.supabaseUrl).replace(/\/+$/,'')}/rest/v1/rpc/player_report`;
