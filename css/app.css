@@ -3665,3 +3665,14 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
 .hospital-settings-layout-note>b{font-size:14px}.hospital-settings-layout-note p{margin:0;color:#64748b;font-size:12px;line-height:1.6}
 .hospital-settings-layout-note button{justify-self:start}
 @media(max-width:700px){.hospital-floor-console-title{align-items:stretch}.hospital-layout-edit-toggle{width:100%}.hospital-layout-workspace{padding:12px}.hospital-layout-floorplan-actions{align-items:stretch}.hospital-layout-floorplan-actions>div{flex-basis:100%}.hospital-layout-floorplan-actions .btn{flex:1;justify-content:center}}
+
+/* v2.35.11 space classification: no TV is neutral, not a broken TV. */
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-empty{
+  opacity:1!important;filter:none!important;border:2px solid #64748b!important;
+  background:rgba(100,116,139,.15)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.30)!important;
+}
+.hospital-page .building-floor-plan-stage .floor-space-overlay.status-empty>span{
+  background:#475569!important;color:#fff!important;font-size:10px!important;
+  font-weight:850!important;padding:4px 7px!important;
+}

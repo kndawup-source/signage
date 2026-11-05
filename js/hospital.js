@@ -123,7 +123,7 @@
     return String(data||'');
   }
   async function openRoomPlayer(roomId){
-    try{const path=await roomPlayerPath(roomId);if(!path)throw new Error('환자 화면 주소를 찾을 수 없습니다.');window.open(path,'_blank','noopener,noreferrer');}
+    try{const path=await roomPlayerPath(roomId);if(!path)throw new Error('환자 화면 주소를 찾을 수 없습니다.');/* preview=1: this tab must not report as the real TV (closing it used to mark the TV "오프라인"). The copied TV URL stays without it. */window.open(`${path}${path.includes('?')?'&':'?'}preview=1`,'_blank','noopener,noreferrer');}
     catch(e){toast(e.message||String(e),'error');}
   }
   // Delegation covers inspector HTML inserted after initial bind().
@@ -277,9 +277,9 @@
   }
   function floorSpaceBroadcastStatus(sp){
     const rooms=roomsForFloorSpace(sp);
-    // A room must have fresh playback telemetry, not merely an assigned playlist.
+    if(!rooms.length)return {key:'empty',label:'TV 없음'};
+    // Only fresh, confirmed playback gets the blue state.
     if(rooms.some(r=>roomDisplayStatus(r).key==='live'))return {key:'live',label:'송출 중'};
-    // Empty, paused, manual, stale and offline spaces are deliberately marked not broadcasting.
     return {key:'offline',label:'송출 안 됨'};
   }
   function staffFloorSpacePreviewHtml(sp){
@@ -1271,6 +1271,9 @@
     qsa('[data-ops-reason]').forEach(el=>{const r=roomById(el.dataset.opsReason);if(r)el.textContent=roomIssueReason(r)||(roomDisplayStatus(r).key==='idle'?'TV 연결됨 · 재생 대기':' ');});
     qsa('[data-ops-floor-status]').forEach(el=>{const group=state.groups.find(g=>g.id===el.dataset.opsFloorStatus);if(!group)return;const rs=state.rooms.filter(r=>r.group_id===group.id);const ss=rs.map(roomDisplayStatus),issuesHere=ss.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length,playing=ss.filter(s=>s.key==='live').length;el.textContent=issuesHere?`${issuesHere}대 확인 필요`:playing?`${playing}/${rs.length}대 송출 중`:`${rs.length}대 · 재생 대기`;el.closest('.hospital-floor-row')?.classList.toggle('has-issue',issuesHere>0);});
     groupedRooms().forEach(g=>paintStaffGroup(g));
+    /* Floor-plan space colours were computed only on full render, so they went stale while the
+       TV badges next to them updated. Repaint them with the same 5s summary pass. */
+    qsa('.building-floor-plan-stage .floor-space-overlay[data-floor-space]:not(.is-editable)').forEach(el=>{const sp=state.floorSpaces.find(x=>x.id===el.dataset.floorSpace);if(!sp)return;const st=floorSpaceBroadcastStatus(sp);el.classList.toggle('status-live',st.key==='live');el.classList.toggle('status-offline',st.key==='offline');el.classList.toggle('status-empty',st.key==='empty');const t=`${sp.name} · ${st.label}`;if(el.title!==t){el.title=t;el.setAttribute('aria-label',t);}});
   }
   function paintStaffGroup(group){
     const card=qs(`[data-staff-group="${group.id}"]`);if(!card)return;const x=groupStatusSummary(group.rooms),set=(sel,val)=>{const el=qs(sel,card);if(el)el.textContent=String(val);};
