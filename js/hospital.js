@@ -465,13 +465,26 @@
     const name=String(g?.name||'').toLowerCase();
     return care==='minish'||name.includes('미니쉬')||name.includes('minish')?'minish':'general';
   }
+  // Presentation-only labels: do not alter heartbeat, presence, or control state.
+  const visibleTvStatus=(status)=>({live:'송출 중',offline:'송출 미확인',delayed:'상태 확인 지연',idle:'재생 대기',manual:'수동 운영','manual-warn':'수동 운영',error:'재생 오류',update:'업데이트 필요'})[status.key]||status.label;
+  function floorBroadcastText(rooms){
+    const remote=rooms.filter(r=>displayControlMode(r)!=='manual');
+    const live=remote.filter(r=>roomDisplayStatus(r).key==='live').length;
+    const manual=rooms.length-remote.length;
+    const notLive=remote.length-live;
+    if(!rooms.length)return '등록된 TV 없음';
+    const parts=[];
+    if(live)parts.push(`송출 ${live}대`);
+    if(notLive)parts.push(`미확인 ${notLive}대`);
+    if(manual)parts.push(`수동 ${manual}대`);
+    return parts.join(' · ');
+  }
   function staffBuildingFloor(g){
     const n=floorNumber(g),shortName=floorPurposeLabel(g);
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id);
-    const statuses=rooms.map(roomDisplayStatus),live=statuses.filter(s=>s.key==='live').length;
-    const needs=statuses.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length;
-    const message=needs?`${needs}대 확인 필요`:live?`${live}/${rooms.length}대 송출 중`:`${rooms.length}대 · 재생 대기`;
-    const cls=`hospital-floor-row${selectedFloorId===g.id?' is-selected':''}${needs?' has-issue':''}`;
+    const message=floorBroadcastText(rooms);
+    const hasPlaybackIssue=rooms.some(r=>['error','update'].includes(roomDisplayStatus(r).key));
+    const cls=`hospital-floor-row${selectedFloorId===g.id?' is-selected':''}${hasPlaybackIssue?' has-issue':''}`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${esc(g.id)}" aria-pressed="${selectedFloorId===g.id?'true':'false'}">
       <span class="hospital-floor-number">${n}F</span>
       <span class="hospital-floor-name" title="${esc(shortName)}">${esc(shortName)}<small class="floor-ops-floor-state" data-ops-floor-status="${esc(g.id)}">${esc(message)}</small></span>
@@ -567,16 +580,15 @@
   // Unified operations: one complete floor list; state always comes from player status,
   // not video URL visits or preview playback. All existing groups and content are retained.
   function hospitalOperationsSummary(){
-    const status=state.rooms.map(roomDisplayStatus);
-    const live=status.filter(s=>s.key==='live').length;
-    const problem=status.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length;
-    const idle=Math.max(0,status.length-live-problem);
-    return `<div class="hospital-ops-summary" aria-label="병원 전체 TV 상태">
-      <div><small>전체 TV</small><strong data-staff-stat-total>${state.rooms.length}</strong></div>
-      <div><small>송출 중</small><strong data-staff-stat-live>${live}</strong></div>
-      <div class="${problem?'has-problems':''}"><small>확인 필요</small><strong data-staff-stat-issues>${problem}</strong></div>
-      <div><small>대기 · 수동 확인 완료</small><strong data-staff-stat-idle>${idle}</strong></div>
-    </div><p class="hospital-ops-status-note">‘송출 중’은 최근 상태 보고에서 재생이 확인된 경우입니다. 보고가 늦으면 ‘상태 확인 지연’으로 분리됩니다. 원본 MP4를 열거나 미리보기만 재생해도 송출 중으로 집계되지 않습니다.</p>`;
+    const remote=state.rooms.filter(r=>displayControlMode(r)!=='manual');
+    const live=remote.filter(r=>roomDisplayStatus(r).key==='live').length;
+    const unverified=remote.length-live;
+    const manual=state.rooms.length-remote.length;
+    return `<div class="hospital-ops-summary" aria-label="병원 전체 송출 상태">
+      <div class="ops-primary"><small>지금 송출 중</small><strong data-staff-stat-live>${live}</strong><span>재생이 확인된 TV</span></div>
+      <div class="ops-unverified"><small>송출 미확인</small><strong data-staff-stat-issues>${unverified}</strong><span>재생이 확인되지 않은 TV</span></div>
+      <div class="ops-manual"><small>수동 운영</small><strong data-staff-stat-idle>${manual}</strong><span>시스템에서 송출 확인 불가</span></div>
+    </div><p class="hospital-ops-status-note">상태는 TV의 마지막 보고 기준입니다. ‘미확인’은 고장 확정이 아닙니다. 마지막 보고는 TV 상세에서 확인할 수 있습니다.</p>`;
   }
   function floorQuickTvList(rooms){
     if(!rooms.length)return '<div class="floor-ops-empty">이 층에는 등록된 TV가 없습니다. 설정에서 TV를 추가하세요.</div>';
@@ -586,7 +598,7 @@
       // are not duplicated or reimplemented. Its summary is visually hidden here.
       const controls=roomCard(r).replace('<details class="monitor-room ', '<details open class="monitor-room ');
       return `<details class="floor-ops-tv status-${st.key}" data-tv-id="${esc(r.id)}">
-        <summary class="floor-ops-tv-summary"><span class="floor-ops-tv-main"><b>${esc(r.name)}</b><span class="floor-ops-video" data-ops-video="${esc(r.id)}">${esc(manual?'현장 수동 운영':current?.title||r.player_status?.title||'현재 재생 영상 없음')}</span></span><span class="floor-ops-state status-${st.key}" data-ops-state="${esc(r.id)}">${esc(st.label)}</span><span class="floor-ops-expand" aria-hidden="true">⌄</span></summary>
+        <summary class="floor-ops-tv-summary"><span class="floor-ops-tv-main"><b>${esc(r.name)}</b><span class="floor-ops-video" data-ops-video="${esc(r.id)}">${esc(manual?'현장 수동 운영':current?.title||r.player_status?.title||'현재 재생 영상 없음')}</span></span><span class="floor-ops-state status-${st.key}" data-ops-state="${esc(r.id)}">${esc(visibleTvStatus(st))}</span><span class="floor-ops-expand" aria-hidden="true">⌄</span></summary>
         <div class="floor-ops-tv-expanded"><p class="floor-ops-reason" data-ops-reason="${esc(r.id)}">${esc(roomIssueReason(r)||' ')}</p>${controls}</div>
       </details>`;
     }).join('')}</div></section>`;
@@ -607,7 +619,7 @@
     if(!selectedFloorId){const firstIssue=floors.find(g=>(g.rooms||state.rooms.filter(r=>r.group_id===g.id)).some(r=>['offline','error','update','manual-warn','delayed'].includes(roomDisplayStatus(r).key)));selectedFloorId=(firstIssue||floors[0]).id;}
     const selected=floors.find(g=>g.id===selectedFloorId)||floors[0];
     return `<section class="hospital-building-dashboard hospital-unified-ops"><div class="hospital-building-console"><div class="hospital-floor-console-card">
-      <div class="hospital-floor-console-title"><div><small>층별 송출 관리</small><h2>몇 층을 확인할까요?</h2><p>층을 선택하면 도면과 해당 층 TV가 함께 나옵니다.</p></div><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'배치 편집 종료':'도면 · 공간 · TV 배치 편집'}</button></div>
+      <div class="hospital-floor-console-title"><div><small>층별 송출 관리</small><h2>층별 TV</h2><p>층을 선택하면 TV 위치와 송출 상태를 볼 수 있습니다.</p></div><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'배치 편집 종료':'도면 · 공간 · TV 배치 편집'}</button></div>
       <div class="hospital-floor-console-grid"><div class="hospital-floor-list" role="group" aria-label="층 선택">${floors.map(staffBuildingFloor).join('')}</div>
       <div class="hospital-floor-ops-content">${staffFloorPanelMarkup(selected)}${floorQuickTvList(selected.rooms||state.rooms.filter(r=>r.group_id===selected.id))}</div></div>
     </div>${layoutPanelOpen?operationsLayoutEditorMarkup():''}</div></section>`;
@@ -1102,7 +1114,7 @@
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>병원 전체 송출 관리</h1><p>전체 TV 상태 확인 → 층 선택 → 영상 확인과 변경을 한 화면에서 처리합니다.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">디스플레이 <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>송출 현황</h1><p>지금 재생되는 TV를 확인하고, 층별 화면을 관리하세요.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">디스플레이 <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${hospitalOperationsSummary()}${staffBuildingOverview(groups)}`;
@@ -1263,13 +1275,13 @@
     const detail=qs('[data-staff-live-detail]',card);if(detail)detail.textContent=displayControlMode(r)==='manual'?roomIssueReason(r):(on?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''} · ${roomIssueReason(r)}`:`${display.label} · ${roomIssueReason(r)}`);
   }
   function paintStaffSummary(){
-    const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length,issues=statuses.filter(x=>['error','update','offline','manual-warn','delayed'].includes(x.key)).length;
-    const set=(sel,val)=>{const el=qs(sel);if(el)el.textContent=String(val);};set('[data-staff-stat-total]',state.rooms.length);set('[data-staff-stat-live]',live);set('[data-staff-stat-issues]',issues);set('[data-staff-stat-offline]',offline);set('[data-staff-stat-online]',state.rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length);
-    set('[data-staff-stat-idle]',Math.max(0,state.rooms.length-live-issues));
-    qsa('[data-ops-state]').forEach(el=>{const r=roomById(el.dataset.opsState);if(!r)return;const s=roomDisplayStatus(r);el.className=`floor-ops-state status-${s.key}`;el.textContent=s.label;el.closest('.floor-ops-tv')?.setAttribute('class',`floor-ops-tv status-${s.key}`);});
+    const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length,manual=state.rooms.filter(r=>displayControlMode(r)==='manual').length,unverified=state.rooms.length-manual-live;
+    const set=(sel,val)=>{const el=qs(sel);if(el)el.textContent=String(val);};set('[data-staff-stat-total]',state.rooms.length);set('[data-staff-stat-live]',live);set('[data-staff-stat-issues]',unverified);set('[data-staff-stat-offline]',offline);set('[data-staff-stat-online]',state.rooms.filter(r=>displayControlMode(r)!=='manual'&&staffIsOnline(r)).length);
+    set('[data-staff-stat-idle]',manual);
+    qsa('[data-ops-state]').forEach(el=>{const r=roomById(el.dataset.opsState);if(!r)return;const s=roomDisplayStatus(r);el.className=`floor-ops-state status-${s.key}`;el.textContent=visibleTvStatus(s);el.closest('.floor-ops-tv')?.setAttribute('class',`floor-ops-tv status-${s.key}`);});
     qsa('[data-ops-video]').forEach(el=>{const r=roomById(el.dataset.opsVideo);if(r)el.textContent=displayControlMode(r)==='manual'?'현장 수동 운영':(currentVideoForRoom(r)?.title||r.player_status?.title||'현재 재생 영상 없음');});
     qsa('[data-ops-reason]').forEach(el=>{const r=roomById(el.dataset.opsReason);if(r)el.textContent=roomIssueReason(r)||(roomDisplayStatus(r).key==='idle'?'TV 연결됨 · 재생 대기':' ');});
-    qsa('[data-ops-floor-status]').forEach(el=>{const group=state.groups.find(g=>g.id===el.dataset.opsFloorStatus);if(!group)return;const rs=state.rooms.filter(r=>r.group_id===group.id);const ss=rs.map(roomDisplayStatus),issuesHere=ss.filter(s=>['offline','error','update','manual-warn','delayed'].includes(s.key)).length,playing=ss.filter(s=>s.key==='live').length;el.textContent=issuesHere?`${issuesHere}대 확인 필요`:playing?`${playing}/${rs.length}대 송출 중`:`${rs.length}대 · 재생 대기`;el.closest('.hospital-floor-row')?.classList.toggle('has-issue',issuesHere>0);});
+    qsa('[data-ops-floor-status]').forEach(el=>{const group=state.groups.find(g=>g.id===el.dataset.opsFloorStatus);if(!group)return;const rs=state.rooms.filter(r=>r.group_id===group.id);const hasPlaybackIssue=rs.some(r=>['error','update'].includes(roomDisplayStatus(r).key));el.textContent=floorBroadcastText(rs);el.closest('.hospital-floor-row')?.classList.toggle('has-issue',hasPlaybackIssue);});
     groupedRooms().forEach(g=>paintStaffGroup(g));
     /* Floor-plan space colours were computed only on full render, so they went stale while the
        TV badges next to them updated. Repaint them with the same 5s summary pass. */

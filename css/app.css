@@ -3676,3 +3676,22 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   background:#475569!important;color:#fff!important;font-size:10px!important;
   font-weight:850!important;padding:4px 7px!important;
 }
+
+/* 2.35.11 hierarchy patch: playback is primary; manual rooms are not errors. */
+.hospital-page .hospital-ops-summary{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr) minmax(0,1fr)!important;gap:12px}
+.hospital-page .hospital-ops-summary>div{padding:22px 24px;gap:7px;justify-content:center}
+.hospital-page .hospital-ops-summary>div>span{font-size:11px;color:#737b89;line-height:1.45}
+.hospital-page .hospital-ops-summary .ops-primary{background:#eef4ff;border:2px solid #2b5dd1}
+.hospital-page .hospital-ops-summary .ops-primary small{font-size:15px;color:#1746ad;font-weight:900}
+.hospital-page .hospital-ops-summary .ops-primary strong{font-size:52px;color:#1746ad;font-weight:900}
+.hospital-page .hospital-ops-summary .ops-unverified strong{color:#253041}
+.hospital-page .hospital-ops-summary .ops-manual strong{color:#687385}
+.hospital-page .hospital-ops-status-note{margin:0 0 17px;color:#788293;font-size:11px}
+.hospital-page .hospital-unified-ops .hospital-floor-row.has-issue .floor-ops-floor-state{color:#b91c1c}
+.hospital-page .hospital-unified-ops .hospital-floor-name small{font-weight:600;font-size:11px;color:#6b7484;line-height:1.4}
+.hospital-page .hospital-output-hero .hospital-display-total{font-weight:550;color:#707989}
+.hospital-page .hospital-unified-ops .hospital-floor-console-title h2{font-weight:850}
+.hospital-page .floor-ops-state.status-offline,.hospital-page .floor-ops-state.status-idle,.hospital-page .floor-ops-state.status-delayed{background:#f1f3f7!important;color:#485466!important}
+.hospital-page .floor-ops-state.status-manual,.hospital-page .floor-ops-state.status-manual-warn{background:#f1f3f7!important;color:#4f5c70!important}
+.hospital-page .floor-ops-state.status-error,.hospital-page .floor-ops-state.status-update{background:#fee2e2!important;color:#b91c1c!important}
+@media(max-width:760px){.hospital-page .hospital-ops-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}.hospital-page .hospital-ops-summary .ops-primary{grid-column:1/-1}.hospital-page .hospital-ops-summary .ops-primary strong{font-size:42px}.hospital-page .hospital-ops-summary>div{padding:17px}}
