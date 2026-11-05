@@ -671,7 +671,9 @@
     const nextFailure={count:prev.count+1,lastAt:Date.now()};mediaFailures.set(id,nextFailure);
     lastError=`재생 실패: ${v?.title||'영상'}`;cycleFailures++;queueHeartbeat(true);scheduleReport(0);
     const items=list();
-    for(let step=1;step<items.length;step++){
+    /* Include the last candidate (the previously active slot). If every other
+       video fails, a playable video must still be retried instead of freezing. */
+    for(let step=1;step<=items.length;step++){
       const candidateIndex=(index+step)%items.length,candidate=items[candidateIndex];
       // Skip the failed item only for THIS recovery pass, not for ten minutes.
       // A failed file should get another chance on the next full playlist lap.
@@ -803,8 +805,11 @@
         cancelPreroll();resetSlot(slots[inactiveSlotIndex()]);
         recovered=await switchToIndex(index,{force:true});
       }else{
-        intentionalNavigation=true;
-        location.reload();
+        /* Use the shared reload budget: never reload indefinitely when a
+           permanently broken media file or network cannot be repaired. */
+        if(reloadAfterPlaybackFailure('recovery-exhausted'))return;
+        recoveryAttempts=0;recoveryStage=0;
+        lastProgressAt=Date.now()+60000;
         return;
       }
       /* play() resolving is not proof of frame progress. The next timeupdate will
