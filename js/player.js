@@ -168,6 +168,13 @@
     const r=s?.room||{};
     return `${playlistSignature(s)}|${r.volume}|${r.paused}|${r.overlay_text||''}|${s?.notice_text||''}`;
   }
+  // Browser tab title follows the configured display name. No extra database request.
+  function updatePlayerTabTitle(s){
+    const configuredName=typeof s?.room?.name==='string'?s.room.name.trim():'';
+    const name=configuredName.replace(/[\u0000-\u001f\u007f]/g,' ').trim().slice(0,80);
+    const next=name?`${name} · Clinic Signage`:'Clinic Signage · Patient Display';
+    if(document.title!==next)document.title=next;
+  }
   function list(){ return state?.playlist||[]; }
   function current(){ const items=list(); return items.length?items[index%items.length]:null; }
   function mediaUrl(v){ return v?.url ? String(v.url) : ''; }
@@ -535,21 +542,21 @@
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
       else if(data.room.reload_nonce!==lastNonce){intentionalNavigation=true;try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
-      state=data;if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}else{clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}subscribePlayerRealtime();
+      state=data;updatePlayerTabTitle(state);if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}else{clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}subscribePlayerRealtime();
       const fetchedAt=data.server_time||null;
       lastStateSig=newStateSig;
       const meaningful=!fromPoll||playlistChanged||stateChanged||!syncedAt;
       if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=0;cycleFailures=0;recoveryAttempts=0;recoveryStage=0;lastProgressAt=Date.now();emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
       else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}if(meaningful)syncedAt=fetchedAt;}
       if(meaningful)reportNow();
-    }catch(e){lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
+    }catch(e){lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
     finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){const urgent=fetchQueuedUrgent;fetchQueued=false;fetchQueuedUrgent=false;queueMicrotask(()=>fetchState({fromPoll:!urgent}));}}
   }
   function loadSaved(){
     try{
       const saved=readJsonStorage(savedKey),offline=offlineReadyState();
       const initial=(!navigator.onLine&&offline)||saved||offline;
-      if(initial?.playlist){state=initial;lastPlaylistSig=playlistSignature(initial);lastStateSig=stateSignature(initial);renderFull();}
+      if(initial?.playlist){state=initial;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(initial);lastStateSig=stateSignature(initial);renderFull();}
     }catch(_){}
   }
 
