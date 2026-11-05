@@ -62,6 +62,26 @@
   let pauseConfirmTimer = null;
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
+  // A confirmed player failure gets one immediate full-page recovery. Persist the
+  // retry budget across page loads to avoid an infinite reload loop on a bad MP4.
+  const RELOAD_HISTORY_KEY=`clinic-signage:failure-reloads:${key||'none'}`;
+  const RELOAD_WINDOW_MS=5*60*1000,MAX_RELOADS_PER_WINDOW=2;
+  function reloadAfterPlaybackFailure(reason){
+    if(intentionalNavigation||!state||state.mode==='closed'||state.room?.paused)return false;
+    let recent=[];
+    try{recent=JSON.parse(sessionStorage.getItem(RELOAD_HISTORY_KEY)||'[]');if(!Array.isArray(recent))recent=[];}catch(_){recent=[];}
+    const now=Date.now();recent=recent.filter(t=>Number.isFinite(t)&&now-t<RELOAD_WINDOW_MS&&now>=t);
+    if(recent.length>=MAX_RELOADS_PER_WINDOW){
+      console.warn('[Clinic Signage] reload budget exceeded, using video fallback:',reason);
+      return false;
+    }
+    recent.push(now);
+    try{sessionStorage.setItem(RELOAD_HISTORY_KEY,JSON.stringify(recent));}catch(_){}
+    console.warn('[Clinic Signage] playback failure, reloading player:',reason);
+    intentionalNavigation=true; // do not send a false 'stopped' report on internal reload
+    try{location.reload();}catch(_){intentionalNavigation=false;return false;}
+    return true;
+  }
   let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
   let offlineCacheTimer=null,offlineCacheSyncToken=0,offlineCacheBusy=false;
   let offlineCacheReady=false,offlineCacheCount=0,offlineCacheTotal=0,offlineCacheUpdatedAt=null,offlineCacheError=null;
@@ -254,7 +274,7 @@
       });
       el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('error',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='error';pushLiveStatusNow();handleMediaFailure(current());}});
+      el.addEventListener('error',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='error';pushLiveStatusNow();if(!transitionInProgress&&!reloadAfterPlaybackFailure('video-error'))void handleMediaFailure(current());else if(transitionInProgress)void handleMediaFailure(current());}});
     });
     root.onclick=enableSound;
   }
@@ -709,10 +729,12 @@
     const el=activeVideoEl(),desired=current();
     const mismatched=!slotMatches(el,desired);
     const stopped=!el||el.paused||el.ended||el.error||el.readyState<2;
-    const stalled=Date.now()-lastProgressAt>=20000;
+    const stalled=Date.now()-lastProgressAt>=12000;
     if(!mismatched&&!stopped&&!stalled)return;
-    /* Allow initial loading / normal short transitions to finish. */
+    /* Allow normal video switches and temporary buffering to finish before treating
+       a lack of frame progress as a confirmed stall. */
     if(Date.now()-lastProgressAt<12000)return;
+    if(reloadAfterPlaybackFailure(mismatched?'video-mismatch':stopped?'video-stopped':'no-frame-progress'))return;
     stallRecovering=true;
     recoveryAttempts++;
     recoveryStage=Math.min(5,recoveryAttempts);
@@ -832,6 +854,6 @@
   setInterval(presenceTick,LIVE_PRESENCE_MS);
   /* Analytics heartbeat (재생률 통계). Not the source of online truth. */
   setInterval(heartbeat,ANALYTICS_HEARTBEAT_MS);
-  setInterval(playbackWatchdog,10000);
+  setInterval(playbackWatchdog,3000);
   setInterval(()=>{void checkForPlayerUpdate();if(updatePendingVersion)updateAtSafePoint();},60000);
 })();
