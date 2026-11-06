@@ -1,0 +1,67 @@
+/* v2.35.35 – TV status and mobile floor selection. Scoped; no playback/DB changes. */
+.hospital-page .hospital-output-hero{gap:16px!important;margin:2px 0 12px!important;align-items:center!important}
+.hospital-page .hospital-output-copy h1{font-size:clamp(27px,3vw,34px)!important;line-height:1.16!important;margin:0 0 5px!important}
+.hospital-page .hospital-output-copy p{font-size:13px!important;line-height:1.45!important}
+.hospital-page .hospital-output-side-simple{gap:10px!important;align-items:center!important}
+.hospital-page .hospital-refresh-btn{height:38px!important;min-width:83px!important;border-radius:9px!important;font-size:12px!important;padding:0 12px!important}
+.hospital-page .hospital-display-total b{font-size:17px!important}
+.hospital-page .hospital-ops-summary-easy{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;margin:10px 0 6px!important}
+.hospital-page .hospital-ops-summary-easy>.ops-status-card{appearance:none;display:flex;flex-direction:column;align-items:flex-start;gap:5px!important;min-width:0;width:100%;padding:14px 17px!important;min-height:124px;border:1px solid #e2e6ee!important;border-radius:13px;background:#fff!important;text-align:left;color:#202737;cursor:pointer;box-shadow:none!important;transition:border-color .16s,background-color .16s}
+.hospital-page .hospital-ops-summary-easy>.ops-status-card:hover,.hospital-page .hospital-ops-summary-easy>.ops-status-card:focus-visible{border-color:#8ca7d5!important;background:#f8faff!important;outline-offset:2px}
+.hospital-page .hospital-ops-summary-easy>.ops-status-card.is-active{border-color:#335fc9!important;background:#f5f8ff!important}
+.hospital-page .hospital-ops-summary-easy .ops-status-title{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:800;line-height:1.35;white-space:normal;word-break:keep-all}
+.hospital-page .hospital-ops-summary-easy .ops-status-title i{width:9px;height:9px;border-radius:50%;background:#3478e5;display:block;flex:none}
+.hospital-page .hospital-ops-summary-easy .ops-unverified .ops-status-title i{background:#df4750}
+.hospital-page .hospital-ops-summary-easy .ops-manual .ops-status-title i{background:#e8a13b}
+.hospital-page .hospital-ops-summary-easy .ops-status-card strong{font-size:32px!important;line-height:1.1!important;color:#1b2434!important;font-weight:850!important}
+.hospital-page .hospital-ops-summary-easy .ops-status-help{font-size:11px!important;color:#697486!important;line-height:1.4}
+.hospital-page .hospital-ops-summary-easy .ops-status-action{margin-top:auto;font-size:11px;color:#345db7;font-weight:700}
+.hospital-page .hospital-ops-status-note{font-size:11px!important;line-height:1.5!important;margin:8px 0 14px!important;color:#697586!important}
+.hospital-page .hospital-status-results{margin:4px 0 16px;padding:14px;border:1px solid #dde5f4;border-radius:12px;background:#f9fbff;min-width:0}
+.hospital-page .hospital-status-results-heading{display:flex;justify-content:space-between;align-items:start;gap:12px;margin-bottom:10px}
+.hospital-page .hospital-status-results-heading h2{font-size:16px;line-height:1.3;margin:0 0 4px}
+.hospital-page .hospital-status-results-heading p{font-size:11px;margin:0;color:#657084}
+.hospital-page .hospital-status-result-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;max-height:340px;overflow-y:auto}
+.hospital-page .hospital-status-result{display:flex;align-items:center;justify-content:space-between;text-align:left;gap:8px;min-width:0;background:#fff;border:1px solid #e2e7ef;border-radius:9px;padding:10px 12px;cursor:pointer;color:#202b3d}
+.hospital-page .hospital-status-result:hover{border-color:#8aa1d6;background:#f4f7ff}
+.hospital-page .hospital-status-result .status-result-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hospital-page .hospital-status-result .status-result-main b{font-size:13px;overflow-wrap:anywhere}
+.hospital-page .hospital-status-result .status-result-main small{font-size:11px;color:#687386;overflow-wrap:anywhere}
+.hospital-page .hospital-status-none{font-size:12px;color:#687386;padding:10px}
+@media(max-width:760px){
+  .hospital-page .hospital-output-hero{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+  .hospital-page .hospital-output-side-simple{width:100%!important;justify-content:space-between!important}
+  .hospital-page .hospital-ops-summary-easy{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}
+  .hospital-page .hospital-ops-summary-easy>.ops-status-card{padding:11px!important;min-height:112px;gap:5px!important}
+  .hospital-page .hospital-ops-summary-easy .ops-status-card strong{font-size:27px!important}
+  .hospital-page .hospital-ops-summary-easy .ops-status-title{font-size:12px;align-items:flex-start}
+  .hospital-page .hospital-ops-summary-easy .ops-status-help{font-size:10px!important}
+  .hospital-page .hospital-status-result-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .hospital-page .hospital-unified-ops .hospital-floor-console-title{padding:14px 12px!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-console-title>div{min-width:0!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-console-title h2{font-size:20px!important}
+  .hospital-page .hospital-unified-ops .hospital-layout-edit-toggle{width:100%!important;max-width:100%!important;min-width:0;white-space:normal!important;height:auto!important;min-height:42px;padding:9px!important}
+  /* Replace horizontally clipped fixed-width floor cards with fitted 2-column buttons. */
+  .hospital-page .hospital-unified-ops .hospital-floor-list{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;overflow:visible!important;width:100%!important;min-width:0!important;padding:10px!important;scroll-snap-type:none!important;box-sizing:border-box!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-list>.hospital-floor-row{display:grid!important;grid-template-columns:38px minmax(0,1fr) 12px!important;gap:7px!important;flex:unset!important;flex-basis:auto!important;width:100%!important;min-width:0!important;max-width:100%!important;min-height:76px!important;height:auto!important;padding:9px 8px!important;margin:0!important;align-items:center!important;box-sizing:border-box!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-row>.hospital-floor-number{font-size:15px!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-name{min-width:0!important;max-width:100%!important;overflow-wrap:anywhere!important;word-break:keep-all!important;white-space:normal!important;font-size:12px!important;line-height:1.35!important}
+  .hospital-page .hospital-unified-ops .floor-ops-floor-state{gap:4px!important;margin-top:5px!important}
+  .hospital-page .hospital-unified-ops .floor-dot{flex:0 0 8px!important;width:8px!important;height:8px!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-chevron{font-size:17px!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-detail{padding-left:10px!important;padding-right:10px!important;overflow:visible!important;min-width:0!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-ops-content{min-width:0!important;width:100%!important}
+}
+@media(max-width:460px){
+  .hospital-page .hospital-ops-summary-easy{grid-template-columns:1fr!important;gap:7px!important}
+  .hospital-page .hospital-ops-summary-easy>.ops-status-card{min-height:0!important;padding:11px 13px!important;display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:3px 10px!important;align-items:center!important}
+  .hospital-page .hospital-ops-summary-easy .ops-status-title{grid-column:1;grid-row:1}
+  .hospital-page .hospital-ops-summary-easy .ops-status-card strong{grid-column:2;grid-row:1 / span 2;font-size:25px!important}
+  .hospital-page .hospital-ops-summary-easy .ops-status-help{grid-column:1;grid-row:2}
+  .hospital-page .hospital-ops-summary-easy .ops-status-action{display:none}
+  .hospital-page .hospital-status-result-list{grid-template-columns:1fr}
+  .hospital-page .hospital-unified-ops .hospital-floor-list{gap:6px!important;padding:8px!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-list>.hospital-floor-row{grid-template-columns:30px minmax(0,1fr) 10px!important;padding:8px 6px!important;gap:5px!important;min-height:72px!important}
+  .hospital-page .hospital-unified-ops .hospital-floor-name{font-size:11px!important}
+  .hospital-page .hospital-floor-console-title .floor-status-legend{gap:7px!important;font-size:10px!important}
+}

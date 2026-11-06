@@ -24,7 +24,7 @@
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,tab='output';
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,tab='output',statusViewFilter='';
   // Preview stays click-to-load. Parked elements are capped and evicted LRU.
   const floorInlineVideoCache=new Map();
   const floorInlineVideoCacheLimit=3;
@@ -585,16 +585,36 @@
   }
   // Unified operations: one complete floor list; state always comes from player status,
   // not video URL visits or preview playback. All existing groups and content are retained.
+  // Dashboard cards are navigational filters, not a claim that a screen is physically powered on.
+  function tvStatusCategory(room){
+    if(displayControlMode(room)==='manual')return 'manual';
+    return roomDisplayStatus(room).key==='live'?'live':'unverified';
+  }
+  function hospitalStatusMatches(filter){return state.rooms.filter(r=>tvStatusCategory(r)===filter);}
+  function hospitalStatusFilterMarkup(){
+    if(!['live','unverified','manual'].includes(statusViewFilter))return '';
+    const labels={live:'영상 나오는 TV',unverified:'확인이 필요한 TV',manual:'직접 관리하는 TV'};
+    const rooms=hospitalStatusMatches(statusViewFilter);
+    const rows=rooms.map(r=>{
+      const group=state.groups.find(g=>g.id===r.group_id);
+      const place=group?`${floorNumber(group)}층`:'층 미지정';
+      const status=roomDisplayStatus(r);
+      return `<button type="button" class="hospital-status-result" data-status-open-room="${esc(r.id)}" aria-label="${esc(place)} ${esc(r.name)} 상세보기"><span class="status-result-main"><b>${esc(r.name)}</b><small>${esc(place)} · ${esc(visibleTvStatus(status))}</small></span><span aria-hidden="true">›</span></button>`;
+    }).join('');
+    return `<section class="hospital-status-results" id="hospitalStatusResults" aria-label="${labels[statusViewFilter]} 목록"><div class="hospital-status-results-heading"><div><h2>${labels[statusViewFilter]}</h2><p>${rooms.length}대 · TV를 누르면 해당 층의 상세 설정으로 이동합니다.</p></div><button type="button" class="btn small" data-status-clear>닫기</button></div><div class="hospital-status-result-list">${rows||'<p class="hospital-status-none">해당하는 TV가 없습니다.</p>'}</div></section>`;
+  }
   function hospitalOperationsSummary(){
-    const remote=state.rooms.filter(r=>displayControlMode(r)!=='manual');
-    const live=remote.filter(r=>roomDisplayStatus(r).key==='live').length;
-    const unverified=remote.length-live;
-    const manual=state.rooms.length-remote.length;
-    return `<div class="hospital-ops-summary" aria-label="병원 전체 송출 상태">
-      <div class="ops-primary"><small>지금 송출 중</small><strong data-staff-stat-live>${live}</strong><span>재생이 확인된 TV</span></div>
-      <div class="ops-unverified"><small>송출 미확인</small><strong data-staff-stat-issues>${unverified}</strong><span>재생이 확인되지 않은 TV</span></div>
-      <div class="ops-manual"><small>수동 운영</small><strong data-staff-stat-idle>${manual}</strong><span>시스템에서 송출 확인 불가</span></div>
-    </div><p class="hospital-ops-status-note">상태는 TV의 마지막 보고 기준입니다. ‘미확인’은 고장 확정이 아닙니다. 마지막 보고는 TV 상세에서 확인할 수 있습니다.</p>`;
+    const live=hospitalStatusMatches('live').length;
+    const unverified=hospitalStatusMatches('unverified').length;
+    const manual=hospitalStatusMatches('manual').length;
+    const cards=[
+      ['live','영상 나오는 TV',live,'재생이 확인된 TV'],
+      ['unverified','확인이 필요한 TV',unverified,'고장이 아닐 수도 있어요'],
+      ['manual','직접 관리하는 TV',manual,'자동으로 확인할 수 없어요']
+    ];
+    return `<div class="hospital-ops-summary hospital-ops-summary-easy" aria-label="TV 상태별 목록">${cards.map(([key,label,num,desc])=>
+      `<button type="button" class="ops-status-card ops-${key}${statusViewFilter===key?' is-active':''}" data-status-filter="${key}" aria-pressed="${statusViewFilter===key?'true':'false'}"><span class="ops-status-title"><i aria-hidden="true"></i>${label}</span><strong data-staff-stat-${key==='live'?'live':key==='unverified'?'issues':'idle'}>${num}</strong><span class="ops-status-help">${desc}</span><span class="ops-status-action">TV 목록 보기 ›</span></button>`
+    ).join('')}</div><p class="hospital-ops-status-note">상태는 TV에서 보낸 정보를 기준으로 표시합니다. <b>확인이 필요</b>하다고 모두 고장 난 것은 아닙니다.</p>${hospitalStatusFilterMarkup()}`;
   }
   function floorQuickTvList(rooms){
     rooms=[...rooms].sort(layoutRoomSort);
@@ -765,7 +785,7 @@
     if(!selectedFloorId){const firstIssue=floors.find(g=>(g.rooms||state.rooms.filter(r=>r.group_id===g.id)).some(r=>['offline','error','update','manual-warn','delayed'].includes(roomDisplayStatus(r).key)));selectedFloorId=(firstIssue||floors[0]).id;}
     const selected=floors.find(g=>g.id===selectedFloorId)||floors[0];
     return `<section class="hospital-building-dashboard hospital-unified-ops"><div class="hospital-building-console"><div class="hospital-floor-console-card">
-      <div class="hospital-floor-console-title"><div><small>층별 송출 관리</small><h2>층별 TV</h2><p>층을 선택하면 TV 위치와 송출 상태를 볼 수 있습니다.</p><div class="floor-status-legend" aria-label="상태 점 범례"><span><i class="live"></i>송출 중</span><span><i class="unverified"></i>미확인·오류</span><span><i class="manual"></i>수동</span><span><i class="empty"></i>TV 없음</span></div></div><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'배치 편집 종료':'도면 · 공간 · TV 배치 편집'}</button></div>
+      <div class="hospital-floor-console-title"><div><small>층 선택</small><h2>층별 TV</h2><p>층을 누르면 TV 위치와 상태를 볼 수 있어요.</p><div class="floor-status-legend" aria-label="상태 점 범례"><span><i class="live"></i>송출 중</span><span><i class="unverified"></i>미확인·오류</span><span><i class="manual"></i>수동</span><span><i class="empty"></i>TV 없음</span></div></div><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'배치 편집 종료':'TV 위치 바꾸기'}</button></div>
       <div class="hospital-floor-console-grid"><div class="hospital-floor-list" role="group" aria-label="층 선택">${floors.map(staffBuildingFloor).join('')}</div>
       <div class="hospital-floor-ops-content">${staffFloorPanelMarkup(selected)}${floorQuickTvList(selected.rooms||state.rooms.filter(r=>r.group_id===selected.id))}</div></div>
     </div>${layoutPanelOpen?operationsLayoutEditorMarkup():''}</div></section>`;
@@ -1280,7 +1300,7 @@
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
     const head=tab==='output'
-      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>송출 현황</h1><p>지금 재생되는 TV를 확인하고, 층별 화면을 관리하세요.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">디스플레이 <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
+      ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>TV 상태</h1><p>우리 병원의 TV가 잘 나오고 있는지 확인하세요.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">전체 TV <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상 · 플레이리스트':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${hospitalOperationsSummary()}${staffBuildingOverview(groups)}`;
@@ -1322,6 +1342,24 @@
   function bind(){
     bindHospitalAdminSettings();
     bindFloorTvDragSort();
+    qsa('[data-status-filter]').forEach(btn=>btn.addEventListener('click',()=>{
+      const choice=btn.dataset.statusFilter;
+      statusViewFilter=statusViewFilter===choice?'':choice;
+      renderPreservingUi(false);
+      if(statusViewFilter)requestAnimationFrame(()=>qs('#hospitalStatusResults')?.scrollIntoView({behavior:'smooth',block:'nearest'}));
+    }));
+    qs('[data-status-clear]')?.addEventListener('click',()=>{statusViewFilter='';renderPreservingUi(false);});
+    qsa('[data-status-open-room]').forEach(btn=>btn.addEventListener('click',()=>{
+      const room=roomById(btn.dataset.statusOpenRoom);
+      if(!room)return;
+      const floor=state.groups.find(g=>g.id===room.group_id&&g.kind==='floor');
+      if(!floor){toast('이 TV는 층이 지정되지 않았습니다. 병원 설정에서 층을 먼저 배정해 주세요.','error');return;}
+      selectedFloorId=floor.id;
+      statusViewFilter='';
+      renderPreservingUi(false);
+      requestAnimationFrame(()=>{if(!openInlineTvDetail(room.id))qs('.hospital-floor-console-card')?.scrollIntoView({behavior:'smooth',block:'start'});});
+    }));
+
     qsa('[data-ops-layout-toggle],[data-ops-layout-open]').forEach(b=>b.addEventListener('click',()=>{
       layoutPanelOpen=b.hasAttribute('data-ops-layout-open')?true:!layoutPanelOpen;
       if(layoutPanelOpen){spaceEditorGroupId=selectedFloorId||state.groups.find(g=>g.kind==='floor')?.id||null;layoutEditMode='display';spaceRedrawId=null;layoutPlacementRoomId=null;layoutCopyOpen=false;}
