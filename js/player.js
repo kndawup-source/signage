@@ -61,6 +61,13 @@
   let transitionStartedAt = 0;
   let confirmedPlaybackState = 'loading';
   let pauseConfirmTimer = null;
+  // Background tabs are throttled by Chromium; this is not evidence of a broken MP4.
+  const FOREGROUND_GRACE_MS=12000;
+  let foregroundGraceUntil=0,foregroundResumeTimer=null,foregroundResumeBusy=false;
+  let windowCovered=false;
+  function backgrounded(){return document.visibilityState==='hidden'||windowCovered;}
+  function inForegroundGrace(){return Date.now()<foregroundGraceUntil;}
+
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
   /* 복구 단계는 '같은 영상'에서 '충분히 오래(30초)' 정상 진행해야 초기화한다. 몇 초 재생 후 같은
@@ -294,24 +301,24 @@
       el.removeAttribute('autoplay');el.autoplay=false;
       if(el.dataset.playerBound==='1')return;
       el.dataset.playerBound='1';
-      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}void advanceSeamless();}});
+      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(backgrounded())return;if(updatePendingVersion){reloadForUpdate();return;}void advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);/* The switch owner clears transitionInProgress only after slot commit. */confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();if(recoveryAttempts&&Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS){recoveryStage=0;recoveryAttempts=0;}if(lastError&&String(lastError).startsWith('재생 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
         pauseConfirmTimer=setTimeout(()=>{
-          if(slotIndex!==activeSlot||transitionInProgress||!el.paused||el.ended)return;
+          if(slotIndex!==activeSlot||transitionInProgress||backgrounded()||inForegroundGrace()||!el.paused||el.ended)return;
           confirmedPlaybackState='paused';
           pushLiveStatusNow();
           queueHeartbeat(true);
         },180);
       });
-      el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
       /* 특정 영상 오류는 페이지 새로고침이 아니라 다음 영상으로 건너뛰어 처리한다.
          전환 중 오류는 전환 담당(switchToIndex 호출자)이 재시도/건너뛰기를 한다. */
-      el.addEventListener('error',()=>{if(slotIndex!==activeSlot||emergencyPlaying)return;confirmedPlaybackState='error';pushLiveStatusNow();if(transitionInProgress||playlistAdvanceBusy)return;void handleMediaFailure(current(),index);});
+      el.addEventListener('error',()=>{if(slotIndex!==activeSlot||emergencyPlaying||backgrounded())return;confirmedPlaybackState='error';pushLiveStatusNow();if(transitionInProgress||playlistAdvanceBusy)return;void handleMediaFailure(current(),index);});
     });
     root.onclick=enableSound;
   }
@@ -367,12 +374,12 @@
      Track each invocation to avoid an old timer touching a newer owner of the slot. */
   const playAttemptEpoch=new WeakMap();
   function playWithDeadline(el,timeoutMs=6000){
-    if(!el)return Promise.resolve(false);
+    if(!el||backgrounded())return Promise.resolve(false);
     const epoch=(playAttemptEpoch.get(el)||0)+1;
     playAttemptEpoch.set(el,epoch);
     let timer;
     const deadline=new Promise(resolve=>{timer=setTimeout(()=>{
-      if(playAttemptEpoch.get(el)===epoch){
+      if(playAttemptEpoch.get(el)===epoch&&!backgrounded()){
         try{el.pause();}catch(_){}
         /* load() interrupts an unresolved play() request in Chromium/Edge.
            Preserve the src so a caller may explicitly retry the same clip. */
@@ -390,6 +397,7 @@
   async function playElement(el){
     if(!el)return false;
     if(state?.room?.paused)return true;
+    if(backgrounded())return false;
     const forceMute=Boolean(state?.room?.force_mute);
     const targetVolume=Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));
     el.volume=targetVolume;
@@ -407,6 +415,7 @@
         return true;
       }
     }
+    if(backgrounded())return false;
     lastError='영상 재생 시작 실패 또는 시간 초과';
     queueHeartbeat(true);
     return false;
@@ -445,7 +454,7 @@
     slots.forEach(el=>{if(el)el.dataset.prerolled='';});
   }
   async function prerollNext(){
-    if(prerollBusy||transitionInProgress||emergencyPlaying||state?.room?.paused||state?.mode==='closed')return false;
+    if(backgrounded()||prerollBusy||transitionInProgress||emergencyPlaying||state?.room?.paused||state?.mode==='closed')return false;
     const items=list();if(items.length<2)return false;
     const targetIndex=nextPlayableIndex();
     if(targetIndex===index%items.length)return false;
@@ -486,7 +495,7 @@
   function watchForPreroll(el,slotIndex){
     const myToken=++frameWatchToken;
     const tick=()=>{
-      if(myToken!==frameWatchToken||slotIndex!==activeSlot||!el||el.paused||el.ended||emergencyPlaying)return;
+      if(myToken!==frameWatchToken||slotIndex!==activeSlot||!el||el.paused||el.ended||emergencyPlaying||backgrounded())return;
       const duration=Number(el.duration),time=Number(el.currentTime);
       if(Number.isFinite(duration)&&duration>0&&Number.isFinite(time)){
         const remain=duration-time;
@@ -500,6 +509,7 @@
     else requestAnimationFrame(tick);
   }
   async function switchToIndex(targetIndex,{sync=false,force=false}={}){
+    if(backgrounded())return false;
     const items=list(); if(!items.length){blankPlayer();return false;}
     const normalized=((targetIndex%items.length)+items.length)%items.length;
     const v=items[normalized];
@@ -533,8 +543,7 @@
           resetSlot(nextEl);
           nextEl.classList.remove('is-active');
           currentEl?.classList.add('is-active');
-          confirmedPlaybackState='error';
-          lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);
+          if(!backgrounded()){confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);}
           scheduleReport(0);
           transitionInProgress=false;
         }
@@ -571,7 +580,7 @@
         nextEl.classList.remove('is-active');
         currentEl?.classList.add('is-active');
         transitionInProgress=false;
-        confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);
+        if(!backgrounded()){confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);}
       }
       return false;
     }
@@ -587,7 +596,7 @@
         nextEl.classList.remove('is-active');
         currentEl?.classList.add('is-active');
         transitionInProgress=false;
-        confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);
+        if(!backgrounded()){confirmedPlaybackState='error';lastProgressAt=Math.min(lastProgressAt,Date.now()-15000);scheduleReport(0);}
         return false;
       }
     }
@@ -622,27 +631,28 @@
   /* 다음 영상으로 진행: 정상 전환 → 실패 시 같은 영상 1회 재시도(슬롯 새로 로드) → 그래도 실패면 건너뛰기.
      진행 중에 들어온 ended 이벤트는 버리지 않고 끝난 뒤 다시 확인한다. */
   async function advanceSeamless(){
+    if(backgrounded())return;
     if(playlistAdvanceBusy){advancePending=true;return;}
     const items=list();if(!items.length)return;
     playlistAdvanceBusy=true;
     const target=nextPlayableIndex();
     try{
       let ok=await switchToIndex(target);
-      if(!ok&&items===list()&&canAutoPlay()){
+      if(!ok&&!backgrounded()&&items===list()&&canAutoPlay()){
         console.warn('[Clinic Signage] transition failed, retrying once:',items[target]?.title||target);
         cancelPreroll();resetSlot(slots[inactiveSlotIndex()]);
         ok=await switchToIndex(target,{force:true});
       }
-      if(!ok&&items===list()&&canAutoPlay())await handleMediaFailure(items[target],target);
+      if(!ok&&!backgrounded()&&items===list()&&canAutoPlay())await handleMediaFailure(items[target],target);
     }catch(e){
       console.warn('[Clinic Signage] playlist advance failed:',e?.message||e);
-      if(items===list()&&canAutoPlay())await handleMediaFailure(items[target],target);
+      if(!backgrounded()&&items===list()&&canAutoPlay())await handleMediaFailure(items[target],target);
     }finally{
       playlistAdvanceBusy=false;
       if(advancePending){
         advancePending=false;
         const el=activeVideoEl();
-        if(el&&el.ended&&canAutoPlay())queueMicrotask(()=>void advanceSeamless());
+        if(el&&el.ended&&!backgrounded()&&canAutoPlay())queueMicrotask(()=>void advanceSeamless());
       }
     }
   }
@@ -663,7 +673,7 @@
     ensureSurface();renderBarsOnly();
     const mySeq=++renderSeq;
     const ok=await switchToIndex(index,{sync:true});
-    if(!ok&&mySeq===renderSeq&&!emergencyPlaying&&!state?.room?.paused)await handleMediaFailure(current(),index);
+    if(!ok&&!backgrounded()&&mySeq===renderSeq&&!emergencyPlaying&&!state?.room?.paused)await handleMediaFailure(current(),index);
     return ok;
   }
   function enableSound(){
@@ -678,7 +688,7 @@
     const vol=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
     slots.forEach(v=>{if(v){if(Math.abs(v.volume-vol)>0.01)v.volume=vol;if(state.room.force_mute)v.muted=true;}});
     if(state.room.paused){if(!el.paused)el.pause();}
-    else if(el.paused&&!el.ended)playElement(el);
+    else if(el.paused&&!el.ended&&!backgrounded())playElement(el);
     queueHeartbeat(true);
   }
 
@@ -749,7 +759,7 @@
      failure. Only one recovery pass runs at a time so failures are not double-counted. */
   let mediaFailureBusy=false;
   async function handleMediaFailure(v,failedIndex){
-    if(!state||state.mode==='closed'||mediaFailureBusy)return;
+    if(!state||state.mode==='closed'||mediaFailureBusy||backgrounded())return;
     mediaFailureBusy=true;
     try{await handleMediaFailureOnce(v,failedIndex);}finally{mediaFailureBusy=false;}
   }
@@ -777,7 +787,7 @@
 
   function scheduleExpiry(){clearTimeout(expireTimer);if(!state?.session_expires_at)return;const ms=new Date(state.session_expires_at).getTime()-serverNow();if(ms>0)expireTimer=setTimeout(fetchState,ms+1200);}
   function scheduleTransition(){clearTimeout(transitionTimer);if(!state?.next_transition_at)return;const ms=new Date(state.next_transition_at).getTime()-serverNow();if(ms>0)transitionTimer=setTimeout(fetchState,ms+500);}
-  function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(el.readyState<3)return 'loading';if(confirmedPlaybackState==='playing')return 'playing';return 'playing';}
+  function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(backgrounded()&&el&&!el.error&&!state?.room?.paused)return el.ended?'ended':(el.paused?'loading':'playing');if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(el.readyState<3)return 'loading';if(confirmedPlaybackState==='playing')return 'playing';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
     return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
@@ -873,7 +883,7 @@
      같은 지점에서 반복해서 새로고침되었다. */
   const STALL_MS=12000,TRANSITION_HANG_MS=30000;
   async function playbackWatchdog(){
-    if(!state||state.mode==='closed'||state.room?.paused||emergencyPlaying||!list().length||stallRecovering)return;
+    if(!state||state.mode==='closed'||state.room?.paused||emergencyPlaying||!list().length||stallRecovering||backgrounded()||inForegroundGrace())return;
     if(playlistAdvanceBusy||mediaFailureBusy)return; // 진행/복구 담당이 이미 동작 중
     if(transitionInProgress){
       if(Date.now()-transitionStartedAt<TRANSITION_HANG_MS)return;
@@ -996,9 +1006,57 @@
     statePollTimer=setTimeout(()=>void fetchState({fromPoll:true}),wait);
   }
 
+  function onPlayerBackground(){
+    clearTimeout(foregroundResumeTimer);foregroundResumeTimer=null;
+    clearTimeout(pauseConfirmTimer);
+    // Invalidate an in-flight hidden-slot switch. The active slot remains untouched.
+    ++switchToken;clearTimeout(syncStartTimer);transitionInProgress=false;
+    cancelPreroll();
+    const inactive=slots[inactiveSlotIndex()];
+    if(inactive)resetSlot(inactive);
+    lastProgressAt=Date.now();
+  }
+  async function resumePlayerForeground(){
+    if(backgrounded()||foregroundResumeBusy||!canAutoPlay())return;
+    if(playlistAdvanceBusy||mediaFailureBusy){
+      clearTimeout(foregroundResumeTimer);
+      foregroundResumeTimer=setTimeout(()=>void resumePlayerForeground(),750);return;
+    }
+    foregroundResumeBusy=true;
+    try{
+      const el=activeVideoEl(),v=current();
+      if(!el||!v){await renderFull();return;}
+      if(!slotMatches(el,v)||el.error){
+        await handleMediaFailure(v,index);return;
+      }
+      if(el.ended||(el.paused&&Number.isFinite(el.duration)&&el.duration>0&&el.currentTime>=el.duration-0.3)){
+        await advanceSeamless();return;
+      }
+      if(el.paused&&!state.room?.paused){
+        const ok=await playElement(el);
+        if(!ok&&!backgrounded())await handleMediaFailure(v,index);
+        return;
+      }
+      // Do not turn a covered window into a permanent 'error' alert.
+      if(!el.paused&&!el.error){lastError=null;confirmedPlaybackState='playing';}
+      prepareNext();pushLiveStatusNow();
+    }finally{
+      lastProgressAt=Date.now();lastProgressTime=activeVideoEl()?.currentTime||0;
+      foregroundResumeBusy=false;
+    }
+  }
+  function onPlayerForeground(){
+    windowCovered=false;
+    foregroundGraceUntil=Date.now()+FOREGROUND_GRACE_MS;
+    lastProgressAt=Date.now();
+    clearTimeout(foregroundResumeTimer);
+    foregroundResumeTimer=setTimeout(()=>void resumePlayerForeground(),350);
+  }
+
   ensureSurface();if(!PREVIEW)void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
-  document.addEventListener('visibilitychange',()=>{acquireWake();if(document.visibilityState==='visible'){scheduleReport();void checkForPlayerUpdate(true);}});
-  window.addEventListener('focus',()=>{scheduleReport();void checkForPlayerUpdate();});
+  document.addEventListener('visibilitychange',()=>{acquireWake();if(backgrounded()){onPlayerBackground();return;}onPlayerForeground();scheduleReport();void checkForPlayerUpdate(true);});
+  window.addEventListener('blur',()=>{windowCovered=true;onPlayerBackground();});
+  window.addEventListener('focus',()=>{if(!backgrounded())onPlayerForeground();scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
   window.addEventListener('offline',()=>{const cached=offlineReadyState();if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
   // Best-effort shutdown notice. A covered/background window does not trigger pagehide.
