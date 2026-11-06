@@ -1,3 +1,29 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Clinic Signage · Hospital Admin</title><link rel="stylesheet" href="/css/app.css?v=2.35.26"></head>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Clinic Signage · Hospital Admin</title><link rel="stylesheet" href="/css/app.css?v=2.35.26"><style>
+/* Scoped to the floor TV cards: only the grip can initiate reordering. */
+.floor-ops-tv-summary{display:flex;align-items:center;gap:10px}
+.floor-tv-drag-handle{flex:none;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;display:grid;place-items:center;width:36px;height:40px;border:1px solid #dbe1ea;border-radius:9px;background:#f7f9fc;color:#60718d;font-size:23px;line-height:1}
+.floor-tv-drag-handle:focus-visible{outline:3px solid #6178cd;outline-offset:2px}
+.floor-tv-drag-handle.is-holding,.floor-tv-drag-handle:active{cursor:grabbing;background:#e8efff}
+.floor-ops-tv.is-dragging{outline:2px solid #637bd2;outline-offset:-2px;background:#eef2ff;box-shadow:0 5px 16px #1e2a4e19}
+.floor-ops-tv-grid.is-saving-order{opacity:.72;pointer-events:none}
+@media (max-width:640px){.floor-tv-drag-handle{width:40px;height:44px}}
+
+/* v2.35.30: individual TV statuses in the floor navigation, not ambiguous text counters. */
+.hospital-page .hospital-unified-ops .floor-ops-floor-state{display:flex!important;align-items:center;align-content:center;flex-direction:row!important;flex-wrap:wrap;gap:6px;margin-top:8px;min-height:12px;font-size:0;line-height:1}
+.hospital-page .hospital-unified-ops .floor-ops-floor-state .floor-dot{display:inline-block;flex:0 0 10px;width:10px;height:10px;border-radius:50%;box-sizing:border-box;border:1px solid transparent;box-shadow:0 0 0 1px #ffffff70;cursor:help}
+.hospital-page .hospital-unified-ops .floor-dot-live{background:#3278e4;border-color:#2866c4}
+.hospital-page .hospital-unified-ops .floor-dot-unverified{background:#df4750;border-color:#bf303a}
+.hospital-page .hospital-unified-ops .floor-dot-manual{background:#e8a13b;border-color:#c58323}
+.hospital-page .hospital-unified-ops .floor-dot-empty{background:#a5afbd;border-color:#8794a6}
+.hospital-page .hospital-unified-ops .floor-dot:hover{outline:2px solid #31425f;outline-offset:2px}
+.hospital-page .hospital-unified-ops .hospital-floor-row.has-issue .floor-ops-floor-state{color:inherit}
+.hospital-page .hospital-floor-console-title .floor-status-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 13px;margin-top:9px;font-size:11px;color:#637083}
+.hospital-page .hospital-floor-console-title .floor-status-legend span{display:inline-flex;align-items:center;gap:5px}
+.hospital-page .hospital-floor-console-title .floor-status-legend i{display:inline-block;width:8px;height:8px;border-radius:50%}
+.hospital-page .hospital-floor-console-title .floor-status-legend .live{background:#3278e4}
+.hospital-page .hospital-floor-console-title .floor-status-legend .unverified{background:#df4750}
+.hospital-page .hospital-floor-console-title .floor-status-legend .manual{background:#e8a13b}
+.hospital-page .hospital-floor-console-title .floor-status-legend .empty{background:#a5afbd}
+</style></head>
 <body class="hospital-page"><header class="topbar"><div class="topbar-inner"><a class="brand" href="/hospital.html">CLINIC SIGNAGE</a><button id="signOut" class="text-btn">로그아웃</button></div></header><main class="shell"><div id="hospitalRoot"><div class="loading">불러오는 중…</div></div></main>
-<script src="/js/boot.js?v=2.35.28" data-entry="hospital-entry" data-version="2.35.28" data-player-version="2.35.26"></script></body></html>
+<script src="/js/boot.js?v=2.35.29" data-entry="hospital-entry" data-version="2.35.30" data-player-version="2.35.26"></script></body></html>
