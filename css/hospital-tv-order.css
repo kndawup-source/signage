@@ -1,0 +1,83 @@
+
+/* Scoped to the floor TV cards: only the grip can initiate reordering. */
+.floor-ops-tv-summary{display:flex;align-items:center;gap:10px}
+.floor-tv-drag-handle{flex:none;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;display:grid;place-items:center;width:36px;height:40px;border:1px solid #dbe1ea;border-radius:9px;background:#f7f9fc;color:#60718d;font-size:23px;line-height:1}
+.floor-tv-drag-handle:focus-visible{outline:3px solid #6178cd;outline-offset:2px}
+.floor-tv-drag-handle.is-holding,.floor-tv-drag-handle:active{cursor:grabbing;background:#e8efff}
+.floor-ops-tv.is-dragging{outline:2px solid #637bd2;outline-offset:-2px;background:#eef2ff;box-shadow:0 5px 16px #1e2a4e19}
+.floor-ops-tv-grid.is-saving-order{opacity:.72;pointer-events:none}
+@media (max-width:640px){.floor-tv-drag-handle{width:40px;height:44px}}
+
+/* v2.35.31: TV summary has FOUR children (drag, name, status, arrow).
+   Existing app.css forces three grid columns with !important, which pushed
+   the expand arrow onto a second row and the title to the wrong side. */
+.hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
+  display:grid!important;
+  grid-template-columns:40px minmax(0,1fr) minmax(0,138px) 22px!important;
+  align-items:center!important;
+  gap:12px!important;
+  min-height:76px!important;
+  padding:14px 18px!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{
+  grid-column:1;grid-row:1;justify-self:center;align-self:center;
+  width:36px;height:40px;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-tv-main{
+  grid-column:2;grid-row:1;min-width:0!important;justify-self:stretch;
+  text-align:left!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{
+  grid-column:3;grid-row:1;justify-self:end!important;min-width:0;
+  max-width:138px!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-expand{
+  grid-column:4;grid-row:1;justify-self:center!important;
+}
+@media(max-width:760px){
+ .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
+   grid-template-columns:36px minmax(0,1fr) minmax(0,110px) 20px!important;
+   gap:8px!important;padding:12px!important;min-height:70px!important;
+ }
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{max-width:110px!important}
+}
+@media(max-width:420px){
+ .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
+   grid-template-columns:32px minmax(0,1fr) minmax(0,92px) 18px!important;
+   gap:6px!important;padding:10px!important;
+ }
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{width:32px;height:38px}
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{max-width:92px!important}
+}
+
+/* v2.35.30: individual TV statuses in the floor navigation, not ambiguous text counters. */
+.hospital-page .hospital-unified-ops .floor-ops-floor-state{display:flex!important;align-items:center;align-content:center;flex-direction:row!important;flex-wrap:wrap;gap:6px;margin-top:8px;min-height:12px;font-size:0;line-height:1}
+.hospital-page .hospital-unified-ops .floor-ops-floor-state .floor-dot{display:inline-block;flex:0 0 10px;width:10px;height:10px;border-radius:50%;box-sizing:border-box;border:1px solid transparent;box-shadow:0 0 0 1px #ffffff70;cursor:help}
+.hospital-page .hospital-unified-ops .floor-dot-live{background:#3278e4;border-color:#2866c4}
+.hospital-page .hospital-unified-ops .floor-dot-unverified{background:#df4750;border-color:#bf303a}
+.hospital-page .hospital-unified-ops .floor-dot-manual{background:#e8a13b;border-color:#c58323}
+.hospital-page .hospital-unified-ops .floor-dot-empty{background:#a5afbd;border-color:#8794a6}
+.hospital-page .hospital-unified-ops .floor-dot:hover{outline:2px solid #31425f;outline-offset:2px}
+.hospital-page .hospital-unified-ops .hospital-floor-row.has-issue .floor-ops-floor-state{color:inherit}
+.hospital-page .hospital-floor-console-title .floor-status-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 13px;margin-top:9px;font-size:11px;color:#637083}
+.hospital-page .hospital-floor-console-title .floor-status-legend span{display:inline-flex;align-items:center;gap:5px}
+.hospital-page .hospital-floor-console-title .floor-status-legend i{display:inline-block;width:8px;height:8px;border-radius:50%}
+.hospital-page .hospital-floor-console-title .floor-status-legend .live{background:#3278e4}
+.hospital-page .hospital-floor-console-title .floor-status-legend .unverified{background:#df4750}
+.hospital-page .hospital-floor-console-title .floor-status-legend .manual{background:#e8a13b}
+.hospital-page .hospital-floor-console-title .floor-status-legend .empty{background:#a5afbd}
+
+/* TV card sorting drag placeholder and fixed preview. */
+.hospital-page .hospital-unified-ops .floor-ops-tv.is-drag-placeholder{opacity:.28!important;border-style:dashed!important;background:#e9eef8!important;box-shadow:none!important}
+body>.floor-tv-drag-ghost{display:grid!important;grid-template-columns:40px minmax(0,1fr) minmax(0,138px) 22px!important;align-items:center!important;gap:12px!important;padding:14px 18px!important;border:1px solid #91a5ca!important;border-radius:14px!important;background:#fff!important;box-shadow:0 12px 28px #182b4b30!important;opacity:.97!important;transform:rotate(.3deg)}
+body>.floor-tv-drag-ghost>.floor-ops-tv-main{min-width:0!important;text-align:left!important}
+body>.floor-tv-drag-ghost>.floor-ops-state{justify-self:end!important}
+body>.floor-tv-drag-ghost>.floor-ops-expand{justify-self:center!important}
+body>.floor-tv-drag-ghost>.floor-tv-drag-handle{cursor:grabbing}
+@media(max-width:760px){body>.floor-tv-drag-ghost{grid-template-columns:36px minmax(0,1fr) minmax(0,110px) 20px!important;gap:8px!important;padding:12px!important}}
+@media(max-width:420px){body>.floor-tv-drag-ghost{grid-template-columns:32px minmax(0,1fr) minmax(0,92px) 18px!important;gap:6px!important;padding:10px!important}}
+
+/* v2.35.33: document-level drag; prevent accidental text selection and native scrolling. */
+body.floor-tv-is-dragging{user-select:none!important;-webkit-user-select:none!important;cursor:grabbing!important}
+body>.floor-tv-drag-ghost{position:fixed!important;z-index:99999!important;pointer-events:none!important;box-sizing:border-box!important;margin:0!important}
+@media(prefers-reduced-motion:reduce){.floor-ops-tv-grid *{animation-duration:0.01ms!important;transition-duration:0.01ms!important}}

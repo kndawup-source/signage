@@ -615,119 +615,139 @@
       </details>`;
     }).join('')}</div></section>`;
   }
-  // UI-only ordering: never touch playlist item order, playback settings, room keys or display placement.
+  // Floor TV display ordering: one pointer lifecycle owned by document, not a
+  // reparented grip. Moving a captured DOM node loses capture in some browsers.
+  // This changes only rooms.sort_order, never media/playlists or player control.
   let tvOrderSaving=false;
+  let tvSortDispose=null;
+  function floorTvIds(list){return qsa(':scope > [data-tv-id]',list).map(el=>el.dataset.tvId);}
+  function restoreFloorTvOrder(list, ids){
+    const map=new Map(qsa(':scope > [data-tv-id]',list).map(el=>[el.dataset.tvId,el]));
+    ids.forEach(id=>{if(map.has(id))list.appendChild(map.get(id));});
+  }
   async function persistFloorTvOrder(list, previousIds){
     if(tvOrderSaving)return false;
-    const ids=qsa(':scope > [data-tv-id]',list).map(el=>el.dataset.tvId);
-    if(ids.length!==new Set(ids).size || ids.length!==previousIds.length || ids.every((id,i)=>id===previousIds[i]))return false;
+    const ids=floorTvIds(list);
+    if(ids.length!==previousIds.length || new Set(ids).size!==ids.length ||
+       ids.every((id,i)=>id===previousIds[i]))return false;
     tvOrderSaving=true;
     list.classList.add('is-saving-order');
     try{
+      if(!targetSiteId)throw new Error('병원 정보가 없어 저장할 수 없습니다.');
       const {error}=await db.rpc('hospital_reorder_floor_displays',{p_site:targetSiteId,p_room_ids:ids});
       if(error)throw error;
-      ids.forEach((id,i)=>{const r=roomById(id);if(r)r.sort_order=(i+1)*10;});
-      toast('이 층의 TV 표시 순서를 저장했습니다.');
+      ids.forEach((id,i)=>{const room=roomById(id);if(room)room.sort_order=(i+1)*10;});
+      toast('TV 표시 순서를 저장했습니다.');
       return true;
     }catch(e){
-      const cards=new Map(qsa(':scope > [data-tv-id]',list).map(el=>[el.dataset.tvId,el]));
-      previousIds.forEach(id=>{const el=cards.get(id);if(el)list.appendChild(el);});
-      toast('순서 저장 실패 · '+(e?.message||'권한과 SQL 적용 여부를 확인하세요.'),'error');
+      restoreFloorTvOrder(list,previousIds);
+      const msg=String(e?.message||'');
+      toast('순서 저장 실패 · '+(/schema cache|Could not find the function|PGRST202/i.test(msg)?'Supabase SQL 파일을 먼저 실행하세요.':msg),'error');
       return false;
     }finally{tvOrderSaving=false;list.classList.remove('is-saving-order');}
   }
   function bindFloorTvDragSort(){
+    tvSortDispose?.();tvSortDispose=null;
     const list=qs('[data-tv-sort-list]');if(!list)return;
-    let drag=null;
+    let active=null;
     const cards=()=>qsa(':scope > [data-tv-id]',list);
-    const clear=()=>{
-      if(!drag)return;
-      const d=drag;
+    const listeners=[];
+    const on=(node,event,fn,opts)=>{node.addEventListener(event,fn,opts);listeners.push(()=>node.removeEventListener(event,fn,opts));};
+    const end=()=>{
+      const d=active;if(!d)return null;
+      active=null;
       d.card.classList.remove('is-drag-placeholder');
       d.handle.classList.remove('is-holding');
       list.classList.remove('is-drag-active');
-      if(d.ghost?.parentNode)d.ghost.remove();
-      drag=null;
+      d.ghost?.remove();
+      document.body.classList.remove('floor-tv-is-dragging');
+      return d;
     };
-    const animateShift=(before)=>{
-      // FLIP: move surrounding cards smoothly, without animating the placeholder.
+    const animateOtherCards=(before,skip)=>{
       cards().forEach(el=>{
-        if(el===drag?.card)return;
+        if(el===skip)return;
         const old=before.get(el);if(!old)return;
-        const delta=old.top-el.getBoundingClientRect().top;
-        if(Math.abs(delta)>1 && el.animate){
-          el.getAnimations().filter(a=>a.id==='floor-tv-flip').forEach(a=>a.cancel());
-          const a=el.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0px)'}],{duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});
-          a.id='floor-tv-flip';
-        }
+        const dy=old.top-el.getBoundingClientRect().top;
+        if(Math.abs(dy)<1||!el.animate)return;
+        el.getAnimations().filter(x=>x.id==='floor-tv-flip').forEach(x=>x.cancel());
+        const a=el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],
+          {duration:170,easing:'cubic-bezier(.2,.8,.2,1)'});
+        a.id='floor-tv-flip';
       });
     };
+    const beginMove=(d,e)=>{
+      const rect=d.card.getBoundingClientRect();
+      const ghost=d.card.querySelector('.floor-ops-tv-summary').cloneNode(true);
+      ghost.classList.add('floor-tv-drag-ghost');
+      ghost.setAttribute('aria-hidden','true');
+      ghost.style.left=rect.left+'px';ghost.style.top=rect.top+'px';
+      ghost.style.width=rect.width+'px';ghost.style.height=rect.height+'px';
+      document.body.appendChild(ghost);
+      d.ghost=ghost;d.started=true;
+      d.card.classList.add('is-drag-placeholder');
+      list.classList.add('is-drag-active');
+      document.body.classList.add('floor-tv-is-dragging');
+    };
+    const move=e=>{
+      const d=active;
+      if(!d||e.pointerId!==d.pointerId)return;
+      e.preventDefault();
+      if(!d.started){
+        if(Math.hypot(e.clientX-d.startX,e.clientY-d.startY)<5)return;
+        beginMove(d,e);
+      }
+      d.ghost.style.top=(e.clientY-d.offsetY)+'px';
+      // Viewport edge auto-scroll for long floor lists; no forced rerender.
+      const margin=65,step=e.clientY<margin?-13:e.clientY>innerHeight-margin?13:0;
+      if(step)window.scrollBy(0,step);
+      const others=cards().filter(el=>el!==d.card);
+      const before=new Map(others.map(el=>[el,el.getBoundingClientRect()]));
+      const target=others.find(el=>e.clientY<el.getBoundingClientRect().top+el.getBoundingClientRect().height/2);
+      if(target){if(d.card.nextElementSibling!==target)list.insertBefore(d.card,target);}
+      else if(d.card!==list.lastElementChild)list.appendChild(d.card);
+      animateOtherCards(before,d.card);
+    };
+    const finish=e=>{
+      if(!active||e.pointerId!==active.pointerId)return;
+      e.preventDefault();
+      const d=end();
+      if(d.started)void persistFloorTvOrder(list,d.original);
+    };
+    const cancel=e=>{
+      if(!active||e?.pointerId!==undefined&&active.pointerId!==e.pointerId)return;
+      const d=end();if(d)restoreFloorTvOrder(list,d.original);
+    };
+    on(document,'pointermove',move,{passive:false});
+    on(document,'pointerup',finish);
+    on(document,'pointercancel',cancel);
+    on(window,'blur',()=>cancel());
+    on(document,'keydown',e=>{if(e.key==='Escape'&&active){e.preventDefault();cancel();}});
     qsa('[data-tv-drag-handle]',list).forEach(handle=>{
-      handle.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();});
-      handle.addEventListener('pointerdown',e=>{
-        if(tvOrderSaving||!e.isPrimary||e.button!==0)return;
+      on(handle,'click',e=>{e.preventDefault();e.stopPropagation();});
+      on(handle,'pointerdown',e=>{
+        if(tvOrderSaving||active||!e.isPrimary||e.button!==0)return;
         const card=handle.closest('[data-tv-id]');if(!card)return;
         e.preventDefault();e.stopPropagation();
         const box=card.getBoundingClientRect();
-        drag={card,handle,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,offsetY:e.clientY-box.top,started:false,original:cards().map(el=>el.dataset.tvId),ghost:null};
+        active={card,handle,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
+          offsetY:e.clientY-box.top,original:floorTvIds(list),started:false,ghost:null};
         handle.classList.add('is-holding');
-        try{handle.setPointerCapture(e.pointerId);}catch(_){}
+        // Do NOT setPointerCapture: this handle is reparented during sorting.
       });
-      handle.addEventListener('pointermove',e=>{
-        if(!drag||drag.pointerId!==e.pointerId)return;
-        if(!drag.started){
-          if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<6)return;
-          drag.started=true;
-          const box=drag.card.getBoundingClientRect();
-          const ghost=drag.card.querySelector('.floor-ops-tv-summary').cloneNode(true);
-          ghost.classList.add('floor-tv-drag-ghost');
-          ghost.setAttribute('aria-hidden','true');
-          ghost.style.cssText=`position:fixed!important;left:${box.left}px!important;top:${box.top}px!important;width:${box.width}px!important;height:${box.height}px!important;z-index:99999!important;pointer-events:none!important;box-sizing:border-box!important;margin:0!important;`;
-          document.body.appendChild(ghost);
-          drag.ghost=ghost;
-          drag.card.classList.add('is-drag-placeholder');
-          list.classList.add('is-drag-active');
-        }
-        drag.ghost.style.top=(e.clientY-drag.offsetY)+'px';
-        const others=cards().filter(el=>el!==drag.card);
-        const before=new Map(others.map(el=>[el,el.getBoundingClientRect()]));
-        const target=others.find(el=>e.clientY<el.getBoundingClientRect().top+el.getBoundingClientRect().height/2);
-        if(target){if(drag.card.nextElementSibling!==target)list.insertBefore(drag.card,target);}
-        else if(drag.card!==list.lastElementChild)list.appendChild(drag.card);
-        animateShift(before);
-      });
-      const finish=e=>{
-        if(!drag||drag.pointerId!==e.pointerId)return;
-        const original=drag.original,started=drag.started;
-        clear();
-        if(started)void persistFloorTvOrder(list,original);
-      };
-      handle.addEventListener('pointerup',finish);
-      handle.addEventListener('lostpointercapture',()=>{
-        if(!drag||drag.handle!==handle)return;
-        const previous=drag.original;
-        clear();
-        const current=cards();const map=new Map(current.map(el=>[el.dataset.tvId,el]));
-        previous.forEach(id=>{const el=map.get(id);if(el)list.appendChild(el);});
-      });
-      handle.addEventListener('pointercancel',()=>{
-        if(!drag)return;
-        const original=drag.original,map=new Map(cards().map(el=>[el.dataset.tvId,el]));
-        clear();original.forEach(id=>{if(map.has(id))list.appendChild(map.get(id));});
-      });
-      handle.addEventListener('keydown',e=>{
-        if(!['ArrowUp','ArrowDown'].includes(e.key)||tvOrderSaving)return;
+      on(handle,'keydown',e=>{
+        if(!['ArrowUp','ArrowDown'].includes(e.key)||tvOrderSaving||active)return;
         e.preventDefault();e.stopPropagation();
-        const card=handle.closest('[data-tv-id]'),items=cards(),index=items.indexOf(card),next=index+(e.key==='ArrowUp'?-1:1);
+        const card=handle.closest('[data-tv-id]'),items=cards(),index=items.indexOf(card);
+        const next=index+(e.key==='ArrowUp'?-1:1);
         if(index<0||next<0||next>=items.length)return;
-        const original=items.map(el=>el.dataset.tvId);
-        const before=new Map(items.map(el=>[el,el.getBoundingClientRect()]));
+        const original=floorTvIds(list),before=new Map(items.map(el=>[el,el.getBoundingClientRect()]));
         if(next<index)list.insertBefore(card,items[next]);else list.insertBefore(items[next],card);
-        cards().forEach(el=>{const from=before.get(el);if(!from||!el.animate)return;const dy=from.top-el.getBoundingClientRect().top;if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:180,easing:'ease-out'});});
+        animateOtherCards(before,card);
         handle.focus({preventScroll:true});
         void persistFloorTvOrder(list,original);
       });
     });
+    tvSortDispose=()=>{cancel();listeners.forEach(fn=>fn());};
   }
   function openInlineTvDetail(roomId){
     const item=qsa('[data-tv-id]').find(el=>el.dataset.tvId===roomId);
