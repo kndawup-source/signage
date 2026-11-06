@@ -8,6 +8,48 @@
 .floor-ops-tv-grid.is-saving-order{opacity:.72;pointer-events:none}
 @media (max-width:640px){.floor-tv-drag-handle{width:40px;height:44px}}
 
+/* v2.35.31: TV summary has FOUR children (drag, name, status, arrow).
+   Existing app.css forces three grid columns with !important, which pushed
+   the expand arrow onto a second row and the title to the wrong side. */
+.hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
+  display:grid!important;
+  grid-template-columns:40px minmax(0,1fr) minmax(0,138px) 22px!important;
+  align-items:center!important;
+  gap:12px!important;
+  min-height:76px!important;
+  padding:14px 18px!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{
+  grid-column:1;grid-row:1;justify-self:center;align-self:center;
+  width:36px;height:40px;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-tv-main{
+  grid-column:2;grid-row:1;min-width:0!important;justify-self:stretch;
+  text-align:left!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{
+  grid-column:3;grid-row:1;justify-self:end!important;min-width:0;
+  max-width:138px!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-expand{
+  grid-column:4;grid-row:1;justify-self:center!important;
+}
+@media(max-width:760px){
+ .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
+   grid-template-columns:36px minmax(0,1fr) minmax(0,110px) 20px!important;
+   gap:8px!important;padding:12px!important;min-height:70px!important;
+ }
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{max-width:110px!important}
+}
+@media(max-width:420px){
+ .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
+   grid-template-columns:32px minmax(0,1fr) minmax(0,92px) 18px!important;
+   gap:6px!important;padding:10px!important;
+ }
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{width:32px;height:38px}
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{max-width:92px!important}
+}
+
 /* v2.35.30: individual TV statuses in the floor navigation, not ambiguous text counters. */
 .hospital-page .hospital-unified-ops .floor-ops-floor-state{display:flex!important;align-items:center;align-content:center;flex-direction:row!important;flex-wrap:wrap;gap:6px;margin-top:8px;min-height:12px;font-size:0;line-height:1}
 .hospital-page .hospital-unified-ops .floor-ops-floor-state .floor-dot{display:inline-block;flex:0 0 10px;width:10px;height:10px;border-radius:50%;box-sizing:border-box;border:1px solid transparent;box-shadow:0 0 0 1px #ffffff70;cursor:help}
@@ -26,4 +68,4 @@
 .hospital-page .hospital-floor-console-title .floor-status-legend .empty{background:#a5afbd}
 </style></head>
 <body class="hospital-page"><header class="topbar"><div class="topbar-inner"><a class="brand" href="/hospital.html">CLINIC SIGNAGE</a><button id="signOut" class="text-btn">로그아웃</button></div></header><main class="shell"><div id="hospitalRoot"><div class="loading">불러오는 중…</div></div></main>
-<script src="/js/boot.js?v=2.35.29" data-entry="hospital-entry" data-version="2.35.30" data-player-version="2.35.26"></script></body></html>
+<script src="/js/boot.js?v=2.35.29" data-entry="hospital-entry" data-version="2.35.31" data-player-version="2.35.26"></script></body></html>
