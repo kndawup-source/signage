@@ -64,8 +64,9 @@
   // Background tabs are throttled by Chromium; this is not evidence of a broken MP4.
   const FOREGROUND_GRACE_MS=12000;
   let foregroundGraceUntil=0,foregroundResumeTimer=null,foregroundResumeBusy=false;
-  let windowCovered=false;
-  function backgrounded(){return document.visibilityState==='hidden'||windowCovered;}
+  // Only visibilityState is a reliable indicator of browser frame throttling.
+  // Focus loss alone must never interrupt a kiosk playlist.
+  function backgrounded(){return document.visibilityState==='hidden';}
   function inForegroundGrace(){return Date.now()<foregroundGraceUntil;}
 
   let switchToken = 0;
@@ -301,7 +302,7 @@
       el.removeAttribute('autoplay');el.autoplay=false;
       if(el.dataset.playerBound==='1')return;
       el.dataset.playerBound='1';
-      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(backgrounded())return;if(updatePendingVersion){reloadForUpdate();return;}void advanceSeamless();}});
+      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}void advanceSeamless();}});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);/* The switch owner clears transitionInProgress only after slot commit. */confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
       el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();if(recoveryAttempts&&Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS){recoveryStage=0;recoveryAttempts=0;}if(lastError&&String(lastError).startsWith('재생 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
@@ -374,16 +375,17 @@
      Track each invocation to avoid an old timer touching a newer owner of the slot. */
   const playAttemptEpoch=new WeakMap();
   function playWithDeadline(el,timeoutMs=6000){
-    if(!el||backgrounded())return Promise.resolve(false);
+    if(!el)return Promise.resolve(false);
     const epoch=(playAttemptEpoch.get(el)||0)+1;
     playAttemptEpoch.set(el,epoch);
     let timer;
     const deadline=new Promise(resolve=>{timer=setTimeout(()=>{
       if(playAttemptEpoch.get(el)===epoch&&!backgrounded()){
+        // Invalidate the timed-out attempt before its late promise can commit.
+        playAttemptEpoch.set(el,epoch+1);
         try{el.pause();}catch(_){}
-        /* load() interrupts an unresolved play() request in Chromium/Edge.
-           Preserve the src so a caller may explicitly retry the same clip. */
-        try{el.load();}catch(_){}
+        // Never blank the visible display. Reset only an inactive candidate.
+        if(el!==activeVideoEl()){try{el.load();}catch(_){}}
       }
       resolve(false);
     },timeoutMs);});
@@ -397,7 +399,6 @@
   async function playElement(el){
     if(!el)return false;
     if(state?.room?.paused)return true;
-    if(backgrounded())return false;
     const forceMute=Boolean(state?.room?.force_mute);
     const targetVolume=Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));
     el.volume=targetVolume;
@@ -415,7 +416,7 @@
         return true;
       }
     }
-    if(backgrounded())return false;
+    if(backgrounded())return false; // Chromium may postpone play while hidden.
     lastError='영상 재생 시작 실패 또는 시간 초과';
     queueHeartbeat(true);
     return false;
@@ -509,7 +510,6 @@
     else requestAnimationFrame(tick);
   }
   async function switchToIndex(targetIndex,{sync=false,force=false}={}){
-    if(backgrounded())return false;
     const items=list(); if(!items.length){blankPlayer();return false;}
     const normalized=((targetIndex%items.length)+items.length)%items.length;
     const v=items[normalized];
@@ -518,7 +518,7 @@
     if(!force&&slotMatches(currentEl,v)){
       if(currentEl.ended){try{currentEl.currentTime=0;}catch(_){}if(!state?.room?.paused&&!(await playElement(currentEl)))return false;}
       index=normalized;
-      savePosition(index);applyLiveControls();prepareNext();return true;
+      savePosition(index);applyLiveControls();prepareNext();watchForPreroll(currentEl,activeSlot);return true;
     }
 
     const targetSlot=inactiveSlotIndex(),nextEl=slots[targetSlot];
@@ -608,7 +608,7 @@
     if(v?.id)mediaFailures.delete(String(v.id));
     /* Do not depend on a rendering callback when the TV is behind another window. */
     if(currentEl&&currentEl!==nextEl){try{currentEl.pause();currentEl.currentTime=0;}catch(_){}}
-    transitionInProgress=false;savePosition(index);prepareNext();queueHeartbeat(true);pushLiveStatusNow();
+    transitionInProgress=false;savePosition(index);prepareNext();watchForPreroll(nextEl,targetSlot);queueHeartbeat(true);pushLiveStatusNow();
     return true;
   }
   function prepareNext(){
@@ -631,7 +631,7 @@
   /* 다음 영상으로 진행: 정상 전환 → 실패 시 같은 영상 1회 재시도(슬롯 새로 로드) → 그래도 실패면 건너뛰기.
      진행 중에 들어온 ended 이벤트는 버리지 않고 끝난 뒤 다시 확인한다. */
   async function advanceSeamless(){
-    if(backgrounded())return;
+    // Ended clips still advance while backgrounded; only failure escalation waits.
     if(playlistAdvanceBusy){advancePending=true;return;}
     const items=list();if(!items.length)return;
     playlistAdvanceBusy=true;
@@ -652,7 +652,7 @@
       if(advancePending){
         advancePending=false;
         const el=activeVideoEl();
-        if(el&&el.ended&&!backgrounded()&&canAutoPlay())queueMicrotask(()=>void advanceSeamless());
+        if(el&&el.ended&&canAutoPlay())queueMicrotask(()=>void advanceSeamless());
       }
     }
   }
@@ -1007,13 +1007,9 @@
   }
 
   function onPlayerBackground(){
-    clearTimeout(foregroundResumeTimer);foregroundResumeTimer=null;
+    // Do not cancel a running transition or stop the active video when hidden.
+    // Pause only error/stall judgements; ended events still advance the playlist.
     clearTimeout(pauseConfirmTimer);
-    // Invalidate an in-flight hidden-slot switch. The active slot remains untouched.
-    ++switchToken;clearTimeout(syncStartTimer);transitionInProgress=false;
-    cancelPreroll();
-    const inactive=slots[inactiveSlotIndex()];
-    if(inactive)resetSlot(inactive);
     lastProgressAt=Date.now();
   }
   async function resumePlayerForeground(){
@@ -1039,14 +1035,15 @@
       }
       // Do not turn a covered window into a permanent 'error' alert.
       if(!el.paused&&!el.error){lastError=null;confirmedPlaybackState='playing';}
-      prepareNext();pushLiveStatusNow();
+      prepareNext();
+      if(!el.paused&&!el.ended)watchForPreroll(el,activeSlot);
+      pushLiveStatusNow();
     }finally{
       lastProgressAt=Date.now();lastProgressTime=activeVideoEl()?.currentTime||0;
       foregroundResumeBusy=false;
     }
   }
   function onPlayerForeground(){
-    windowCovered=false;
     foregroundGraceUntil=Date.now()+FOREGROUND_GRACE_MS;
     lastProgressAt=Date.now();
     clearTimeout(foregroundResumeTimer);
@@ -1055,7 +1052,6 @@
 
   ensureSurface();if(!PREVIEW)void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
   document.addEventListener('visibilitychange',()=>{acquireWake();if(backgrounded()){onPlayerBackground();return;}onPlayerForeground();scheduleReport();void checkForPlayerUpdate(true);});
-  window.addEventListener('blur',()=>{windowCovered=true;onPlayerBackground();});
   window.addEventListener('focus',()=>{if(!backgrounded())onPlayerForeground();scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
   window.addEventListener('offline',()=>{const cached=offlineReadyState();if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
