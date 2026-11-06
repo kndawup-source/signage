@@ -941,8 +941,27 @@
     </section>`;
   }
   function hospitalSetupProgress(){const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,spaces=state.floorSpaces.length,total=state.rooms.length,placed=state.rooms.filter(roomMapPlaced).length;const steps=[['병원 정보',!!state.site?.name&&!!state.site?.building_label],['도면',custom>0],['공간',spaces>0],['디스플레이',total>0&&placed===total]];const done=steps.filter(x=>x[1]).length;return `<div class="hospital-setup-progress"><div><b>초기 설치</b><span>${done}/${steps.length} 완료</span></div><div>${steps.map(([l,ok],i)=>`<span class="${ok?'is-done':''}"><i>${ok?'✓':i+1}</i>${l}</span>`).join('')}</div></div>`;}
-  function structureSetupMarkup(){const floors=[...state.groups].filter(g=>g.kind==='floor'&&Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층 · 디스플레이 만들기</b><small>처음 설치할 때 필요한 기본 구조만 추가합니다.</small></div></div><div class="grid-2"><div class="settings-card"><h3>층 추가</h3><label class="field"><span>층 번호</span><input id="staffNewFloorNumber" type="number" min="1" max="99" placeholder="예: 8"></label><label class="field"><span>표시 이름</span><input id="staffNewFloorName" maxlength="30" placeholder="비우면 8F"></label><button id="staffCreateFloor" class="btn" type="button">층 추가</button></div><div class="settings-card"><h3>디스플레이 추가</h3><label class="field"><span>층</span><select id="staffNewDisplayGroup"><option value="">층 선택</option>${floors.map(g=>`<option value="${g.id}">${esc(floorSettingsLabel(g))}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffNewDisplayName" maxlength="40" placeholder="예: 진료실 1"></label><label class="field"><span>운영 방식</span><select id="staffNewDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button id="staffCreateDisplay" class="btn" type="button">디스플레이 추가</button></div></div></div>`;}
+  function structureSetupMarkup(){const floors=[...state.groups].filter(g=>Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층 · 디스플레이 만들기</b><small>처음 설치할 때 필요한 기본 구조만 추가합니다.</small></div></div><div class="grid-2"><div class="settings-card"><h3>층 추가</h3><label class="field"><span>층 번호</span><input id="staffNewFloorNumber" type="number" min="1" max="99" placeholder="예: 8"></label><label class="field"><span>표시 이름</span><input id="staffNewFloorName" maxlength="30" placeholder="비우면 8F"></label><button id="staffCreateFloor" class="btn" type="button">층 추가</button></div><div class="settings-card"><h3>디스플레이 추가</h3><label class="field"><span>층</span><select id="staffNewDisplayGroup"><option value="">층 선택</option>${floors.map(g=>`<option value="${g.id}">${esc(floorSettingsLabel(g))}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffNewDisplayName" maxlength="40" placeholder="예: 진료실 1"></label><label class="field"><span>운영 방식</span><select id="staffNewDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button id="staffCreateDisplay" class="btn" type="button">디스플레이 추가</button></div><div class="settings-card" style="grid-column:1/-1"><h3>등록된 층 관리</h3><p class="muted">TV, 공간 또는 방송 설정이 연결된 층은 삭제할 수 없습니다. 다른 층의 데이터는 변경하지 않습니다.</p><div class="floor-delete-list">${floors.map(g=>{const tvCount=state.rooms.filter(r=>r.group_id===g.id).length,spaceCount=state.floorSpaces.filter(sp=>sp.group_id===g.id).length;return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line,#ddd)"><div><b>${esc(floorSettingsLabel(g))}</b> <small class="muted">${g.kind!=='floor'?' · 이전 층 그룹':''} · TV ${tvCount}대 · 공간 ${spaceCount}개</small></div><button type="button" class="btn small" data-staff-delete-floor="${g.id}" ${tvCount||spaceCount?'disabled title="TV나 공간이 있는 층은 삭제할 수 없습니다"':''}>층 삭제</button></div>`;}).join('')||'<p class="muted">등록된 층 없음</p>'}</div></div></div></div></div>`;}
   async function createHospitalFloor(){const n=Number(qs('#staffNewFloorNumber')?.value),name=(qs('#staffNewFloorName')?.value||'').trim();if(!Number.isInteger(n)||n<1||n>99)return toast('층 번호는 1~99 사이로 입력하세요.','error');const {error}=await db.rpc('hospital_create_floor',{p_site:targetSiteId,p_floor:n,p_name:name||null});if(error)return toast(error.message,'error');toast(`${n}층을 추가했습니다.`);await load();}
+  async function deleteHospitalFloor(groupId){
+    const floor=state.groups.find(g=>g.id===groupId&&Number(g.floor_number)>0);
+    if(!floor)return toast('층 정보를 다시 불러오세요.','error');
+    const connectedTVs=state.rooms.filter(r=>r.group_id===groupId).length;
+    const connectedSpaces=state.floorSpaces.filter(sp=>sp.group_id===groupId).length;
+    if(connectedTVs||connectedSpaces)return toast('TV 또는 공간이 연결되어 있습니다. 다른 층으로 옮긴 뒤 삭제하세요.','error');
+    const label=floorSettingsLabel(floor);
+    if(!confirm(`${label}을(를) 삭제하시겠습니까?\nTV · 공간 · 방송 설정이 연결된 층은 서버에서 삭제를 차단합니다.\n이 작업은 되돌릴 수 없습니다.`))return;
+    const button=qs(`[data-staff-delete-floor="${groupId}"]`);
+    if(button)button.disabled=true;
+    try{
+      const {error}=await db.rpc('hospital_delete_floor',{p_site:targetSiteId,p_group:groupId});
+      if(error)throw error;
+      if(selectedFloorId===groupId)selectedFloorId=null;
+      if(spaceEditorGroupId===groupId)spaceEditorGroupId=null;
+      toast(`${label}을(를) 삭제했습니다.`);
+      await load();
+    }catch(error){toast(error.message||'층을 삭제하지 못했습니다.','error');if(button)button.disabled=false;}
+  }
   async function createHospitalDisplay(){const group=qs('#staffNewDisplayGroup')?.value,name=(qs('#staffNewDisplayName')?.value||'').trim(),mode=qs('#staffNewDisplayMode')?.value||'remote';if(!group||!name)return toast('층과 디스플레이 이름을 입력하세요.','error');const {error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:group,p_name:name,p_mode:mode});if(error)return toast(error.message,'error');toast('디스플레이를 추가했습니다.');await load();startRealtime();}
   function displayManageErrorMessage(error){
     const msg=String(error?.message||error||'').toLowerCase();
@@ -1087,6 +1106,7 @@
     qs('#staffSaveSiteIdentity')?.addEventListener('click',saveHospitalIdentity);
     qs('#staffSaveOperating')?.addEventListener('click',saveOperatingConfig);
     qs('#staffCreateFloor')?.addEventListener('click',createHospitalFloor);
+    qsa('[data-staff-delete-floor]').forEach(b=>b.addEventListener('click',()=>deleteHospitalFloor(b.dataset.staffDeleteFloor)));
     qs('#staffCreateDisplay')?.addEventListener('click',createHospitalDisplay);
     qs('#staffCloseToday')?.addEventListener('click',async()=>{if(!confirm('오늘 남은 송출을 이 병원에서 종료할까요?'))return;const {error}=await db.rpc('hospital_close_today',{p_site:targetSiteId});if(error)return toast(error.message,'error');toast('오늘 송출을 종료했습니다.');await load();});
     qs('#staffReopenToday')?.addEventListener('click',async()=>{const {error}=await db.rpc('hospital_reopen_today',{p_site:targetSiteId});if(error)return toast(error.message,'error');toast('오늘 송출을 다시 열었습니다.');await load();});
@@ -1199,7 +1219,9 @@
     let result;try{result=await op();}catch(e){result={error:e};}finally{busy=false;}
     if(result?.error){toast(result.error.message||String(result.error),'error');return false;}
     const signalled=signal&&room?await signalRoom(room):false;
-    if(okMessage)toast(signalled||!signal?okMessage:'설정은 저장됐지만 화면에 변경 신호를 전달하지 못했습니다. 플레이어 자동 동기화를 확인하세요.',signalled||!signal?undefined:'error');
+    /* TVs poll (no Realtime): say when the change will show instead of implying it is instant. */
+    const syncNote=signal&&signalled&&!Signage.playerRealtimeEnabled()?` · TV 반영까지 최대 약 ${Math.ceil(Math.max(30000,Number(Signage.cfg.pollMs)||120000)*1.15/60000)}분`:'';
+    if(okMessage)toast(signalled||!signal?`${okMessage}${syncNote}`:'설정은 저장됐지만 화면에 변경 신호를 전달하지 못했습니다. 플레이어 자동 동기화를 확인하세요.',signalled||!signal?undefined:'error');
     await load().catch(e=>toast(e.message||String(e),'error'));
     if(room&&signal&&signalled)void confirmDelivery(room,issuedAt);
     return true;
