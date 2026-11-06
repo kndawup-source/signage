@@ -1,27 +1,27 @@
 
 /* Scoped to the floor TV cards: only the grip can initiate reordering. */
 .floor-ops-tv-summary{display:flex;align-items:center;gap:10px}
-.floor-tv-drag-handle{flex:none;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;display:grid;place-items:center;width:36px;height:40px;border:1px solid #dbe1ea;border-radius:9px;background:#f7f9fc;color:#60718d;font-size:23px;line-height:1}
+.floor-tv-drag-handle{flex:none;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;display:grid;place-items:center;width:28px;height:30px;border:1px solid #dbe1ea;border-radius:9px;background:#f7f9fc;color:#60718d;font-size:17px;line-height:1}
 .floor-tv-drag-handle:focus-visible{outline:3px solid #6178cd;outline-offset:2px}
 .floor-tv-drag-handle.is-holding,.floor-tv-drag-handle:active{cursor:grabbing;background:#e8efff}
 .floor-ops-tv.is-dragging{outline:2px solid #637bd2;outline-offset:-2px;background:#eef2ff;box-shadow:0 5px 16px #1e2a4e19}
 .floor-ops-tv-grid.is-saving-order{opacity:.72;pointer-events:none}
-@media (max-width:640px){.floor-tv-drag-handle{width:40px;height:44px}}
+@media (max-width:640px){.floor-tv-drag-handle{width:30px;height:32px}}
 
 /* v2.35.31: TV summary has FOUR children (drag, name, status, arrow).
    Existing app.css forces three grid columns with !important, which pushed
    the expand arrow onto a second row and the title to the wrong side. */
 .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
   display:grid!important;
-  grid-template-columns:40px minmax(0,1fr) minmax(0,138px) 22px!important;
+  grid-template-columns:30px minmax(0,1fr) minmax(0,138px) 22px!important;
   align-items:center!important;
-  gap:12px!important;
-  min-height:76px!important;
-  padding:14px 18px!important;
+  gap:10px!important;
+  min-height:58px!important;
+  padding:9px 14px!important;
 }
 .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{
   grid-column:1;grid-row:1;justify-self:center;align-self:center;
-  width:36px;height:40px;
+  width:28px;height:30px;
 }
 .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-tv-main{
   grid-column:2;grid-row:1;min-width:0!important;justify-self:stretch;
@@ -36,17 +36,17 @@
 }
 @media(max-width:760px){
  .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
-   grid-template-columns:36px minmax(0,1fr) minmax(0,110px) 20px!important;
-   gap:8px!important;padding:12px!important;min-height:70px!important;
+   grid-template-columns:30px minmax(0,1fr) minmax(0,110px) 20px!important;
+   gap:8px!important;padding:9px 11px!important;min-height:58px!important;
  }
  .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{max-width:110px!important}
 }
 @media(max-width:420px){
  .hospital-page .hospital-unified-ops .floor-ops-tv>summary.floor-ops-tv-summary{
-   grid-template-columns:32px minmax(0,1fr) minmax(0,92px) 18px!important;
-   gap:6px!important;padding:10px!important;
+   grid-template-columns:28px minmax(0,1fr) minmax(0,92px) 18px!important;
+   gap:6px!important;padding:8px!important;
  }
- .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{width:32px;height:38px}
+ .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{width:26px;height:28px}
  .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-state{max-width:92px!important}
 }
 
@@ -69,15 +69,35 @@
 
 /* TV card sorting drag placeholder and fixed preview. */
 .hospital-page .hospital-unified-ops .floor-ops-tv.is-drag-placeholder{opacity:.28!important;border-style:dashed!important;background:#e9eef8!important;box-shadow:none!important}
-body>.floor-tv-drag-ghost{display:grid!important;grid-template-columns:40px minmax(0,1fr) minmax(0,138px) 22px!important;align-items:center!important;gap:12px!important;padding:14px 18px!important;border:1px solid #91a5ca!important;border-radius:14px!important;background:#fff!important;box-shadow:0 12px 28px #182b4b30!important;opacity:.97!important;transform:rotate(.3deg)}
+body>.floor-tv-drag-ghost{display:grid!important;grid-template-columns:30px minmax(0,1fr) minmax(0,138px) 22px!important;align-items:center!important;gap:10px!important;padding:9px 14px!important;border:1px solid #91a5ca!important;border-radius:14px!important;background:#fff!important;box-shadow:0 12px 28px #182b4b30!important;opacity:.97!important;transform:rotate(.3deg)}
 body>.floor-tv-drag-ghost>.floor-ops-tv-main{min-width:0!important;text-align:left!important}
 body>.floor-tv-drag-ghost>.floor-ops-state{justify-self:end!important}
 body>.floor-tv-drag-ghost>.floor-ops-expand{justify-self:center!important}
 body>.floor-tv-drag-ghost>.floor-tv-drag-handle{cursor:grabbing}
-@media(max-width:760px){body>.floor-tv-drag-ghost{grid-template-columns:36px minmax(0,1fr) minmax(0,110px) 20px!important;gap:8px!important;padding:12px!important}}
-@media(max-width:420px){body>.floor-tv-drag-ghost{grid-template-columns:32px minmax(0,1fr) minmax(0,92px) 18px!important;gap:6px!important;padding:10px!important}}
+@media(max-width:760px){body>.floor-tv-drag-ghost{grid-template-columns:30px minmax(0,1fr) minmax(0,110px) 20px!important;gap:8px!important;padding:12px!important}}
+@media(max-width:420px){body>.floor-tv-drag-ghost{grid-template-columns:28px minmax(0,1fr) minmax(0,92px) 18px!important;gap:6px!important;padding:10px!important}}
 
 /* v2.35.33: document-level drag; prevent accidental text selection and native scrolling. */
 body.floor-tv-is-dragging{user-select:none!important;-webkit-user-select:none!important;cursor:grabbing!important}
 body>.floor-tv-drag-ghost{position:fixed!important;z-index:99999!important;pointer-events:none!important;box-sizing:border-box!important;margin:0!important}
 @media(prefers-reduced-motion:reduce){.floor-ops-tv-grid *{animation-duration:0.01ms!important;transition-duration:0.01ms!important}}
+
+/* v2.35.34: consistent compact card hierarchy, shared by idle and drag preview. */
+.hospital-page .hospital-unified-ops .floor-ops-tv-grid{gap:7px!important}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-tv-main{gap:3px!important}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-tv-main>b{
+  font-size:15px!important;font-weight:750!important;line-height:1.25!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary .floor-ops-video{
+  font-size:11px!important;line-height:1.35!important;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle{
+  border-radius:7px!important;box-shadow:none!important;padding:0!important;
+  font-size:17px!important;opacity:.75;
+}
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle:hover,
+.hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-tv-drag-handle:focus-visible{opacity:1;background:#e9effa}
+body>.floor-tv-drag-ghost>.floor-tv-drag-handle{width:28px;height:30px;border-radius:7px;font-size:17px}
+@media(max-width:760px){
+  .hospital-page .hospital-unified-ops .floor-ops-tv-summary>.floor-ops-tv-main>b{font-size:14px!important}
+}
