@@ -640,45 +640,90 @@
     const list=qs('[data-tv-sort-list]');if(!list)return;
     let drag=null;
     const cards=()=>qsa(':scope > [data-tv-id]',list);
-    const clean=()=>{if(!drag)return;drag.card.classList.remove('is-dragging');list.classList.remove('is-drag-active');drag.handle.classList.remove('is-holding');drag=null;};
+    const clear=()=>{
+      if(!drag)return;
+      const d=drag;
+      d.card.classList.remove('is-drag-placeholder');
+      d.handle.classList.remove('is-holding');
+      list.classList.remove('is-drag-active');
+      if(d.ghost?.parentNode)d.ghost.remove();
+      drag=null;
+    };
+    const animateShift=(before)=>{
+      // FLIP: move surrounding cards smoothly, without animating the placeholder.
+      cards().forEach(el=>{
+        if(el===drag?.card)return;
+        const old=before.get(el);if(!old)return;
+        const delta=old.top-el.getBoundingClientRect().top;
+        if(Math.abs(delta)>1 && el.animate){
+          el.getAnimations().filter(a=>a.id==='floor-tv-flip').forEach(a=>a.cancel());
+          const a=el.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0px)'}],{duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});
+          a.id='floor-tv-flip';
+        }
+      });
+    };
     qsa('[data-tv-drag-handle]',list).forEach(handle=>{
       handle.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();});
       handle.addEventListener('pointerdown',e=>{
         if(tvOrderSaving||!e.isPrimary||e.button!==0)return;
-        e.preventDefault();e.stopPropagation();
         const card=handle.closest('[data-tv-id]');if(!card)return;
-        drag={card,handle,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,started:false,original:cards().map(el=>el.dataset.tvId)};
+        e.preventDefault();e.stopPropagation();
+        const box=card.getBoundingClientRect();
+        drag={card,handle,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,offsetY:e.clientY-box.top,started:false,original:cards().map(el=>el.dataset.tvId),ghost:null};
         handle.classList.add('is-holding');
         try{handle.setPointerCapture(e.pointerId);}catch(_){}
       });
       handle.addEventListener('pointermove',e=>{
         if(!drag||drag.pointerId!==e.pointerId)return;
-        if(!drag.started&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<7)return;
-        drag.started=true;
-        drag.card.classList.add('is-dragging');list.classList.add('is-drag-active');
-        const candidates=cards().filter(el=>el!==drag.card);
-        const after=candidates.find(el=>e.clientY<el.getBoundingClientRect().top+el.getBoundingClientRect().height/2);
-        if(after)list.insertBefore(drag.card,after);else list.appendChild(drag.card);
+        if(!drag.started){
+          if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<6)return;
+          drag.started=true;
+          const box=drag.card.getBoundingClientRect();
+          const ghost=drag.card.querySelector('.floor-ops-tv-summary').cloneNode(true);
+          ghost.classList.add('floor-tv-drag-ghost');
+          ghost.setAttribute('aria-hidden','true');
+          ghost.style.cssText=`position:fixed!important;left:${box.left}px!important;top:${box.top}px!important;width:${box.width}px!important;height:${box.height}px!important;z-index:99999!important;pointer-events:none!important;box-sizing:border-box!important;margin:0!important;`;
+          document.body.appendChild(ghost);
+          drag.ghost=ghost;
+          drag.card.classList.add('is-drag-placeholder');
+          list.classList.add('is-drag-active');
+        }
+        drag.ghost.style.top=(e.clientY-drag.offsetY)+'px';
+        const others=cards().filter(el=>el!==drag.card);
+        const before=new Map(others.map(el=>[el,el.getBoundingClientRect()]));
+        const target=others.find(el=>e.clientY<el.getBoundingClientRect().top+el.getBoundingClientRect().height/2);
+        if(target){if(drag.card.nextElementSibling!==target)list.insertBefore(drag.card,target);}
+        else if(drag.card!==list.lastElementChild)list.appendChild(drag.card);
+        animateShift(before);
       });
       const finish=e=>{
         if(!drag||drag.pointerId!==e.pointerId)return;
         const original=drag.original,started=drag.started;
-        clean();
+        clear();
         if(started)void persistFloorTvOrder(list,original);
       };
       handle.addEventListener('pointerup',finish);
+      handle.addEventListener('lostpointercapture',()=>{
+        if(!drag||drag.handle!==handle)return;
+        const previous=drag.original;
+        clear();
+        const current=cards();const map=new Map(current.map(el=>[el.dataset.tvId,el]));
+        previous.forEach(id=>{const el=map.get(id);if(el)list.appendChild(el);});
+      });
       handle.addEventListener('pointercancel',()=>{
         if(!drag)return;
         const original=drag.original,map=new Map(cards().map(el=>[el.dataset.tvId,el]));
-        original.forEach(id=>{if(map.has(id))list.appendChild(map.get(id));});clean();
+        clear();original.forEach(id=>{if(map.has(id))list.appendChild(map.get(id));});
       });
       handle.addEventListener('keydown',e=>{
         if(!['ArrowUp','ArrowDown'].includes(e.key)||tvOrderSaving)return;
         e.preventDefault();e.stopPropagation();
-        const card=handle.closest('[data-tv-id]');const items=cards();const index=items.indexOf(card),next=index+(e.key==='ArrowUp'?-1:1);
+        const card=handle.closest('[data-tv-id]'),items=cards(),index=items.indexOf(card),next=index+(e.key==='ArrowUp'?-1:1);
         if(index<0||next<0||next>=items.length)return;
         const original=items.map(el=>el.dataset.tvId);
+        const before=new Map(items.map(el=>[el,el.getBoundingClientRect()]));
         if(next<index)list.insertBefore(card,items[next]);else list.insertBefore(items[next],card);
+        cards().forEach(el=>{const from=before.get(el);if(!from||!el.animate)return;const dy=from.top-el.getBoundingClientRect().top;if(Math.abs(dy)>1)el.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:180,easing:'ease-out'});});
         handle.focus({preventScroll:true});
         void persistFloorTvOrder(list,original);
       });

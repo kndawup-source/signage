@@ -66,6 +66,16 @@
 .hospital-page .hospital-floor-console-title .floor-status-legend .unverified{background:#df4750}
 .hospital-page .hospital-floor-console-title .floor-status-legend .manual{background:#e8a13b}
 .hospital-page .hospital-floor-console-title .floor-status-legend .empty{background:#a5afbd}
+
+/* v2.35.32: drag a visual copy while the original is a stable placeholder. */
+.hospital-page .hospital-unified-ops .floor-ops-tv.is-drag-placeholder{opacity:.28!important;border-style:dashed!important;background:#e9eef8!important;box-shadow:none!important}
+body>.floor-tv-drag-ghost{display:grid!important;grid-template-columns:40px minmax(0,1fr) minmax(0,138px) 22px!important;align-items:center!important;gap:12px!important;padding:14px 18px!important;border:1px solid #91a5ca!important;border-radius:14px!important;background:#fff!important;box-shadow:0 12px 28px #182b4b30!important;opacity:.97!important;transform:rotate(.3deg)}
+body>.floor-tv-drag-ghost>.floor-ops-tv-main{min-width:0!important;text-align:left!important}
+body>.floor-tv-drag-ghost>.floor-ops-state{justify-self:end!important}
+body>.floor-tv-drag-ghost>.floor-ops-expand{justify-self:center!important}
+body>.floor-tv-drag-ghost>.floor-tv-drag-handle{cursor:grabbing}
+@media(max-width:760px){body>.floor-tv-drag-ghost{grid-template-columns:36px minmax(0,1fr) minmax(0,110px) 20px!important;gap:8px!important;padding:12px!important}}
+@media(max-width:420px){body>.floor-tv-drag-ghost{grid-template-columns:32px minmax(0,1fr) minmax(0,92px) 18px!important;gap:6px!important;padding:10px!important}}
 </style></head>
 <body class="hospital-page"><header class="topbar"><div class="topbar-inner"><a class="brand" href="/hospital.html">CLINIC SIGNAGE</a><button id="signOut" class="text-btn">로그아웃</button></div></header><main class="shell"><div id="hospitalRoot"><div class="loading">불러오는 중…</div></div></main>
-<script src="/js/boot.js?v=2.35.29" data-entry="hospital-entry" data-version="2.35.31" data-player-version="2.35.26"></script></body></html>
+<script src="/js/boot.js?v=2.35.29" data-entry="hospital-entry" data-version="2.35.32" data-player-version="2.35.26"></script></body></html>
