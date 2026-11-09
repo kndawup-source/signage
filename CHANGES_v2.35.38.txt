@@ -1,0 +1,14 @@
+Clinic Signage 2.35.38 – visible A/B playback fix, version sync and deployment check
+Base: signage-main(20261109-000225).zip (v2.35.37), NOT Claude's independently prepared v2.35.38 archive.
+
+Cause: two sibling <video> nodes were normal-flow elements. The inactive slot could be below the viewport while still playing.
+Fix: .player-video occupy identical absolute coordinates, and only .is-active is visible. Closed mode explicitly hides both.
+Overlay: status/message stays above video, caption bar above video and below controls.
+Cache: bump player shell version to 2.35.38 across relevant HTML, JS and SW so cached CSS refreshes.
+Deployment: restore .vercelignore with exclusions for SQL/source archives and tooling. DO NOT exclude api/_private without reviewing build-time server usage.
+
+Files: css/app.css, player.html, hospital.html, admin.html, index.html, js/version.js, js/hospital-entry.js, player-sw.js, player-release.json, .vercelignore.
+No changes: player.js, playlists, TV sort, SQL, Supabase schema.
+
+QA performed: release checker PASS, JS syntax PASS, CSS braces balance PASS, zip integrity PASS. Real production Edge/TV SW update, long playback loops and R2 behavior NOT tested.
+Deployment: overwrite matching paths in v2.35.37 baseline. Do not combine blindly with Claude's v2.35.38 without diffing first.
