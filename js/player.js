@@ -64,6 +64,11 @@
   // Background tabs are throttled by Chromium; this is not evidence of a broken MP4.
   const FOREGROUND_GRACE_MS=12000;
   let foregroundGraceUntil=0,foregroundResumeTimer=null,foregroundResumeBusy=false;
+  // Background throttling is not a media error. Only retry an actually paused
+  // active element, at most once per 15s; never run destructive stall recovery
+  // merely because currentTime or requestVideoFrameCallback is throttled.
+  const BACKGROUND_RETRY_MS=15000;
+  let backgroundRetryAt=0,backgroundRetryBusy=false;
   // Only visibilityState is a reliable indicator of browser frame throttling.
   // Focus loss alone must never interrupt a kiosk playlist.
   function backgrounded(){return document.visibilityState==='hidden';}
@@ -333,11 +338,22 @@
   function clearEmergencyObjectUrl(){ if(emergencyObjectUrl){URL.revokeObjectURL(emergencyObjectUrl);emergencyObjectUrl=null;} }
   function applyAudio(el){
     if(!el||!state?.room)return;
-    el.volume=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
-    /* Unattended displays must start muted so Chromium autoplay is deterministic.
-       Sound is restored only after a real user gesture, unless force_mute keeps it off. */
-    el.muted=Boolean(state.room.force_mute);
+    el.volume=roomVolume();
+    /* Silence is volume 0, not muted. Chromium pauses muted video as soon as the
+       window is covered/hidden, but keeps unmuted (even volume 0) video playing. */
+    if(!el.paused)return; // never flip muted on a running element (autoplay policy may pause it)
+    el.muted=false;
   }
+  /* fastboot starts the first clip muted (autoplay-safe). Muted video is paused by
+     Chromium when the window is covered, so switch a running muted clip to unmuted
+     volume 0/room volume. If autoplay policy refuses (Chromium pauses synchronously),
+     go straight back to muted playback. */
+  function softUnmute(el){
+    if(!el||!el.muted||el.paused||el.ended||state?.room?.paused)return;
+    el.volume=roomVolume();el.muted=false;
+    if(el.paused){el.muted=true;void playWithDeadline(el,3000);}
+  }
+  function roomVolume(){return state?.room?.force_mute?0:Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));}
   function slotMatches(el,v){return Boolean(el&&v&&el.dataset.videoId===String(v.id||'')&&el.dataset.mediaUrl===mediaUrl(v));}
   function resetSlot(el){
     if(!el)return;
@@ -380,12 +396,12 @@
     playAttemptEpoch.set(el,epoch);
     let timer;
     const deadline=new Promise(resolve=>{timer=setTimeout(()=>{
-      if(playAttemptEpoch.get(el)===epoch&&!backgrounded()){
+      if(playAttemptEpoch.get(el)===epoch){
         // Invalidate the timed-out attempt before its late promise can commit.
         playAttemptEpoch.set(el,epoch+1);
-        try{el.pause();}catch(_){}
-        // Never blank the visible display. Reset only an inactive candidate.
-        if(el!==activeVideoEl()){try{el.load();}catch(_){}}
+        // An inactive, timed-out candidate must not start playing later.
+        // An active video must not be paused/reloaded just for a slow promise.
+        if(el!==activeVideoEl()){try{el.pause();el.load();}catch(_){}}
       }
       resolve(false);
     },timeoutMs);});
@@ -399,11 +415,10 @@
   async function playElement(el){
     if(!el)return false;
     if(state?.room?.paused)return true;
-    const forceMute=Boolean(state?.room?.force_mute);
-    const targetVolume=Math.max(0,Math.min(1,Number(state?.room?.volume||0)/100));
-    el.volume=targetVolume;
-    /* Kiosk Chrome may permit unmuted autoplay, but ordinary Edge can reject it. */
-    el.muted=forceMute;
+    el.volume=roomVolume();
+    /* Try unmuted first (volume 0 when force_mute) so a covered/hidden window keeps
+       playing. Kiosk Chrome permits it; ordinary Edge may reject -> muted fallback. */
+    el.muted=false;
     if(await playWithDeadline(el)){
       lastError=null;
       return true;
@@ -530,8 +545,8 @@
       transitionInProgress=true;transitionStartedAt=Date.now();
       const muted=nextEl.dataset.prerollMuted==='1';
       const volume=Number(nextEl.dataset.prerollVolume);
-      nextEl.muted=state?.room?.force_mute?true:muted;
-      if(Number.isFinite(volume))nextEl.volume=volume;
+      nextEl.muted=state?.room?.force_mute?false:muted;
+      nextEl.volume=state?.room?.force_mute?0:(Number.isFinite(volume)?volume:roomVolume());
       nextEl.dataset.prerolled='';prerolledIndex=-1;prerolledSlot=-1;
       // Do NOT commit the new slot until play() has succeeded. Previously a
       // rejected/expired play() left the failed video visible and the old ended
@@ -685,8 +700,9 @@
   }
   function applyLiveControls(){
     const el=activeVideoEl(); if(!el||!state)return;
-    const vol=Math.max(0,Math.min(1,Number(state.room.volume||0)/100));
-    slots.forEach(v=>{if(v){if(Math.abs(v.volume-vol)>0.01)v.volume=vol;if(state.room.force_mute)v.muted=true;}});
+    const vol=roomVolume();
+    slots.forEach(v=>{if(v&&Math.abs(v.volume-vol)>0.01)v.volume=vol;});
+    softUnmute(el);
     if(state.room.paused){if(!el.paused)el.pause();}
     else if(el.paused&&!el.ended&&!backgrounded())playElement(el);
     queueHeartbeat(true);
@@ -882,8 +898,36 @@
      예전에는 첫 단계가 페이지 새로고침이라 1번 영상부터 다시 시작했고, 깨진 영상이 있으면
      같은 지점에서 반복해서 새로고침되었다. */
   const STALL_MS=12000,TRANSITION_HANG_MS=30000;
+  async function backgroundPlaybackCheck(){
+    if(!backgrounded()||!canAutoPlay()||backgroundRetryBusy||foregroundResumeBusy||
+       playlistAdvanceBusy||mediaFailureBusy||stallRecovering||transitionInProgress)return;
+    const el=activeVideoEl(),v=current();
+    if(!el||!v)return;
+    // The ended event can be throttled or dropped in an occluded window.
+    if(el.ended){
+      if(Date.now()-backgroundRetryAt<BACKGROUND_RETRY_MS)return;
+      backgroundRetryAt=Date.now();
+      void advanceSeamless();
+      return;
+    }
+    // Do not classify lack of frame callbacks in a hidden tab as a stall.
+    // Retry only when Chrome explicitly reports that playback is paused.
+    if(!el.paused||el.error||!slotMatches(el,v))return;
+    if(Date.now()-backgroundRetryAt<BACKGROUND_RETRY_MS)return;
+    backgroundRetryAt=Date.now();backgroundRetryBusy=true;
+    try{
+      // The browser may reject a hidden-tab play() due to autoplay policy.
+      // Such rejection must not mark the MP4 bad or reload the kiosk.
+      await playElement(el);
+      if(!backgrounded())onPlayerForeground();
+      else if(!el.paused&&!el.ended){lastError=null;confirmedPlaybackState='playing';scheduleReport(0);}
+    }catch(e){console.warn('[Clinic Signage] background resume deferred:',e?.message||e);}
+    finally{backgroundRetryBusy=false;}
+  }
   async function playbackWatchdog(){
-    if(!state||state.mode==='closed'||state.room?.paused||emergencyPlaying||!list().length||stallRecovering||backgrounded()||inForegroundGrace())return;
+    if(!state||state.mode==='closed'||state.room?.paused||emergencyPlaying||!list().length||stallRecovering)return;
+    if(backgrounded()){await backgroundPlaybackCheck();return;}
+    if(inForegroundGrace())return;
     if(playlistAdvanceBusy||mediaFailureBusy)return; // 진행/복구 담당이 이미 동작 중
     if(transitionInProgress){
       if(Date.now()-transitionStartedAt<TRANSITION_HANG_MS)return;
@@ -1011,6 +1055,7 @@
     // Pause only error/stall judgements; ended events still advance the playlist.
     clearTimeout(pauseConfirmTimer);
     lastProgressAt=Date.now();
+    backgroundRetryAt=0;
   }
   async function resumePlayerForeground(){
     if(backgrounded()||foregroundResumeBusy||!canAutoPlay())return;
