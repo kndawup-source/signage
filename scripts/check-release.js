@@ -16,9 +16,18 @@ for(const file of ['js/version.js','player-sw.js']){
  const txt=fs.readFileSync(path.join(root,file),'utf8');
  if(!txt.includes(version))errors.push(`${file}: missing ${version}`);
 }
-if(!fs.existsSync(path.join(root,'.vercelignore')))errors.push('.vercelignore missing');
-for(const p of ['supabase/','server/']){
- if(!fs.readFileSync(path.join(root,'.vercelignore'),'utf8').includes(p))errors.push(`not ignored: ${p}`);
+const ignorePath=path.join(root,'.vercelignore');
+if(!fs.existsSync(ignorePath)){
+  errors.push('.vercelignore missing');
+} else {
+  const rules=fs.readFileSync(ignorePath,'utf8').split(/\r?\n/).map(x=>x.trim())
+    .filter(x=>x && !x.startsWith('#'));
+  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/']){
+    if(!rules.includes(p))errors.push(`not ignored: ${p}`);
+  }
+  // Critical: serverless functions still need their private assets at build time.
+  if(rules.includes('api/')||rules.includes('api/_private/')) errors.push('api private server resources excluded');
 }
+
 if(errors.length){console.error('Deployment consistency FAILED:\n'+errors.join('\n'));process.exit(1);}
 console.log(`Deployment consistency OK: ${version}`);
