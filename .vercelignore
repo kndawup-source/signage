@@ -1,0 +1,23 @@
+# Exclude development files, database definitions and local-only utilities
+# from the public Vercel deployment.
+# Keep api/ and api/_private/ available to the serverless functions.
+supabase/
+sql/
+server/
+scripts/
+floorplans_source/
+player/
+SETUP.txt
+SUPABASE-CONFIG.txt
+DELETE_FILES.txt
+CHANGELOG.txt
+CHANGES_*.txt
+QA-*.txt
+README*.md
+*.zip
+*.bat
+*.ps1
+*.log
+.env
+.env.*
+!.env.example
