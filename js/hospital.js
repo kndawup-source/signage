@@ -426,7 +426,7 @@
     state={site:data.site||null,siteSettings:{...(data.site_settings||{}),building_asset:building.data||{},floorplan_assets:data.floorplan_assets||{}},buildingAsset:building.data||{},floorplanAssets:data.floorplan_assets||{},floorSpaces,floorplanVersions:data.floorplan_versions||[],patients:data.patients||[],rooms,groups:data.groups||[],playlists:data.playlists||[],videos:data.videos||[],playlistItems:data.playlist_items||[],roomRules:data.room_video_rules||[],broadcast:data.broadcast||{active:false}};
     const actualSlug=String(state.site?.code||'').trim();
     if(actualSlug){const expected=`/hospital.html?site=${encodeURIComponent(actualSlug)}`;if(location.pathname!=='/hospital.html'||new URLSearchParams(location.search).get('site')!==actualSlug)history.replaceState(null,'',expected);}
-    if(background&&isInteracting())return;
+    if(background&&(isInteracting()||hospitalVideoUploadBusy))return;
     renderPreservingUi(background);
   }
   function isInteracting(){
@@ -1175,7 +1175,58 @@
     const {error}=await db.rpc('hospital_save_operating_config',{p_site:targetSiteId,p_config:config});if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();
   }
   function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
-  function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="hospital-page-intro"><span class="eyebrow">PLAYLIST</span><h2>플레이리스트</h2><p>이미 등록된 영상 중 이 병원에서 사용할 재생 순서만 정합니다.</p></div>${hospitalPlaylistManagerMarkup()}</section>`;}
+  let hospitalVideoUploadBusy=false;
+  function hospitalVideosPageMarkup(){
+    const ownVideos=state.videos.filter(v=>v.site_id===targetSiteId);
+    return `<section class="hospital-content-page"><div class="hospital-page-intro"><span class="eyebrow">VIDEOS</span><h2>영상 · 플레이리스트</h2><p>우리 병원 영상을 업로드하고, TV에서 재생할 목록을 관리합니다.</p></div>
+      <section class="hospital-admin-block hospital-video-upload-section" aria-label="병원 영상 업로드"><div class="hospital-admin-block-head"><div><b>영상 업로드</b><small>우리 병원 전용 MP4 영상을 등록합니다. 업로드 후 재생목록에 추가해야 TV에 나옵니다.</small></div></div>
+        <div class="hospital-video-upload-controls"><label class="field"><span>영상 파일</span><input type="file" id="hospitalVideoFile" accept="video/mp4,.mp4"></label><label class="field"><span>영상 제목</span><input id="hospitalVideoTitle" maxlength="140" placeholder="파일을 선택하면 제목이 자동으로 입력됩니다"></label><button type="button" class="btn primary" id="hospitalVideoUpload">업로드</button></div>
+        <div id="hospitalVideoUploadProgress" class="hospital-video-upload-progress" role="status" aria-live="polite" hidden><progress id="hospitalVideoUploadBar" max="100" value="0"></progress><span id="hospitalVideoUploadMessage">업로드 준비 중</span></div>
+        <small class="hospital-video-upload-hint">MP4 · 최대 2GB · 진행 중에는 이 페이지를 닫지 마세요.</small>
+      </section>
+      <section class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>우리 병원 영상</b><small>업로드된 영상 ${ownVideos.length}개 · 공용 영상은 아래 플레이리스트에서 선택할 수 있습니다.</small></div></div><div class="hospital-uploaded-video-list">${ownVideos.map(v=>`<div class="hospital-uploaded-video-row"><b>${esc(v.title)}</b><span>${v.duration_sec?Math.round(Number(v.duration_sec))+'초 · ':''}${v.size_bytes?(Number(v.size_bytes)/1048576).toFixed(1)+'MB':''}</span></div>`).join('')||'<p class="muted">아직 업로드된 영상이 없습니다.</p>'}</div></section>
+      ${hospitalPlaylistManagerMarkup()}</section>`;
+  }
+  function localVideoMetadata(file){return new Promise(resolve=>{
+    const url=URL.createObjectURL(file),v=document.createElement('video');let done=false;
+    const finish=()=>{if(done)return;done=true;const d=Number(v.duration);const info={duration_sec:Number.isFinite(d)&&d>0?Math.round(d*100)/100:null,width_px:v.videoWidth||null,height_px:v.videoHeight||null};v.removeAttribute('src');try{v.load();}catch(_){} URL.revokeObjectURL(url);resolve(info);};
+    v.preload='metadata';v.muted=true;v.onloadedmetadata=finish;v.onerror=finish;v.src=url;setTimeout(finish,7000);
+  });}
+  function hospitalUploadProgress(pct,message){
+    const wrap=qs('#hospitalVideoUploadProgress');if(!wrap)return;wrap.hidden=false;
+    const bar=qs('#hospitalVideoUploadBar'),label=qs('#hospitalVideoUploadMessage');if(bar)bar.value=pct;if(label)label.textContent=message;
+  }
+  async function uploadHospitalVideo(){
+    if(hospitalVideoUploadBusy)return;
+    const file=qs('#hospitalVideoFile')?.files?.[0],title=String(qs('#hospitalVideoTitle')?.value||'').trim();
+    if(!file)return toast('MP4 파일을 선택하세요.','error');
+    if(!file.name.toLowerCase().endsWith('.mp4')||!['video/mp4','application/octet-stream',''].includes(file.type))return toast('MP4 파일만 업로드할 수 있습니다.','error');
+    if(!file.size||file.size>2*1024*1024*1024)return toast('파일 크기는 2GB 이하여야 합니다.','error');
+    if(!title)return toast('영상 제목을 입력하세요.','error');
+    hospitalVideoUploadBusy=true;const button=qs('#hospitalVideoUpload');if(button)button.disabled=true;
+    let signed=null,uploaded=false;
+    try{
+      hospitalUploadProgress(0,'파일 확인 중…');
+      const metadata=await localVideoMetadata(file);
+      signed=await apiJson('/api/hospital-video-presign',{method:'POST',body:JSON.stringify({siteId:targetSiteId,filename:file.name,contentType:'video/mp4',size:file.size})});
+      hospitalUploadProgress(0,'R2로 업로드 중…');
+      await uploadByXhr(signed.uploadUrl,file,'video/mp4',pct=>hospitalUploadProgress(pct,`업로드 중 ${pct}%`));uploaded=true;
+      hospitalUploadProgress(100,'영상 목록에 등록 중…');
+      const payload={site_id:targetSiteId,title,source:'r2',storage_path:signed.key,url:signed.publicUrl,size_bytes:file.size,active:true,available:true,...metadata};
+      const {error}=await db.from('videos').insert(payload);if(error)throw error;
+      toast('영상을 업로드했습니다. 플레이리스트에 추가해 주세요.');
+      await load();
+    }catch(e){
+      console.error('[hospital-video-upload]',e);
+      toast(`영상 업로드 실패: ${e?.message||e}`,'error');
+      hospitalUploadProgress(uploaded?100:0,uploaded?'파일은 업로드됐지만 목록 등록에 실패했습니다. 관리자에게 문의하세요.':`업로드 실패: ${e?.message||e}`);
+    }finally{hospitalVideoUploadBusy=false;if(button&&button.isConnected)button.disabled=false;}
+  }
+  function bindHospitalVideoUpload(){
+    qs('#hospitalVideoFile')?.addEventListener('change',e=>{const f=e.target.files?.[0];if(f){const input=qs('#hospitalVideoTitle');if(input&&!input.value.trim())input.value=f.name.replace(/\.mp4$/i,'');}});
+    qs('#hospitalVideoUpload')?.addEventListener('click',()=>void uploadHospitalVideo());
+  }
+
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   const displaySetupRpcMissing=(error)=>String(error?.code||'')==='PGRST202'||/staff_set_display_setup|schema cache|function/i.test(String(error?.message||''))&&/could not find|not found/i.test(String(error?.message||''));
   async function saveDisplayPurpose(roomId){
@@ -1341,6 +1392,7 @@
 
   function bind(){
     bindHospitalAdminSettings();
+    if(tab==='videos')bindHospitalVideoUpload();
     bindFloorTvDragSort();
     qsa('[data-status-filter]').forEach(btn=>btn.addEventListener('click',()=>{
       const choice=btn.dataset.statusFilter;
