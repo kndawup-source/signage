@@ -19,7 +19,7 @@
   const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.11');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
-  const UPDATE_FORCE_MS=30*60*1000;
+  const UPDATE_FORCE_MS=30*60*1000; // only force when playback is genuinely stuck, never during healthy playback
   let updatePendingVersion=null,updateDetectedAt=0,lastUpdateCheckAt=0,updateCheckBusy=false,updateError=null;
 
   let state = null;
@@ -76,6 +76,44 @@
 
   let switchToken = 0;
   let lastProgressAt=Date.now(),lastProgressTime=0,stallRecovering=false,recoveryStage=0,recoveryAttempts=0;
+  // Independent of play() success and recovery attempts: only observed media time
+  // movement proves progress. The old watchdog rearmed itself after each retry.
+  let lastVerifiedProgressAt=Date.now(),lastVerifiedTime=0,lastVerifiedSlot=-1;
+  let freezeStartedAt=0,freezeClipIndex=-1,sameClipReloadAttempted=false;
+  const DIAGNOSTIC_KEY=`clinic-signage:play-events:${key||'none'}`;
+  function recordPlaybackEvent(reason,extra={}){
+    const el=activeVideoEl?.();
+    const event={at:new Date().toISOString(),reason,video_id:String(current()?.id||'').slice(0,80),index,
+      current_time:Math.round(Number(el?.currentTime||0)*10)/10,
+      duration:Number.isFinite(el?.duration)?Math.round(el.duration*10)/10:null,
+      hidden:backgrounded(),...extra};
+    try{
+      const prior=JSON.parse(localStorage.getItem(DIAGNOSTIC_KEY)||'[]');
+      const history=Array.isArray(prior)?prior.slice(-79):[];
+      history.push(event);localStorage.setItem(DIAGNOSTIC_KEY,JSON.stringify(history));
+    }catch(_){/* privacy mode/quota must never affect playback */}
+    console.info('[Clinic Signage playback]',event);
+  }
+  function markVideoProgress(el){
+    if(!el||el!==activeVideoEl())return false;
+    const t=Number(el.currentTime);
+    if(!Number.isFinite(t))return false;
+    if(lastVerifiedSlot!==activeSlot){lastVerifiedSlot=activeSlot;lastVerifiedTime=t;lastVerifiedProgressAt=Date.now();return false;}
+    if(t<lastVerifiedTime-.5){lastVerifiedTime=t;lastVerifiedProgressAt=Date.now();return false;}
+    if(t-lastVerifiedTime>=.25){
+      lastVerifiedTime=t;lastVerifiedProgressAt=Date.now();
+      recoveryStage=0;recoveryAttempts=0;
+      freezeStartedAt=0;freezeClipIndex=-1;sameClipReloadAttempted=false;
+      return true;
+    }
+    return false;
+  }
+  function markNewActiveVideo(el){
+    if(index!==freezeClipIndex){freezeStartedAt=0;freezeClipIndex=-1;sameClipReloadAttempted=false;}
+    lastVerifiedSlot=activeSlot;lastVerifiedTime=Number(el?.currentTime||0);
+    lastVerifiedProgressAt=Date.now();lastProgressAt=Date.now();
+    recoveryStage=0;recoveryAttempts=0;recoveryIndex=index;
+  }
   /* 복구 단계는 '같은 영상'에서 '충분히 오래(30초)' 정상 진행해야 초기화한다. 몇 초 재생 후 같은
      지점에서 다시 멈추는 영상이 1~2단계만 영원히 반복하고 건너뛰기에 도달하지 못하던 문제 방지. */
   let recoveryIndex=-1,lastRecoveryAt=0;
@@ -264,7 +302,13 @@
     if(!updatePendingVersion)return false;
     const el=activeVideoEl?.();
     if(!el||el.ended||el.paused||!list().length||state?.room?.paused){reloadForUpdate();return true;}
-    if(updateDetectedAt&&Date.now()-updateDetectedAt>=UPDATE_FORCE_MS){reloadForUpdate();return true;}
+    // Healthy long videos must finish naturally. A 30-minute timer used to
+    // cut their audio mid-clip. Force only a genuinely stalled/paused player.
+    if(updateDetectedAt&&Date.now()-updateDetectedAt>=UPDATE_FORCE_MS&&
+       (el.error||(el.paused&&!backgrounded())||(!backgrounded()&&Date.now()-lastVerifiedProgressAt>=120000))){
+      recordPlaybackEvent('update_stalled_recovery',{version:updatePendingVersion});
+      reloadForUpdate();return true;
+    }
     return false;
   }
   async function checkForPlayerUpdate(force=false){
@@ -307,9 +351,13 @@
       el.removeAttribute('autoplay');el.autoplay=false;
       if(el.dataset.playerBound==='1')return;
       el.dataset.playerBound='1';
-      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){confirmedPlaybackState='ended';if(updatePendingVersion){reloadForUpdate();return;}void advanceSeamless();}});
-      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);/* The switch owner clears transitionInProgress only after slot commit. */confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();if(recoveryAttempts&&Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS){recoveryStage=0;recoveryAttempts=0;}if(lastError&&String(lastError).startsWith('재생 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
+      el.addEventListener('ended',()=>{if(slotIndex===activeSlot&&!emergencyPlaying){
+        confirmedPlaybackState='ended';recordPlaybackEvent('natural_end');
+        if(updatePendingVersion){recordPlaybackEvent('update_at_end',{version:updatePendingVersion});reloadForUpdate();return;}
+        void advanceSeamless();
+      }});
+      el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);/* The switch owner clears transitionInProgress only after slot commit. */confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;markVideoProgress(el);watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();markVideoProgress(el);if(recoveryAttempts&&Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS){recoveryStage=0;recoveryAttempts=0;}if(lastError&&String(lastError).startsWith('재생 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
@@ -324,7 +372,7 @@
       el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
       /* 특정 영상 오류는 페이지 새로고침이 아니라 다음 영상으로 건너뛰어 처리한다.
          전환 중 오류는 전환 담당(switchToIndex 호출자)이 재시도/건너뛰기를 한다. */
-      el.addEventListener('error',()=>{if(slotIndex!==activeSlot||emergencyPlaying||backgrounded())return;confirmedPlaybackState='error';pushLiveStatusNow();if(transitionInProgress||playlistAdvanceBusy)return;void handleMediaFailure(current(),index);});
+      el.addEventListener('error',()=>{if(slotIndex!==activeSlot||emergencyPlaying||backgrounded())return;confirmedPlaybackState='error';pushLiveStatusNow();if(transitionInProgress||playlistAdvanceBusy)return;recordPlaybackEvent('media_error',{code:el.error?.code||null});void handleMediaFailure(current(),index);});
     });
     root.onclick=enableSound;
   }
@@ -531,7 +579,7 @@
     ensureSurface();
     const currentEl=activeVideoEl();
     if(!force&&slotMatches(currentEl,v)){
-      if(currentEl.ended){try{currentEl.currentTime=0;}catch(_){}if(!state?.room?.paused&&!(await playElement(currentEl)))return false;}
+      if(currentEl.ended){try{currentEl.currentTime=0;}catch(_){}if(!state?.room?.paused&&!(await playElement(currentEl)))return false;markNewActiveVideo(currentEl);recordPlaybackEvent('single_video_loop');}
       index=normalized;
       savePosition(index);applyLiveControls();prepareNext();watchForPreroll(currentEl,activeSlot);return true;
     }
@@ -566,6 +614,7 @@
       }
       nextEl.classList.add('is-active');
       activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
+      markNewActiveVideo(nextEl);recordPlaybackEvent('switch_committed',{selected_index:normalized});
       if(v?.id)mediaFailures.delete(String(v.id));
       currentEl?.classList.remove('is-active');
       lastProgressAt=Date.now();lastProgressTime=nextEl.currentTime||0;
@@ -618,6 +667,7 @@
     if(token!==switchToken)return false;
     nextEl.classList.add('is-active');
     activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
+    markNewActiveVideo(nextEl);recordPlaybackEvent('switch_committed',{selected_index:normalized});
     currentEl?.classList.remove('is-active');
     confirmedPlaybackState='playing';
     if(v?.id)mediaFailures.delete(String(v.id));
@@ -785,10 +835,16 @@
     const id=String(v?.id||mediaUrl(v)||'unknown'),prev=mediaFailures.get(id)||{count:0,lastAt:0};
     const nextFailure={count:prev.count+1,lastAt:Date.now()};mediaFailures.set(id,nextFailure);
     lastError=`재생 실패: ${v?.title||'영상'}`;cycleFailures++;queueHeartbeat(true);scheduleReport(0);
-    console.warn('[Clinic Signage] skipping failed video:',v?.title||id);
+    console.warn('[Clinic Signage] recovering failed video:',v?.title||id);recordPlaybackEvent('hard_media_failure',{failed_index:failedIndex});
     const items=list();if(!items.length)return;
     const base=Number.isInteger(failedIndex)&&failedIndex>=0&&failedIndex<items.length?failedIndex:(index%items.length);
     cancelPreroll();
+    // A transient decode/network error should not cut the clip instantly.
+    // Retry the same file once before considering other playlist entries.
+    if(Number.isInteger(failedIndex)&&failedIndex===index&&slots[inactiveSlotIndex()]){
+      const same=await switchToIndex(index,{force:true});
+      if(same){recordPlaybackEvent('same_video_recovered');return;}
+    }
     for(let step=1;step<=items.length;step++){
       if(items!==list()||!canAutoPlay())return; // 재생목록 교체/정지/비상영상: 새 상태가 우선
       const candidateIndex=(base+step)%items.length;
@@ -796,7 +852,7 @@
       if(!items[candidateIndex]||!mediaUrl(items[candidateIndex]))continue;
       if(isFailed)resetSlot(slots[inactiveSlotIndex()]);
       const ok=await switchToIndex(candidateIndex,{force:isFailed});
-      if(ok)return;
+      if(ok){recordPlaybackEvent('skip_unplayable_clip',{failed_index:base,selected_index:candidateIndex});return;}
     }
     cycleFailures=0;if(await playEmergencyCached())return;scheduleRecovery();
   }
@@ -890,14 +946,12 @@
     }finally{heartbeatInFlight=false;if(heartbeatQueued){heartbeatQueued=false;queueMicrotask(heartbeat);}}
   }
 
-  /* 재생 감시 (3초마다).
-     - ended 이벤트가 유실되어 멈춘 경우: 새로고침하지 않고 바로 다음 영상으로 진행
-     - 전환이 30초 넘게 끝나지 않는 경우: 전환을 해제하고 복구 단계로 진입
-     - 12초 이상 프레임 진행 없음: 1 재생 재시도 → 2 같은 영상 새로 로드 → 3 다음 영상으로 건너뛰기
-       → 4 상태 재조회 후 재시작 → 5 페이지 새로고침(5분에 2회 한도, 다음 영상부터 이어서)
-     예전에는 첫 단계가 페이지 새로고침이라 1번 영상부터 다시 시작했고, 깨진 영상이 있으면
-     같은 지점에서 반복해서 새로고침되었다. */
-  const STALL_MS=12000,TRANSITION_HANG_MS=30000;
+  /* Playback watchdog. A slow frame callback is not an error. A genuinely
+     frozen player gets same-clip recovery first; skip only for hard media
+     errors or after a prolonged, confirmed failure. No mid-clip reload on
+     the ordinary 12s Chromium background/decoder scheduling jitter. */
+  const STALL_MS=30000,TRANSITION_HANG_MS=30000;
+  const STALL_SKIP_MS=180000,RETRY_GAP_MS=20000;
   async function backgroundPlaybackCheck(){
     if(!backgrounded()||!canAutoPlay()||backgroundRetryBusy||foregroundResumeBusy||
        playlistAdvanceBusy||mediaFailureBusy||stallRecovering||transitionInProgress)return;
@@ -907,7 +961,7 @@
     if(el.ended){
       if(Date.now()-backgroundRetryAt<BACKGROUND_RETRY_MS)return;
       backgroundRetryAt=Date.now();
-      void advanceSeamless();
+      recordPlaybackEvent('background_ended_event_missing');void advanceSeamless();
       return;
     }
     // Do not classify lack of frame callbacks in a hidden tab as a stall.
@@ -943,42 +997,44 @@
       if(Date.now()-lastProgressAt>=1500){lastProgressAt=Date.now();void advanceSeamless();}
       return;
     }
-    if(Date.now()-lastProgressAt<STALL_MS)return;
-    stallRecovering=true;
-    // 다른 영상에서 새로 멈춘 것이면 1단계부터 다시 시작.
-    if(index!==recoveryIndex||Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS+STALL_MS){recoveryAttempts=0;recoveryStage=0;}
-    recoveryIndex=index;lastRecoveryAt=Date.now();
+    // Progress is measured from the media playhead, never from a successful
+    // play() promise or a reset watchdog timer. Check even if timeupdate was
+    // throttled so the watchdog cannot mistake a healthy clip for frozen.
+    if(!mismatched&&el&&markVideoProgress(el))return;
+    const stalledFor=Date.now()-lastVerifiedProgressAt;
+    if(stalledFor<STALL_MS)return;
+    if(!freezeStartedAt||freezeClipIndex!==index){freezeStartedAt=lastVerifiedProgressAt;freezeClipIndex=index;sameClipReloadAttempted=false;}
+    const totalFreezeMs=Date.now()-freezeStartedAt;
+    if(Date.now()-lastRecoveryAt<RETRY_GAP_MS)return;
+    // Seek/end handling is separate. A media decoder error is an explicit
+    // failure; a stalled clock alone is not evidence a clip is corrupt.
+    if(el?.error){recordPlaybackEvent('watchdog_media_error',{code:el.error.code});await handleMediaFailure(desired,index);return;}
+    stallRecovering=true;lastRecoveryAt=Date.now();
+    recoveryIndex=index;
     recoveryAttempts++;
-    recoveryStage=Math.min(5,recoveryAttempts);
-    lastError=`재생 자동 복구 ${recoveryStage}단계`;
-    queueHeartbeat(true);scheduleReport(0);
-    let holdUntil=Date.now();
+    recoveryStage=Math.min(3,recoveryAttempts);
+    recordPlaybackEvent('progress_stalled',{stalled_seconds:Math.round(stalledFor/1000),recovery_stage:recoveryStage});
     try{
-      if(recoveryStage===1&&el&&!mismatched&&!el.error){
-        if(el.readyState<2){try{el.load();}catch(_){}}
-        await playElement(el);
-      }else if(recoveryStage<=2){
-        cancelPreroll();resetSlot(slots[inactiveSlotIndex()]);
-        if(!(await switchToIndex(index,{force:true}))&&canAutoPlay())await handleMediaFailure(current(),index);
-      }else if(recoveryStage===3){
+      if(totalFreezeMs>=STALL_SKIP_MS){
+        // Only after three minutes with no playhead progress: treat as an
+        // unrecoverable freeze, not ordinary buffering. Record the reason.
+        recordPlaybackEvent('skip_prolonged_freeze',{stalled_seconds:Math.round(totalFreezeMs/1000)});
         await handleMediaFailure(desired,index);
-      }else if(recoveryStage===4){
-        await fetchState();
-        if(!canAutoPlay())return;
+      }else if(totalFreezeMs>=90000&&recoveryAttempts>=2&&!sameClipReloadAttempted){
+        sameClipReloadAttempted=true;
+        // A fresh slot is a last resort; unlike normal buffer retries this
+        // may restart the current clip, so never do it for a short stall.
+        recordPlaybackEvent('reload_same_video',{stalled_seconds:Math.round(stalledFor/1000)});
         cancelPreroll();resetSlot(slots[inactiveSlotIndex()]);
-        if(!(await switchToIndex(index,{force:true}))&&canAutoPlay())await handleMediaFailure(current(),index);
-      }else{
-        /* 공유 새로고침 한도 사용: 복구 불가능한 파일/네트워크에서 무한 새로고침 금지.
-           멈춘 영상은 건너뛰고 다음 영상부터 이어서 재생한다. */
-        if(reloadAfterPlaybackFailure('recovery-exhausted',index+1))return;
-        recoveryAttempts=0;recoveryStage=0;
-        holdUntil=Date.now()+60000;
-        if(canAutoPlay())await handleMediaFailure(desired,index);
+        await switchToIndex(index,{force:true});
+      }else if(el&&!mismatched){
+        // Same element, same time position; no jump to another playlist item.
+        if(el.paused||el.readyState<3){await playElement(el);}
+      }else if(mismatched){
+        await switchToIndex(index,{force:true});
       }
-      /* play() 성공이 프레임 진행의 증거는 아니다. 다음 timeupdate가 단계를 초기화하고,
-         계속 멈춰 있으면 다음 단계로 올라간다. */
-    }catch(e){console.warn('Clinic Signage playback recovery failed:',e?.message||e);}
-    finally{lastProgressAt=Math.max(Date.now(),holdUntil);stallRecovering=false;}
+    }catch(e){console.warn('[Clinic Signage] non-destructive recovery failed:',e?.message||e);}
+    finally{stallRecovering=false;scheduleReport(0);}
   }
   function pushHeartbeatNow(){clearTimeout(heartbeatTimer);heartbeatTimer=null;void heartbeat();}
   /* The analytics heartbeat (row lock on rooms + daily upsert + event insert) runs on its
@@ -1075,7 +1131,7 @@
       }
       if(el.paused&&!state.room?.paused){
         const ok=await playElement(el);
-        if(!ok&&!backgrounded())await handleMediaFailure(v,index);
+        if(!ok&&!backgrounded()){recordPlaybackEvent('foreground_resume_deferred');scheduleReport(0);}
         return;
       }
       // Do not turn a covered window into a permanent 'error' alert.

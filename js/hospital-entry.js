@@ -2,7 +2,7 @@
   'use strict';
   const entryScript=document.currentScript;
   const entryUrl=new URL(entryScript?.src||location.href,location.href);
-  const version=String(entryUrl.searchParams.get('v')||entryScript?.dataset?.version||'2.35.40').trim();
+  const version=String(entryUrl.searchParams.get('v')||entryScript?.dataset?.version||'2.35.42').trim();
   const session=await Signage.requireAuth();
   if(!['admin','staff'].includes(session.role)){location.replace('/');return;}
   const header=document.querySelector('.topbar-inner');
