@@ -1,0 +1,11 @@
+Clinic Signage v2.35.43 — loading & transition responsiveness (changes only)
+Based on v2.35.42 player patch; deploy over same baseline.
+1. Change video preroll from only last 1.25s to a dynamic 4–20s lead time.
+2. Invoke preroll readiness from media timeupdate in addition to video frame callbacks.
+3. Do not treat an already loaded but paused Fastboot element as started; retry play().
+4. Defer large offline media cache writes from 30 seconds to at least 120 seconds after stable state and only if current video has >=12 seconds of buffered data.
+5. Log startup and committed switch timings in existing browser-local playback diagnostics (initial_render_ready/failed, switch_committed.load_ms).
+6. Version bump 2.35.43 for player/service worker/cache refresh.
+No SQL or Windows EXE changes. Player hosting/profile launch still uses existing v0.2.4 Windows installer.
+Limitations: browser/device/network real-playback latency remains unmeasured; R2 transfer sizes, HTTP 206 range support, encoding (faststart) must be verified separately.
+Test before rollout: first launch, 1/2/3+ item playlists, short clips, sound, window covered, 24h playback, offline playback and remote playlist updates.

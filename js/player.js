@@ -15,7 +15,11 @@
   const OFFLINE_READY_KEY = `clinic-signage:offline-ready:${key || 'none'}`;
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
-  const OFFLINE_CACHE_START_DELAY_MS = 30000;
+  // Defer large offline playlist downloads until the player has settled.
+  // This is deliberately less aggressive than starting 30s after boot: a full R2
+  // download can compete with the current clip and its next-slot range request.
+  const OFFLINE_CACHE_START_DELAY_MS = 120000;
+  const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 12;
   const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.11');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
@@ -252,6 +256,16 @@
       return false;
     }finally{offlineCacheBusy=false;}
   }
+  function bufferedAhead(el){
+    if(!el||!Number.isFinite(el.currentTime))return 0;
+    try{
+      for(let i=0;i<el.buffered.length;i++){
+        if(el.buffered.start(i)<=el.currentTime+.15&&el.buffered.end(i)>=el.currentTime)
+          return Math.max(0,el.buffered.end(i)-el.currentTime);
+      }
+    }catch(_){}
+    return 0;
+  }
   function scheduleOfflinePlaylistCache(force=false){
     if(PREVIEW)return;
     clearTimeout(offlineCacheTimer);
@@ -260,7 +274,18 @@
     if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(state)){
       offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;return;
     }
-    offlineCacheTimer=setTimeout(()=>{if(confirmedPlaybackState!=='playing'||transitionInProgress){scheduleOfflinePlaylistCache(false);return;}void syncOfflinePlaylistCache();},OFFLINE_CACHE_START_DELAY_MS);
+    offlineCacheTimer=setTimeout(()=>{
+      const el=activeVideoEl();
+      // No bulk-download while the first/current video is waiting for network
+      // or the next A/B slot is being prepared. If no known buffer window is
+      // available, favor smooth live playback and retry later.
+      if(confirmedPlaybackState!=='playing'||transitionInProgress||prerollBusy||
+         !el||el.paused||el.seeking||el.readyState<3||
+         bufferedAhead(el)<MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC){
+        scheduleOfflinePlaylistCache(false);return;
+      }
+      void syncOfflinePlaylistCache();
+    },OFFLINE_CACHE_START_DELAY_MS);
   }
   function playlistSignature(s) {
     return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}`).join(',')}`;
@@ -357,7 +382,7 @@
         void advanceSeamless();
       }});
       el.addEventListener('playing',()=>{if(slotIndex===activeSlot){clearTimeout(pauseConfirmTimer);/* The switch owner clears transitionInProgress only after slot commit. */confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastError=null;cycleFailures=0;const played=current();if(played?.id)mediaFailures.delete(String(played.id));lastProgressAt=Date.now();lastProgressTime=el.currentTime||0;markVideoProgress(el);watchForPreroll(el,slotIndex);pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();markVideoProgress(el);if(recoveryAttempts&&Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS){recoveryStage=0;recoveryAttempts=0;}if(lastError&&String(lastError).startsWith('재생 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
+      el.addEventListener('timeupdate',()=>{if(slotIndex===activeSlot&&Math.abs((el.currentTime||0)-lastProgressTime)>.15){confirmedPlaybackState=emergencyPlaying?'emergency':'playing';lastProgressTime=el.currentTime||0;lastProgressAt=Date.now();markVideoProgress(el);maybePrerollFromMediaTime(el,slotIndex);if(recoveryAttempts&&Date.now()-lastRecoveryAt>=RECOVERY_RESET_MS){recoveryStage=0;recoveryAttempts=0;}if(lastError&&String(lastError).startsWith('재생 자동 복구'))lastError=null;maybeReportPlaybackPresence();}});
       el.addEventListener('pause',()=>{
         if(slotIndex!==activeSlot||transitionInProgress)return;
         clearTimeout(pauseConfirmTimer);
@@ -556,6 +581,18 @@
       return true;
     }finally{prerollBusy=false;}
   }
+  function prerollLeadSeconds(duration){
+    // The old 1.25-second lead was shorter than a single 5s canplay attempt;
+    // start the decoded-frame preparation early enough to finish on real R2 links.
+    return Math.min(20,Math.max(4,duration*.25));
+  }
+  function maybePrerollFromMediaTime(el,slotIndex){
+    if(!el||slotIndex!==activeSlot||el.paused||el.ended||emergencyPlaying||backgrounded())return;
+    const duration=Number(el.duration),time=Number(el.currentTime);
+    if(Number.isFinite(duration)&&duration>0&&Number.isFinite(time)&&
+       duration-time<=prerollLeadSeconds(duration)&&duration-time>0.02)
+      void prerollNext();
+  }
   function watchForPreroll(el,slotIndex){
     const myToken=++frameWatchToken;
     const tick=()=>{
@@ -563,7 +600,7 @@
       const duration=Number(el.duration),time=Number(el.currentTime);
       if(Number.isFinite(duration)&&duration>0&&Number.isFinite(time)){
         const remain=duration-time;
-        if(remain<=1.25&&remain>0.02){prerollNext();}
+        if(remain<=prerollLeadSeconds(duration)&&remain>0.02){void prerollNext();}
       }
       maybeReportPlaybackPresence();
       if(typeof el.requestVideoFrameCallback==='function')el.requestVideoFrameCallback(tick);
@@ -573,13 +610,22 @@
     else requestAnimationFrame(tick);
   }
   async function switchToIndex(targetIndex,{sync=false,force=false}={}){
+    const startedAt=performance.now();
     const items=list(); if(!items.length){blankPlayer();return false;}
     const normalized=((targetIndex%items.length)+items.length)%items.length;
     const v=items[normalized];
     ensureSurface();
     const currentEl=activeVideoEl();
     if(!force&&slotMatches(currentEl,v)){
-      if(currentEl.ended){try{currentEl.currentTime=0;}catch(_){}if(!state?.room?.paused&&!(await playElement(currentEl)))return false;markNewActiveVideo(currentEl);recordPlaybackEvent('single_video_loop');}
+      if(currentEl.ended){
+        try{currentEl.currentTime=0;}catch(_){}
+        if(!state?.room?.paused&&!(await playElement(currentEl)))return false;
+        markNewActiveVideo(currentEl);recordPlaybackEvent('single_video_loop');
+      }else if(currentEl.paused&&!state?.room?.paused){
+        // Fastboot can create a matching element whose play() was blocked.
+        // Merely matching the URL must never be mistaken for successful startup.
+        if(!(await playElement(currentEl)))return false;
+      }
       index=normalized;
       savePosition(index);applyLiveControls();prepareNext();watchForPreroll(currentEl,activeSlot);return true;
     }
@@ -614,7 +660,10 @@
       }
       nextEl.classList.add('is-active');
       activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;confirmedPlaybackState='playing';
-      markNewActiveVideo(nextEl);recordPlaybackEvent('switch_committed',{selected_index:normalized});
+      markNewActiveVideo(nextEl);recordPlaybackEvent('switch_committed',{
+        selected_index:normalized,load_ms:Math.round(performance.now()-startedAt),
+        prepared:readyPreroll
+      });
       if(v?.id)mediaFailures.delete(String(v.id));
       currentEl?.classList.remove('is-active');
       lastProgressAt=Date.now();lastProgressTime=nextEl.currentTime||0;
@@ -667,7 +716,10 @@
     if(token!==switchToken)return false;
     nextEl.classList.add('is-active');
     activeSlot=targetSlot;index=normalized;emergencyPlaying=false;lastError=null;cycleFailures=0;
-    markNewActiveVideo(nextEl);recordPlaybackEvent('switch_committed',{selected_index:normalized});
+    markNewActiveVideo(nextEl);recordPlaybackEvent('switch_committed',{
+        selected_index:normalized,load_ms:Math.round(performance.now()-startedAt),
+        prepared:readyPreroll
+      });
     currentEl?.classList.remove('is-active');
     confirmedPlaybackState='playing';
     if(v?.id)mediaFailures.delete(String(v.id));
@@ -737,7 +789,11 @@
     if(!v||!mediaUrl(v)){blankPlayer();renderBarsOnly();return;}
     ensureSurface();renderBarsOnly();
     const mySeq=++renderSeq;
+    const bootStartedAt=performance.now();
     const ok=await switchToIndex(index,{sync:true});
+    recordPlaybackEvent(ok?'initial_render_ready':'initial_render_failed',{
+      elapsed_ms:Math.round(performance.now()-bootStartedAt)
+    });
     if(!ok&&!backgrounded()&&mySeq===renderSeq&&!emergencyPlaying&&!state?.room?.paused)await handleMediaFailure(current(),index);
     return ok;
   }
