@@ -597,9 +597,11 @@
   async function undoLatest(type,id){const h=state.history.find(x=>x.scope_type===type&&(!id||x.scope_id===id)&&x.before_state);if(!h)return toast('복귀 가능한 이전 상태가 없습니다.','error');await undoHistory(h.id);}
 
   function renderVideos(){
-    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">MEDIA</span><h1>영상</h1><p class="page-intro">등록된 영상과 플레이리스트를 관리합니다. 영상 파일 업로드는 이 시스템에서 제공하지 않습니다.</p></div><div class="stat">영상 ${state.videos.length} · 플레이리스트 ${state.playlists.length}</div></div>
+    qs('#adminRoot').innerHTML=`<div class="page-head"><div><span class="eyebrow">MEDIA</span><h1>영상</h1><p class="page-intro">영상을 업로드하고 플레이리스트에 추가할 수 있습니다.</p></div><div class="stat">영상 ${state.videos.length} · 플레이리스트 ${state.playlists.length}</div></div>
     <section class="panel playlist-manager"><div class="panel-head"><div><span class="eyebrow">PLAYLISTS</span><h2>플레이리스트</h2><p>용도별 묶음 안에서 영상과 순서를 관리합니다.</p></div></div><div class="playlist-create"><input id="newPlaylistName" placeholder="플레이리스트 이름"><select id="newPlaylistKind"><option value="default">기본 재생</option><option value="patient">환자 맞춤</option></select><select id="newPlaylistTreatment"><option value="">공통</option>${TREATMENT_OPTIONS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select><button id="addPlaylist" class="btn primary">만들기</button></div>${playlistGroupsHtml()}</section>
-    <section class="panel"><div class="panel-head"><div><span class="eyebrow">LIBRARY</span><h2>영상 보관함</h2><p>영상의 제목과 사용 여부만 관리합니다.</p></div>${state.videos.some(v=>v.url&&!v.thumbnail_data_url)?'<button id="backfillThumbs" class="btn">누락 썸네일 생성</button>':''}</div><div class="media-list">${state.videos.map(videoRow).join('')||'<p class="muted">등록된 영상이 없습니다.</p>'}</div></section>`;
+    <section class="panel upload-panel"><div class="panel-head"><div><span class="eyebrow">UPLOAD</span><h2>영상 업로드</h2><p>MP4 파일을 선택하면 Cloudflare R2에 저장하고 영상 보관함에 등록합니다. 최대 2GB.</p></div><label class="btn primary" for="videoUploadFile">+ 영상 업로드</label></div><input id="videoUploadFile" type="file" accept=".mp4,video/mp4" hidden><div id="videoUploadStatus" class="video-upload-status" role="status" aria-live="polite"><span>파일을 선택하면 업로드가 시작됩니다.</span><div class="video-upload-track" hidden><i id="videoUploadBar"></i></div></div></section>
+    <section class="panel"><div class="panel-head"><div><span class="eyebrow">LIBRARY</span><h2>영상 보관함</h2><p>업로드한 영상의 제목과 사용 여부를 관리합니다.</p></div>${state.videos.some(v=>v.url&&!v.thumbnail_data_url)?'<button id="backfillThumbs" class="btn">누락 썸네일 생성</button>':''}</div><div class="media-list">${state.videos.map(videoRow).join('')||'<p class="muted">등록된 영상이 없습니다.</p>'}</div></section>`;
+    qs('#videoUploadFile')?.addEventListener('change',e=>{const file=e.currentTarget.files?.[0];if(file)uploadVideoFile(file);e.currentTarget.value='';});
     qs('#addPlaylist')?.addEventListener('click',addPlaylist);
     qs('#backfillThumbs')?.addEventListener('click',backfillThumbnails);
     qsa('[data-thumbnail-regenerate]').forEach(b=>b.addEventListener('click',()=>regenerateThumbnail(b.dataset.thumbnailRegenerate)));
@@ -616,6 +618,54 @@
     qsa('[data-title-edit]').forEach(b=>b.addEventListener('click',()=>toggleTitleEdit(b.dataset.titleEdit,true)));
     qsa('[data-title-input]').forEach(i=>{i.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveTitle(i.dataset.titleInput);}else if(e.key==='Escape'){e.preventDefault();toggleTitleEdit(i.dataset.titleInput,false);}});i.addEventListener('blur',()=>{if(!i.closest('[data-title-form]')?.classList.contains('hidden'))saveTitle(i.dataset.titleInput);});});
     qsa('[data-delete-video]').forEach(b=>b.addEventListener('click',()=>deleteVideo(b.dataset.deleteVideo)));
+  }
+  function uploadStatus(message,pct=null){
+    const root=qs('#videoUploadStatus');if(!root)return;
+    const label=root.querySelector('span'),track=root.querySelector('.video-upload-track'),bar=qs('#videoUploadBar');
+    if(label)label.textContent=message;
+    if(track)track.hidden=pct===null;
+    if(bar&&pct!==null)bar.style.width=`${Math.max(0,Math.min(100,pct))}%`;
+  }
+  function inspectLocalVideo(file){
+    return new Promise((resolve)=>{
+      const objectUrl=URL.createObjectURL(file),video=document.createElement('video');let settled=false;
+      const finish=(result)=>{if(settled)return;settled=true;clearTimeout(timer);video.removeAttribute('src');try{video.load();}catch(_){}URL.revokeObjectURL(objectUrl);resolve(result);};
+      const timer=setTimeout(()=>finish({}),12000);
+      video.preload='metadata';video.muted=true;video.playsInline=true;
+      video.onloadedmetadata=()=>finish({duration_sec:Number.isFinite(video.duration)?Math.round(video.duration*100)/100:null});
+      video.onerror=()=>finish({});video.src=objectUrl;
+    });
+  }
+  async function uploadVideoFile(file){
+    if(uploadBusy)return toast('이미 영상 업로드 또는 썸네일 작업 중입니다.','error');
+    if(!/\.mp4$/i.test(file.name)||file.type&&!['video/mp4','application/mp4'].includes(file.type))return toast('MP4 영상만 업로드할 수 있습니다.','error');
+    if(file.size<=0||file.size>2*1024*1024*1024)return toast('영상 크기는 2GB 이하여야 합니다.','error');
+    uploadBusy=true;const picker=qs('#videoUploadFile');if(picker)picker.disabled=true;
+    let uploadedKey=null,registered=false;
+    try{
+      uploadStatus(`${file.name} · 파일 확인 중`,0);
+      const metadata=await inspectLocalVideo(file);
+      const signed=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType:'video/mp4',size:file.size})});
+      if(!signed.uploadUrl||!signed.publicUrl||!signed.key)throw new Error('업로드 주소를 받지 못했습니다.');
+      uploadStatus(`${file.name} · R2에 업로드 중`,0);
+      await uploadByXhr(signed.uploadUrl,file,'video/mp4',pct=>uploadStatus(`${file.name} · 업로드 중 ${pct}%`,pct));
+      uploadedKey=signed.key;
+      uploadStatus('영상 정보를 등록하는 중…',100);
+      const title=(typeof titleFromPath==='function'?titleFromPath(file.name):file.name.replace(/\.mp4$/i,''))||file.name;
+      const payload={title,source:'r2',storage_path:signed.key,url:signed.publicUrl,size_bytes:file.size,
+        duration_sec:metadata.duration_sec,active:true,available:true,sort_order:0,
+        ...(state.currentSite?.id?{site_id:state.currentSite.id}:{})};
+      const {error}=await db.from('videos').insert(payload);if(error)throw error;
+      registered=true;
+      uploadStatus('업로드 완료 · 영상 보관함에 등록했습니다.',100);
+      toast('영상 업로드 완료. 필요한 플레이리스트에 추가하세요.');
+      await load();
+    }catch(e){
+      const message=e?.message||'업로드에 실패했습니다.';
+      uploadStatus(`업로드 실패: ${message}`);
+      toast(message,'error');
+      if(uploadedKey&&!registered){try{await apiJson('/api/r2-delete',{method:'POST',body:JSON.stringify({key:uploadedKey})});}catch(err){console.warn('Orphan R2 upload cleanup failed',err);}}
+    }finally{uploadBusy=false;if(picker)picker.disabled=false;}
   }
   function playlistGroupsHtml(){
     const groups=[

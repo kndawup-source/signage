@@ -3816,3 +3816,14 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-page .hospital-unified-ops .floor-ops-tv>summary{grid-template-columns:minmax(0,1fr) 92px 18px!important;gap:5px!important}
   .hospital-page .hospital-unified-ops .floor-ops-tv .floor-ops-state{max-width:92px!important;font-size:10px!important}
 }
+
+/* Video library upload — isolated styles to avoid changing the player layout. */
+.admin-page .upload-panel{padding-top:25px!important;padding-bottom:25px!important}
+.admin-page .upload-panel .panel-head{align-items:center;flex-wrap:wrap;gap:16px;margin-bottom:10px}
+.admin-page .upload-panel h2{font-size:24px}
+.admin-page .upload-panel .btn{cursor:pointer;white-space:nowrap}
+.video-upload-status{font-size:13px;line-height:1.5;color:var(--muted);word-break:break-word}
+.video-upload-track{height:6px;background:#e8edf3;border-radius:4px;overflow:hidden;margin-top:10px;max-width:620px}
+.video-upload-track[hidden]{display:none}
+.video-upload-track i{display:block;height:100%;width:0;background:#2854a5;transition:width .18s ease}
+@media(max-width:640px){.admin-page .upload-panel .panel-head{align-items:flex-start}.admin-page .upload-panel .btn{width:100%;text-align:center}}
