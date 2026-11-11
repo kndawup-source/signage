@@ -1,0 +1,14 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {mediaItem,validUrl} = require('../api/_lib/native-media');
+const video = {id:'v1', title:'Sample', url:'https://cdn.example.com/original.mp4'};
+const original = mediaItem(video);
+assert.equal(original.quality,'original');
+assert.equal(original.sources.length,1);
+assert.equal(mediaItem({...video,url_480p:'https://cdn.example.com/480p.mp4'}).quality,'480p');
+assert.equal(mediaItem({...video,variants:{'480p':{url:'https://cdn.example.com/low.mp4',sha256:'a'.repeat(64)}}}).sources[0].sha256,'a'.repeat(64));
+assert.equal(mediaItem({...video,variants:{'480p':{url:'http://unsafe.local/test.mp4'}}}).quality,'original');
+assert.equal(validUrl('http://cdn.example.com/a.mp4'),null);
+assert.equal(validUrl('https://127.0.0.1/a.mp4'),null);
+assert.equal(mediaItem({url:'invalid'}),null);
+console.log('native media contract tests passed');

@@ -12,6 +12,7 @@
   const EMERGENCY_CACHE = 'clinic-signage-emergency-v1';
   const MAX_EMERGENCY_CACHE_BYTES = 250 * 1024 * 1024;
   const PLAYLIST_MEDIA_CACHE = 'clinic-signage-playlist-media-v1';
+  // Shared across TV tabs; never prune another TV's active media during sync.
   const OFFLINE_READY_KEY = `clinic-signage:offline-ready:${key || 'none'}`;
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
@@ -199,9 +200,26 @@
   }
   async function cachedMediaIsComplete(cache,v){
     const url=mediaUrl(v);if(!url)return false;
-    const hit=await cache.match(url);if(!hit)return false;
-    const expected=Number(v?.size||0),actual=Number(hit.headers.get('content-length')||0);
-    return !(expected>0&&actual>0&&Math.abs(expected-actual)>1);
+    const hit=await cache.match(url);if(!hit||hit.status!==200||hit.type==='opaque')return false;
+    // The Cache API may retain an interrupted or partial response. A 206 is
+    // never a complete MP4 even if the response is technically successful.
+    if(hit.headers.has('content-range'))return false;
+    const expected=Number(v?.size||0);
+    const header=hit.headers.get('content-length');
+    const actual=header!==null?Number(header):NaN;
+    if(expected>0&&header!==null&&(!Number.isFinite(actual)||Math.abs(expected-actual)>1))return false;
+    return true;
+  }
+  async function verifiedOfflineReadyState(){
+    const cached=offlineReadyState();
+    if(!cached?.playlist?.length||!('caches' in window))return null;
+    try{
+      const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
+      const items=cacheablePlaylistItems(cached);
+      if(!items.length||items.length!==cached.playlist.length)return null;
+      for(const video of items){if(!(await cachedMediaIsComplete(cache,video)))return null;}
+      return cached;
+    }catch(_){return null;}
   }
   async function cacheOnePlaylistVideo(cache,v,token,forceRefresh=false){
     if(token!==offlineCacheSyncToken)return false;
@@ -210,27 +228,31 @@
     const size=Number(v?.size||0);
     if(!(await storageHasRoomFor(size)))throw new Error('offline_cache_quota');
     const response=await fetch(url,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store'});
-    if(!response.ok)throw new Error(`offline_cache_http_${response.status}`);
+    if(response.status!==200||response.type==='opaque'||response.headers.has('content-range'))throw new Error(`offline_cache_incomplete_${response.status}`);
+    // A complete file must have the expected length when supplied by RPC.
+    const expectedLength=Number(v?.size||0),rawLength=response.headers.get('content-length');
+    if(expectedLength>0&&(rawLength===null||Math.abs(Number(rawLength)-expectedLength)>1))throw new Error('offline_cache_length_mismatch');
     if(token!==offlineCacheSyncToken){try{await response.body?.cancel();}catch(_){}return false;}
     /* Store the response directly. response.clone() tees the body and the unread branch
        buffers the whole video in memory (hundreds of MB on a kiosk). */
     await cache.put(url,response);
+    // Only mark a download complete after the Cache API has committed it.
+    if(!(await cachedMediaIsComplete(cache,v))){await cache.delete(url);throw new Error('offline_cache_verification_failed');}
     return true;
-  }
-  async function prunePlaylistCache(cache,keepUrls){
-    const keys=await cache.keys();
-    await Promise.all(keys.filter(req=>!keepUrls.has(req.url)).map(req=>cache.delete(req)));
   }
   async function syncOfflinePlaylistCache(){
     if(offlineCacheBusy||!('caches' in window)||!state?.playlist?.length||!navigator.onLine||state?.mode==='closed')return false;
     offlineCacheBusy=true;const token=++offlineCacheSyncToken;
     const snapshot=JSON.parse(JSON.stringify(state));
     const items=cacheablePlaylistItems(snapshot),total=items.length;
-    offlineCacheTotal=total;offlineCacheCount=0;offlineCacheReady=false;offlineCacheError=null;
+    offlineCacheTotal=total;offlineCacheCount=0;offlineCacheError=null;
+    // Keep the last fully verified playlist usable until the replacement is complete.
+    const previousReady=offlineReadyState();
+    const hadReady=Boolean(previousReady?.playlist?.length);
     try{
       try{await navigator.storage?.persist?.();}catch(_){}
       const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
-      const signature=playlistSignature(snapshot),previousMeta=readJsonStorage(OFFLINE_CACHE_META_KEY);
+      const signature=playlistSignature(snapshot);
       const forceRefresh=false; // Cache is keyed by exact media URL; playlist edits must not redownload unchanged video files.
       let complete=0;
       for(const v of items){
@@ -242,14 +264,17 @@
       }
       const allReady=total>0&&complete===total;
       if(allReady&&token===offlineCacheSyncToken){
-        const keep=new Set(items.map(v=>new URL(mediaUrl(v),location.href).href));
-        await prunePlaylistCache(cache,keep);
-        writeJsonStorage(OFFLINE_READY_KEY,snapshot);
+        // Commit new metadata before any cleanup. If storage refuses the write,
+        // the previous offline playlist must stay the active recovery point.
+        if(!writeJsonStorage(OFFLINE_READY_KEY,snapshot))throw new Error('offline_state_commit_failed');
         offlineCacheReady=true;offlineCacheUpdatedAt=new Date().toISOString();
         writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:complete,total,updated_at:offlineCacheUpdatedAt,playlist_signature:playlistSignature(snapshot)});scheduleReport(0);
         return true;
       }
-      writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:playlistSignature(snapshot)});scheduleReport(0);
+      // Never mark the old successful cache as unavailable because a new media
+      // download failed or an updated playlist was only partially retrieved.
+      if(!hadReady){offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:signature});}
+      scheduleReport(0);
       return false;
     }catch(e){
       offlineCacheError=e?.message||String(e);console.warn('Clinic Signage offline playlist cache failed:',offlineCacheError);scheduleReport(0);
@@ -272,7 +297,13 @@
     if(!navigator.onLine||!state?.playlist?.length||state?.mode==='closed')return;
     const meta=readJsonStorage(OFFLINE_CACHE_META_KEY);
     if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(state)){
-      offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;return;
+      // Browser quota eviction can remove media even if our metadata says ready.
+      void verifiedOfflineReadyState().then(cached=>{
+        if(!state||playlistSignature(state)!==meta.playlist_signature)return;
+        if(cached&&playlistSignature(cached)===meta.playlist_signature){
+          offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;
+        }else{offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false});scheduleOfflinePlaylistCache(true);}
+      });return;
     }
     offlineCacheTimer=setTimeout(()=>{
       const el=activeVideoEl();
@@ -1006,8 +1037,11 @@
      frozen player gets same-clip recovery first; skip only for hard media
      errors or after a prolonged, confirmed failure. No mid-clip reload on
      the ordinary 12s Chromium background/decoder scheduling jitter. */
-  const STALL_MS=30000,TRANSITION_HANG_MS=30000;
-  const STALL_SKIP_MS=180000,RETRY_GAP_MS=20000;
+  // Detect a frozen playhead earlier; all first-stage remedies are non-destructive.
+  const STALL_MS=12000,TRANSITION_HANG_MS=30000;
+  const STALL_SKIP_MS=180000,RETRY_GAP_MS=12000;
+  let lastPauseResumeAttemptAt=0;
+  const PAUSE_RESUME_AFTER_MS=3500,PAUSE_RESUME_GAP_MS=9000;
   async function backgroundPlaybackCheck(){
     if(!backgrounded()||!canAutoPlay()||backgroundRetryBusy||foregroundResumeBusy||
        playlistAdvanceBusy||mediaFailureBusy||stallRecovering||transitionInProgress)return;
@@ -1058,6 +1092,18 @@
     // throttled so the watchdog cannot mistake a healthy clip for frozen.
     if(!mismatched&&el&&markVideoProgress(el))return;
     const stalledFor=Date.now()-lastVerifiedProgressAt;
+    // Chromium/Windows may unexpectedly pause an otherwise healthy clip.
+    // Resume the same element without load(), seeking or advancing the playlist.
+    // Do not interfere with an intentionally paused room, hidden-tab recovery,
+    // an ended clip, or an in-flight playlist transition.
+    if(el&&!mismatched&&!el.error&&el.paused&&!el.ended&&!el.seeking&&
+       stalledFor>=PAUSE_RESUME_AFTER_MS&&
+       Date.now()-lastPauseResumeAttemptAt>=PAUSE_RESUME_GAP_MS){
+      lastPauseResumeAttemptAt=Date.now();
+      recordPlaybackEvent('unexpected_pause_resume',{stalled_seconds:Math.round(stalledFor/1000)});
+      void playElement(el).catch(e=>console.warn('[Clinic Signage] pause resume failed:',e));
+      return;
+    }
     if(stalledFor<STALL_MS)return;
     if(!freezeStartedAt||freezeClipIndex!==index){freezeStartedAt=lastVerifiedProgressAt;freezeClipIndex=index;sameClipReloadAttempted=false;}
     const totalFreezeMs=Date.now()-freezeStartedAt;
@@ -1085,7 +1131,10 @@
         await switchToIndex(index,{force:true});
       }else if(el&&!mismatched){
         // Same element, same time position; no jump to another playlist item.
-        if(el.paused||el.readyState<3){await playElement(el);}
+        if(el.paused){await playElement(el);}
+        // An unpaused element waiting for network data should not be replayed
+        // or seeked; the browser will resume when R2 delivers more bytes.
+        // Retain the 90s same-clip reload as the bounded last resort.
       }else if(mismatched){
         await switchToIndex(index,{force:true});
       }
