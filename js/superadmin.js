@@ -99,7 +99,7 @@
 
     qs('#adminRoot').innerHTML=`
       <section class="superadmin-home">
-        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><div class="superadmin-head-actions"><button type="button" class="btn quiet" id="changeAdminPin">PIN 변경</button><button type="button" class="btn primary" id="openAddHospital">병원 추가</button></div></div>
+        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><div class="superadmin-head-actions"><a class="btn quiet" href="/video-optimize.html">저사양 영상 만들기</a><button type="button" class="btn quiet" id="changeAdminPin">PIN 변경</button><button type="button" class="btn primary" id="openAddHospital">병원 추가</button></div></div>
         <div class="hospital-overview-summary superadmin-summary"><span><b>${activeRows.length}</b><small>활성 병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span><span class="${overallRisk.cls}"><b>${overallRisk.label}</b><small>송출 부하</small></span></div>
         <div class="superadmin-hospital-section">
           <div class="superadmin-list-head"><h2>병원 현황</h2><div class="superadmin-search"><input id="hospitalSearch" type="search" aria-label="병원명 검색" placeholder="병원명 검색" value="${esc(searchTerm)}"></div></div>
