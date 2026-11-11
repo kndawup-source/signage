@@ -230,18 +230,41 @@
     if(!forceRefresh&&await cachedMediaIsComplete(cache,v))return true;
     const size=Number(v?.size||0);
     if(!(await storageHasRoomFor(size)))throw new Error('offline_cache_quota');
-    const response=await fetch(url,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store'});
-    if(response.status!==200||response.type==='opaque'||response.headers.has('content-range'))throw new Error(`offline_cache_incomplete_${response.status}`);
-    // A complete file must have the expected length when supplied by RPC.
-    const expectedLength=Number(v?.size||0),rawLength=response.headers.get('content-length');
-    if(expectedLength>0&&(rawLength===null||Math.abs(Number(rawLength)-expectedLength)>1))throw new Error('offline_cache_length_mismatch');
-    if(token!==offlineCacheSyncToken){try{await response.body?.cancel();}catch(_){}return false;}
-    /* Store the response directly. response.clone() tees the body and the unread branch
-       buffers the whole video in memory (hundreds of MB on a kiosk). */
-    await cache.put(url,response);
-    // Only mark a download complete after the Cache API has committed it.
-    if(!(await cachedMediaIsComplete(cache,v))){await cache.delete(url);throw new Error('offline_cache_verification_failed');}
-    return true;
+    // Offline downloads can be hundreds of MB. Yield the network to the active
+    // playback instead of finishing a background download while the TV freezes.
+    const controller=new AbortController();
+    const startedAt=Date.now();
+    let lastPlaybackTime=Number(activeVideoEl()?.currentTime||0),lastPlaybackMovementAt=startedAt;
+    const monitor=setInterval(()=>{
+      if(controller.signal.aborted)return;
+      if(token!==offlineCacheSyncToken){controller.abort();return;}
+      const playing=activeVideoEl();
+      if(!playing||playing.paused||playing.ended||transitionInProgress||backgrounded())return;
+      const t=Number(playing.currentTime||0);
+      if(Math.abs(t-lastPlaybackTime)>=.2){lastPlaybackTime=t;lastPlaybackMovementAt=Date.now();}
+      // Only interrupt download on an observed playback starvation; normal short
+      // clips and harmless readyState fluctuations must not block offline sync.
+      if(Date.now()-startedAt>8000&&Date.now()-lastPlaybackMovementAt>6500&&
+         playing.readyState<3&&bufferedAhead(playing)<1.5){
+        controller.abort('offline_cache_yield_to_playback');
+      }
+    },1200);
+    try{
+      const response=await fetch(url,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',signal:controller.signal});
+      if(response.status!==200||response.type==='opaque'||response.headers.has('content-range'))throw new Error(`offline_cache_incomplete_${response.status}`);
+      const expectedLength=Number(v?.size||0),rawLength=response.headers.get('content-length');
+      if(expectedLength>0&&(rawLength===null||Math.abs(Number(rawLength)-expectedLength)>1))throw new Error('offline_cache_length_mismatch');
+      if(token!==offlineCacheSyncToken){controller.abort();return false;}
+      /* Stream straight into Cache Storage, without teeing a 300MB response. */
+      await cache.put(url,response);
+      if(!(await cachedMediaIsComplete(cache,v))){await cache.delete(url);throw new Error('offline_cache_verification_failed');}
+      return true;
+    }catch(e){
+      if(controller.signal.aborted&&controller.signal.reason==='offline_cache_yield_to_playback'){
+        throw new Error('offline_cache_yield_to_playback');
+      }
+      throw e;
+    }finally{clearInterval(monitor);}
   }
   async function syncOfflinePlaylistCache(){
     if(offlineCacheBusy||!('caches' in window)||!state?.playlist?.length||!navigator.onLine||state?.mode==='closed')return false;
@@ -290,6 +313,20 @@
       // downloads are retried. Don't wait for a playlist change to retry.
       if(token===offlineCacheSyncToken&&offlineCacheNextRetryAt&&navigator.onLine&&state?.mode!=='closed')scheduleOfflinePlaylistCache(true);
     }
+  }
+  let lastBufferInterruptionAt=0;
+  function recordBufferInterruption(kind,el){
+    // Throttle noisy waiting/stalled events; a record identifies buffering vs
+    // playhead freeze without exposing patient or session information.
+    const now=Date.now();if(now-lastBufferInterruptionAt<12000)return;
+    lastBufferInterruptionAt=now;
+    let droppedFrames=null;
+    try{droppedFrames=el.getVideoPlaybackQuality?.().droppedVideoFrames??null;}catch(_){}
+    recordPlaybackEvent(`media_${kind}`,{
+      ready_state:el.readyState,network_state:el.networkState,
+      buffered_seconds:Math.round(bufferedAhead(el)*10)/10,
+      dropped_frames:droppedFrames
+    });
   }
   function bufferedAhead(el){
     if(!el||!Number.isFinite(el.currentTime))return 0;
@@ -439,8 +476,12 @@
           queueHeartbeat(true);
         },180);
       });
-      el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
-      el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()&&confirmedPlaybackState!=='playing'){confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);}});
+      el.addEventListener('stalled',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()){
+        recordBufferInterruption('stalled',el);confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);
+      }});
+      el.addEventListener('waiting',()=>{if(slotIndex===activeSlot&&!transitionInProgress&&!backgrounded()&&!inForegroundGrace()){
+        recordBufferInterruption('waiting',el);confirmedPlaybackState='loading';pushLiveStatusNow();queueHeartbeat(true);
+      }});
       /* 특정 영상 오류는 페이지 새로고침이 아니라 다음 영상으로 건너뛰어 처리한다.
          전환 중 오류는 전환 담당(switchToIndex 호출자)이 재시도/건너뛰기를 한다. */
       el.addEventListener('error',()=>{if(slotIndex!==activeSlot||emergencyPlaying||backgrounded())return;confirmedPlaybackState='error';pushLiveStatusNow();if(transitionInProgress||playlistAdvanceBusy)return;recordPlaybackEvent('media_error',{code:el.error?.code||null});void handleMediaFailure(current(),index);});
@@ -604,22 +645,10 @@
       loadSlot(el,v,targetIndex,'auto');
       if(!(await waitUntilPlayable(el,token,5000))||!stillInactive())return false;
       const desiredMuted=el.muted,desiredVolume=el.volume;
-      el.muted=true;el.volume=0;
-      // A pending play() on the hidden slot must not block preroll forever.
-      // A real switch may take ownership of this slot while we are waiting.
-      const started=await playWithDeadline(el,3500);
-      if(!started||!stillInactive()){
-        if(stillInactive())resetSlot(el);
-        return false;
-      }
-      if(!(await waitForRenderedFrame(el,token,1200))||!stillInactive()){
-        if(stillInactive())resetSlot(el);
-        return false;
-      }
-      // Never pause a slot after it has become the active display.
-      if(!stillInactive())return false;
-      try{el.pause();}catch(_){}
-      /* Keep the decoded first frame resident. Do not seek back to 0 here; seeking can drop the decoded frame. */
+      // Loading bytes/metadata is enough. Never play a hidden second video:
+      // doing so forces two simultaneous decoders on low-spec hospital PCs and
+      // can stall the visible video. The actual switch starts this slot once.
+      if(!stillInactive()||el.error||el.readyState<2)return false;
       el.dataset.prerolled='1';
       el.dataset.prerollMuted=desiredMuted?'1':'0';
       el.dataset.prerollVolume=String(desiredVolume);
@@ -628,8 +657,8 @@
     }finally{prerollBusy=false;}
   }
   function prerollLeadSeconds(duration){
-    // The old 1.25-second lead was shorter than a single 5s canplay attempt;
-    // start the decoded-frame preparation early enough to finish on real R2 links.
+    // Start metadata and buffer preparation before the end; do not decode a
+    // second hidden video concurrently on low-spec PCs.
     return Math.min(20,Math.max(4,duration*.25));
   }
   function maybePrerollFromMediaTime(el,slotIndex){
@@ -1130,7 +1159,7 @@
     recoveryIndex=index;
     recoveryAttempts++;
     recoveryStage=Math.min(3,recoveryAttempts);
-    recordPlaybackEvent('progress_stalled',{stalled_seconds:Math.round(stalledFor/1000),recovery_stage:recoveryStage});
+    recordPlaybackEvent('progress_stalled',{stalled_seconds:Math.round(stalledFor/1000),recovery_stage:recoveryStage,ready_state:el?.readyState??null,buffered_seconds:Math.round(bufferedAhead(el)*10)/10});
     try{
       if(totalFreezeMs>=STALL_SKIP_MS){
         // Only after three minutes with no playhead progress: treat as an

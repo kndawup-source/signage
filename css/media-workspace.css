@@ -32,7 +32,7 @@
 
 .media-work-queue-item.is-pointer-dragging{outline:2px solid #4b90d9;background:#eaf4ff;opacity:.82}
 
-/* v2.35.53: compact floor-first TV assignment; never expose all TVs by default */
+/* v2.35.54: compact floor-first TV assignment; never expose all TVs by default */
 .media-work-tv-toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:14px}
 .media-work-floor-label,.media-work-tv-search-label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:650;color:#475569;min-width:180px;flex:1}
 .media-work-tv-toolbar select,.media-work-tv-toolbar input{height:40px;width:100%;min-width:0;padding:0 12px;border:1px solid #dce4ef;border-radius:8px;background:#fff;color:#17243c;font-size:13px}
