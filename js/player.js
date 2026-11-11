@@ -19,8 +19,9 @@
   // Defer large offline playlist downloads until the player has settled.
   // This is deliberately less aggressive than starting 30s after boot: a full R2
   // download can compete with the current clip and its next-slot range request.
-  const OFFLINE_CACHE_START_DELAY_MS = 120000;
-  const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 12;
+  const OFFLINE_CACHE_START_DELAY_MS = 15000;
+  const OFFLINE_CACHE_RETRY_MS = 20000;
+  const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 4;
   const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.11');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
@@ -171,6 +172,7 @@
   let prerollBusy=false,prerolledIndex=-1,prerolledSlot=-1,frameWatchToken=0;
   let offlineCacheTimer=null,offlineCacheSyncToken=0,offlineCacheBusy=false;
   let offlineCacheReady=false,offlineCacheCount=0,offlineCacheTotal=0,offlineCacheUpdatedAt=null,offlineCacheError=null;
+  let offlineCacheNextRetryAt=0;
   const mediaFailures=new Map();
   const MEDIA_FAILURE_LIMIT=2; // telemetry only; never exclude a clip for a whole playlist lap
 
@@ -207,7 +209,8 @@
     const expected=Number(v?.size||0);
     const header=hit.headers.get('content-length');
     const actual=header!==null?Number(header):NaN;
-    if(expected>0&&header!==null&&(!Number.isFinite(actual)||Math.abs(expected-actual)>1))return false;
+    // An absent length is not proof that a partial download is complete.
+    if(expected>0&&(header===null||!Number.isFinite(actual)||Math.abs(expected-actual)>1))return false;
     return true;
   }
   async function verifiedOfflineReadyState(){
@@ -264,6 +267,7 @@
       }
       const allReady=total>0&&complete===total;
       if(allReady&&token===offlineCacheSyncToken){
+        offlineCacheNextRetryAt=0;
         // Commit new metadata before any cleanup. If storage refuses the write,
         // the previous offline playlist must stay the active recovery point.
         if(!writeJsonStorage(OFFLINE_READY_KEY,snapshot))throw new Error('offline_state_commit_failed');
@@ -274,12 +278,18 @@
       // Never mark the old successful cache as unavailable because a new media
       // download failed or an updated playlist was only partially retrieved.
       if(!hadReady){offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:signature});}
+      offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_RETRY_MS;
       scheduleReport(0);
       return false;
     }catch(e){
+      offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_RETRY_MS;
       offlineCacheError=e?.message||String(e);console.warn('Clinic Signage offline playlist cache failed:',offlineCacheError);scheduleReport(0);
       return false;
-    }finally{offlineCacheBusy=false;}
+    }finally{offlineCacheBusy=false;
+      // The last successful snapshot remains the rollback point while partial
+      // downloads are retried. Don't wait for a playlist change to retry.
+      if(token===offlineCacheSyncToken&&offlineCacheNextRetryAt&&navigator.onLine&&state?.mode!=='closed')scheduleOfflinePlaylistCache(true);
+    }
   }
   function bufferedAhead(el){
     if(!el||!Number.isFinite(el.currentTime))return 0;
@@ -305,18 +315,23 @@
         }else{offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false});scheduleOfflinePlaylistCache(true);}
       });return;
     }
+    const waitMs=Math.max(OFFLINE_CACHE_START_DELAY_MS,offlineCacheNextRetryAt-Date.now());
     offlineCacheTimer=setTimeout(()=>{
       const el=activeVideoEl();
       // No bulk-download while the first/current video is waiting for network
       // or the next A/B slot is being prepared. If no known buffer window is
       // available, favor smooth live playback and retry later.
+      // Small clips can have less than 4 seconds buffered throughout playback.
+      // In that case start prefetch after a stable playback interval rather
+      // than postponing the entire offline playlist forever.
+      const shortClip=Number.isFinite(el?.duration)&&el.duration>0&&el.duration<=12;
       if(confirmedPlaybackState!=='playing'||transitionInProgress||prerollBusy||
          !el||el.paused||el.seeking||el.readyState<3||
-         bufferedAhead(el)<MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC){
+         (!shortClip&&bufferedAhead(el)<MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC)){
         scheduleOfflinePlaylistCache(false);return;
       }
       void syncOfflinePlaylistCache();
-    },OFFLINE_CACHE_START_DELAY_MS);
+    },waitMs);
   }
   function playlistSignature(s) {
     return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}`).join(',')}`;
@@ -870,12 +885,12 @@
       if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=restoredIndex(data);cycleFailures=0;recoveryAttempts=0;recoveryStage=0;lastProgressAt=Date.now();emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
       else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}if(meaningful)syncedAt=fetchedAt;}
       if(meaningful)reportNow();
-    }catch(e){if(fromPoll)consecutivePollFailures=Math.min(4,consecutivePollFailures+1);lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=offlineReadyState();if(cached?.playlist?.length){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
+    }catch(e){if(fromPoll)consecutivePollFailures=Math.min(4,consecutivePollFailures+1);lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=await verifiedOfflineReadyState();if(cached?.playlist?.length){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
     finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){const urgent=fetchQueuedUrgent;fetchQueued=false;fetchQueuedUrgent=false;queueMicrotask(()=>fetchState({fromPoll:!urgent}));}}
   }
-  function loadSaved(){
+  async function loadSaved(){
     try{
-      const saved=readJsonStorage(savedKey),offline=offlineReadyState();
+      const saved=readJsonStorage(savedKey),offline=await verifiedOfflineReadyState();
       const initial=(!navigator.onLine&&offline)||saved||offline;
       if(initial?.playlist){state=initial;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(initial);lastStateSig=stateSignature(initial);index=restoredIndex(initial);renderFull();}
     }catch(_){}
@@ -1256,11 +1271,25 @@
     foregroundResumeTimer=setTimeout(()=>void resumePlayerForeground(),350);
   }
 
-  ensureSurface();if(!PREVIEW)void registerPlayerServiceWorker();loadSaved();acquireWake();fetchState();
+  async function startPlayer(){
+    ensureSurface();
+    // Offline media requests must be intercepted BEFORE <video> loads its source.
+    // Without this ordering a reboot without network can show a blank player.
+    if(!PREVIEW)await Promise.race([registerPlayerServiceWorker(),new Promise(resolve=>setTimeout(resolve,5000))]);
+    await loadSaved();
+    acquireWake();
+    void fetchState();
+  }
+  void startPlayer();
   document.addEventListener('visibilitychange',()=>{acquireWake();if(backgrounded()){onPlayerBackground();return;}onPlayerForeground();scheduleReport();void checkForPlayerUpdate(true);});
   window.addEventListener('focus',()=>{if(!backgrounded())onPlayerForeground();scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
-  window.addEventListener('offline',()=>{const cached=offlineReadyState();if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;void renderFull();}});
+  window.addEventListener('offline',()=>{void (async()=>{
+    const cached=await verifiedOfflineReadyState();
+    if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){
+      state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;await renderFull();
+    }
+  })();});
   // Best-effort shutdown notice. A covered/background window does not trigger pagehide.
   // The browser may drop requests during a crash/power loss; server-side TTL is still authoritative.
   window.addEventListener('pagehide',()=>{
