@@ -5,7 +5,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const version=JSON.parse(fs.readFileSync(path.join(root,'player-release.json'),'utf8')).version;
 const errors=[];
-for(const file of ['player.html','hospital.html','admin.html','index.html']){
+for(const file of ['player.html','hospital.html','admin.html','index.html','video-optimize.html']){
  const txt=fs.readFileSync(path.join(root,file),'utf8');
  const versions=[...txt.matchAll(/v=(2\.35\.\d+(?:-layout\d+)?)/g)].map(m=>m[1]);
  if(!versions.length||versions.some(x=>x!==version))errors.push(`${file}: ${versions.join(', ')||'missing'}`);
