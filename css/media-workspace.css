@@ -111,3 +111,11 @@ body.hospital-page .nav-btn{display:none!important}
 .media-floor-card.is-active{background:#edf3fc;border:1px solid #4778bd;box-shadow:inset 3px 0 0 #4778bd;padding:8px 11px}
 .media-floor-card:hover{background:#f1f5fb}
 @media(max-width:700px){.media-building-layout{grid-template-columns:1fr;gap:10px}.media-floor-cards{display:flex;flex-direction:column}.media-floor-first{padding:12px}.media-floor-card{min-height:38px}.media-target-picker{padding:12px}}
+
+/* v2.35.59 — floorplan restored as primary content, never hidden in details */
+.unified-floorplan-primary{min-width:0}
+.unified-floorplan-primary .hospital-building-dashboard{margin:0}
+.unified-hospital-page .media-building-layout-secondary{display:block}
+.unified-hospital-page .media-building-layout-secondary .media-building-detail{display:block}
+.unified-hospital-page .media-building-layout-secondary .media-target-picker{border-radius:12px}
+@media(max-width:700px){.unified-floorplan-primary .hospital-floor-console-grid{min-width:0}}
