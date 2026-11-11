@@ -42,14 +42,14 @@ function mediaItem(item) {
   if (!original) return null;
   const fallback = { url: original, bytes: byteSize(item.size_bytes ?? item.size), quality: 'original' };
   const optimized = [sourceVariant(item, '480p'), sourceVariant(item, '720p')].filter(Boolean);
-  const preferred = optimized[0] || fallback;
+  const preferred = fallback;
   const id = String(item.id || '').slice(0, 80);
   return {
     id, title: String(item.title || '').slice(0, 150),
     url: preferred.url, bytes: preferred.bytes,
     quality: preferred.quality, sha256: preferred.sha256 || null,
-    // Native clients can download 480p first, but have a verified URL fallback.
-    sources: [...optimized, fallback],
+    // Preserve compatible alternate sources, but prefer the unchanged original.
+    sources: [fallback, ...optimized],
     revision: String(item.file_modified_at || item.revision || '').slice(0, 100),
     format: 'mp4'
   };

@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
       mode:String(state.mode || ''),
       revision:String(state.sync_revision || '').slice(0,250),
       playlist,
-      download_policy:{atomic_playlist_switch:true,retain_previous_on_failure:true,prefer_quality:'480p'}
+      download_policy:{atomic_playlist_switch:true,retain_previous_on_failure:true,prefer_quality:'original'}
     });
   } catch { return json(res,503,{error:'STATE_TEMPORARILY_UNAVAILABLE'}); }
   finally { clearTimeout(timer); }
