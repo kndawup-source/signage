@@ -1172,10 +1172,13 @@
     const playlist=own.find(p=>String(p.id)===mediaPlaylistId);
     const queueSet=new Set(mediaDraft),filtered=videos.filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase()));
     const rooms=state.rooms.filter(r=>r&&r.id);
+    const floorOptions=groupedRooms().filter(g=>(g.rooms||[]).length);
     return `<section class="media-workspace"><div class="media-work-toolbar"><div><h2>영상관리</h2><p>영상 선택, 재생 순서, TV 적용을 이 화면에서 관리합니다.</p></div><div class="media-work-controls"><select id="staffPlaylistSelect" aria-label="재생목록 선택"><option value="">새 재생목록</option>${own.map(p=>`<option value="${esc(p.id)}" ${String(p.id)===mediaPlaylistId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button type="button" class="btn" data-new-playlist>+ 재생목록</button><button type="button" class="btn primary" id="mediaOpenUpload">+ 영상 업로드</button></div></div>
     <div class="media-work-columns"><section class="media-work-panel"><div class="media-work-section-head"><div><h3>영상 보관함</h3><small>${videos.length}개 영상 · 클릭하여 추가</small></div></div><label class="media-work-search"><span>⌕</span><input id="mediaWorkSearch" type="search" placeholder="영상 검색" value="${esc(mediaFilter)}" autocomplete="off" aria-label="영상 검색"></label><div id="mediaWorkLibrary" class="media-work-scroll">${filtered.map(v=>mediaVideoRow(v,queueSet.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>'}</div><p class="media-work-help">영상을 클릭해 추가하거나 오른쪽으로 드래그하세요.</p></section>
     <section class="media-work-panel"><div class="media-work-section-head"><div><h3>재생 순서</h3><small>카드를 드래그하면 순서가 바뀝니다.</small></div><span class="media-work-count" id="mediaWorkCount">${mediaDraft.length}개</span></div><label class="field media-work-name-field"><span>재생목록 이름</span><input id="staffPlaylistName" maxlength="60" value="${esc(playlist?.name||'')}" placeholder="예: 9층 대기실" autocomplete="off"></label><div id="mediaWorkQueue" class="media-work-scroll media-work-queue" aria-label="재생 순서">${mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>'}</div><div class="media-work-foot"><span id="mediaWorkSaveStatus" role="status">${mediaDirty?'저장되지 않은 변경 사항':'현재 재생목록'}</span><div><button id="staffDeletePlaylist" class="btn danger-outline" type="button" ${playlist?'':'disabled'}>삭제</button><button id="staffSavePlaylist" class="btn primary" type="button">${mediaDirty?'변경 저장':'저장'}</button></div></div></section></div>
-    <section class="media-work-apply"><div class="media-work-section-head"><div><h3>TV 적용</h3><small>아래 TV를 선택한 뒤 재생목록을 연결합니다. 현재 재생 중인 영상은 바로 끊지 않습니다.</small></div><button class="btn primary" type="button" id="mediaWorkApplyTv" ${playlist&&!mediaDirty?'':'disabled'}>선택한 TV에 적용</button></div><div class="media-work-tv-list">${rooms.map(r=>`<label class="media-work-tv"><input type="checkbox" data-media-tv="${esc(r.id)}" ${playlist&&String(r.default_playlist_id||'')===mediaPlaylistId?'checked':''}><span><strong>${esc(r.name)}</strong><small>${esc(playlistById(r.default_playlist_id)?.name||'기본 편성')}</small></span></label>`).join('')||'<span class="muted">등록된 TV가 없습니다.</span>'}</div><p class="media-work-help">선택한 재생목록의 저장이 끝나야 TV에 적용할 수 있습니다. 전체 방송이나 개별 우선 송출 중에는 실제 표시가 우선 설정을 따릅니다.</p></section>
+    <section class="media-work-apply"><div class="media-work-section-head"><div><h3>TV 적용</h3><small>층을 선택한 뒤 필요한 TV만 체크하세요. 이미 재생 중인 영상은 바로 끊지 않습니다.</small></div><button class="btn primary" type="button" id="mediaWorkApplyTv" disabled>선택한 TV에 적용</button></div>
+    <div class="media-work-tv-toolbar"><label class="media-work-floor-label">층 선택<select id="mediaWorkFloor"><option value="">층을 선택하세요</option>${floorOptions.map(g=>`<option value="${esc(g.id)}">${esc(groupDisplayName(g.name))} · TV ${g.rooms.length}대</option>`).join('')}</select></label><label class="media-work-tv-search-label">TV 검색<input id="mediaWorkTvSearch" type="search" placeholder="TV 이름 검색" autocomplete="off" disabled></label><span id="mediaWorkTvSelection" class="media-work-selected">선택한 TV 0대</span></div>
+    <div class="media-work-tv-list" id="mediaWorkTvList" aria-label="TV 선택">${rooms.map(r=>`<label class="media-work-tv" data-media-tv-row data-media-floor="${esc(r.group_id||'')}" data-media-search="${esc(String(r.name||'').toLowerCase())}" hidden><input type="checkbox" data-media-tv="${esc(r.id)}"><span><strong>${esc(r.name)}</strong><small>${esc(playlistById(r.default_playlist_id)?.name||'기본 편성')}</small></span></label>`).join('')||'<span class="muted">등록된 TV가 없습니다.</span>'}</div><p class="media-work-tv-empty" id="mediaWorkTvEmpty">먼저 층을 선택하면 해당 층의 TV가 표시됩니다.</p><p class="media-work-help">체크한 TV에만 적용됩니다. 기존 TV 설정은 자동으로 선택하거나 변경하지 않습니다.</p></section>
     <section class="media-work-manage"><details id="mediaWorkManageDetails"><summary>영상 제목 변경 · 파일 업로드 · 파일 교체</summary><p>이 병원 영상의 제목 변경, MP4 업로드 및 파일 교체를 할 수 있습니다. 원본 영상 ID와 재생목록 연결은 유지됩니다.</p><div class="media-work-edit"><select id="mediaWorkEditVideo"><option value="">영상 선택</option>${videos.filter(v=>String(v.site_id)===String(targetSiteId)).map(v=>`<option value="${esc(v.id)}">${esc(v.title)}</option>`).join('')}</select><input id="mediaWorkEditName" placeholder="새 영상 이름" maxlength="100"><button type="button" class="btn" id="mediaWorkRename">이름 변경</button></div><div class="media-work-edit"><input type="file" id="mediaWorkUploadFile" accept="video/mp4,.mp4"><button class="btn" type="button" id="mediaWorkUpload">새 영상 업로드</button><button class="btn" type="button" id="mediaWorkReplace">선택 영상 파일 교체</button><progress id="mediaWorkUploadProgress" max="100" value="0" hidden></progress></div></details></section></section>`;
   }
   function refreshMediaWorkspace(){
@@ -1184,7 +1187,7 @@
     if(library){const queued=new Set(mediaDraft);library.innerHTML=mediaVideos().filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase())).map(v=>mediaVideoRow(v,queued.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>';}
     if(counter)counter.textContent=`${mediaDraft.length}개`;
     const status=qs('#mediaWorkSaveStatus');if(status)status.textContent=mediaSaving?'저장 중…':mediaDirty?'저장되지 않은 변경 사항':'저장됨';
-    const apply=qs('#mediaWorkApplyTv');if(apply)apply.disabled=!mediaPlaylistId||mediaDirty||mediaSaving;
+    refreshMediaTvSelection();
     bindMediaDragAndButtons();
   }
   function fillHospitalPlaylistEditor(){
@@ -1192,7 +1195,7 @@
     clearTimeout(mediaSaveTimer);mediaPlaylistId=id;mediaDraft=id?mediaPlaylistItems(id):[];mediaDirty=false;
     const p=state.playlists.find(x=>String(x.id)===id),name=qs('#staffPlaylistName'),del=qs('#staffDeletePlaylist');
     if(name)name.value=p?.name||'';if(del)del.disabled=!p;
-    qsa('[data-media-tv]').forEach(el=>{const room=roomById(el.dataset.mediaTv);el.checked=!!(id&&String(room?.default_playlist_id||'')===id);});
+    qsa('[data-media-tv]').forEach(el=>{el.checked=false;});
     refreshMediaWorkspace();
   }
   async function saveHospitalPlaylist(){
@@ -1238,6 +1241,19 @@
         if(mediaDraft.includes(id)){const from=mediaDraft.indexOf(id);let pos=to;if(pos>from)pos--;if(pos===from)return;mediaDraft.splice(from,1);mediaDraft.splice(pos,0,id);}else{mediaDraft.splice(to,0,id);}mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();};
     }
   }
+  function refreshMediaTvSelection(){
+    const floor=qs('#mediaWorkFloor')?.value||'',search=(qs('#mediaWorkTvSearch')?.value||'').trim().toLowerCase();
+    const searchInput=qs('#mediaWorkTvSearch');if(searchInput)searchInput.disabled=!floor;
+    let visible=0;
+    qsa('[data-media-tv-row]').forEach(row=>{
+      const show=!!floor&&row.dataset.mediaFloor===floor&&(!search||row.dataset.mediaSearch.includes(search));
+      row.hidden=!show;if(show)visible++;
+    });
+    const selected=qsa('[data-media-tv]:checked').length;
+    const counter=qs('#mediaWorkTvSelection');if(counter)counter.textContent=`선택한 TV ${selected}대`;
+    const apply=qs('#mediaWorkApplyTv');if(apply)apply.disabled=!selected||!mediaPlaylistId||mediaDirty||mediaSaving;
+    const empty=qs('#mediaWorkTvEmpty');if(empty){empty.hidden=!!visible;empty.textContent=!floor?'먼저 층을 선택하면 해당 층의 TV가 표시됩니다.':'해당하는 TV가 없습니다.';}
+  }
   async function mediaApplyTv(){
     if(mediaDirty||!mediaPlaylistId)return toast('재생목록을 먼저 저장하세요.','error');
     const ids=qsa('[data-media-tv]:checked').map(e=>e.dataset.mediaTv);if(!ids.length)return toast('TV를 선택하세요.','error');
@@ -1277,6 +1293,10 @@
     qs('#staffSavePlaylist')?.addEventListener('click',saveHospitalPlaylist);
     qs('#staffDeletePlaylist')?.addEventListener('click',deleteHospitalPlaylist);
     qs('#mediaWorkApplyTv')?.addEventListener('click',mediaApplyTv);
+    qs('#mediaWorkFloor')?.addEventListener('change',()=>{qsa('[data-media-tv]').forEach(el=>{el.checked=false;});const search=qs('#mediaWorkTvSearch');if(search)search.value='';refreshMediaTvSelection();});
+    qs('#mediaWorkTvSearch')?.addEventListener('input',refreshMediaTvSelection);
+    qsa('[data-media-tv]').forEach(el=>el.addEventListener('change',refreshMediaTvSelection));
+    refreshMediaTvSelection();
     qs('#mediaWorkEditVideo')?.addEventListener('change',e=>{const v=state.videos.find(v=>String(v.id)===e.target.value);const n=qs('#mediaWorkEditName');if(n)n.value=v?.title||'';});
     qs('#mediaWorkRename')?.addEventListener('click',mediaRename);
     qs('#mediaOpenUpload')?.addEventListener('click',()=>{const details=qs('#mediaWorkManageDetails');if(details){details.open=true;details.scrollIntoView({behavior:'smooth',block:'center'});}qs('#mediaWorkUploadFile')?.focus();});
@@ -1296,7 +1316,7 @@
     const {error}=await db.rpc('hospital_save_operating_config',{p_site:targetSiteId,p_config:config});if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();
   }
   function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
-  function hospitalVideosPageMarkup(){return `<section class="hospital-content-page"><div class="hospital-page-intro"><span class="eyebrow">MEDIA</span><h2>영상관리</h2><p>영상 선택부터 재생목록과 TV 적용까지 한곳에서 관리합니다.</p></div>${hospitalPlaylistManagerMarkup()}</section>`;}
+  function hospitalVideosPageMarkup(){return `<section class="hospital-content-page hospital-content-media">${hospitalPlaylistManagerMarkup()}</section>`;}
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   const displaySetupRpcMissing=(error)=>String(error?.code||'')==='PGRST202'||/staff_set_display_setup|schema cache|function/i.test(String(error?.message||''))&&/could not find|not found/i.test(String(error?.message||''));
   async function saveDisplayPurpose(roomId){
@@ -1415,7 +1435,7 @@
     const groups=groupedRooms();
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
-    const head=tab==='output'
+    const head=tab==='videos'?'':tab==='output'
       ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>TV 상태</h1><p>우리 병원의 TV가 잘 나오고 있는지 확인하세요.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">전체 TV <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상관리':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
     let content='';
