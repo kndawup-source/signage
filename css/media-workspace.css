@@ -74,3 +74,40 @@ body.hospital-page .nav-btn{display:none!important}
 .unified-secondary-content{border-top:1px solid #e2e8f0;padding:16px}
 .unified-secondary-panel .hospital-ops-summary{margin:0 0 14px}
 @media(max-width:650px){.media-target-fields{grid-template-columns:1fr}.unified-page-heading h1{font-size:22px}.unified-secondary-content{padding:9px}.media-target-picker{padding:12px}.media-work-foot>div{flex-wrap:wrap}}
+
+/* v2.35.56 — floor navigation precedes TV and video controls */
+.media-floor-first{display:grid;gap:13px;background:#fff;border:1px solid #dce4ef;border-radius:14px;padding:18px}
+.media-floor-first-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.media-floor-first-head h2{margin:0;font-size:20px;letter-spacing:-.035em;color:#14213b}
+.media-floor-first-head p{margin:5px 0 0;color:#64748b;font-size:12px}
+.media-floor-first-head>span{font-size:12px;color:#64748b}
+.media-floor-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px}
+.media-floor-card{appearance:none;text-align:left;font:inherit;background:#f8fafc;border:1px solid #dbe3ed;border-radius:10px;min-height:92px;padding:13px;display:flex;flex-direction:column;gap:5px;cursor:pointer;transition:background .12s,border-color .12s}
+.media-floor-card strong{font-size:16px;color:#17243c}.media-floor-card small,.media-floor-live{font-size:12px;color:#65758b}
+.media-floor-card:hover{background:#edf4ff;border-color:#98b5d8}
+.media-floor-card.is-active{background:#edf4ff;border:2px solid #366fc0;padding:12px}
+.media-floor-card:focus-visible{outline:3px solid #7ca6ed;outline-offset:2px}
+.media-target-floor-fallback{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;border:0!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important}
+.media-target-room-only{grid-template-columns:minmax(0,1fr);max-width:540px}
+@media(max-width:600px){.media-floor-first{padding:12px}.media-floor-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.media-floor-card{min-height:84px}}
+
+/* v2.35.57 — restore original single-column building floor stack */
+.media-building-layout{display:grid;grid-template-columns:minmax(210px,285px) minmax(0,1fr);gap:16px;align-items:start}
+.media-building-detail{min-width:0;display:grid;gap:10px}
+.media-building-tip{margin:0;padding:0 4px;color:#65758b;font-size:12px;line-height:1.55}
+.media-floor-first{padding:14px;gap:11px}
+.media-floor-first-head{align-items:flex-start;gap:5px}
+.media-floor-first-head h2{font-size:16px}
+.media-floor-first-head p{font-size:11px}
+.media-floor-first-head>span{font-size:10px}
+.media-floor-cards{display:flex;flex-direction:column;gap:4px}
+.media-floor-card{width:100%;min-height:40px;display:grid;grid-template-columns:56px minmax(0,1fr) auto 8px;align-items:center;gap:8px;padding:8px 11px;border:1px solid #e0e5ec;border-radius:6px;background:#fff;text-align:left;box-sizing:border-box;transition:background .12s,border-color .12s}
+.media-floor-card strong{font-size:13px;white-space:nowrap;color:#1c2b42}
+.media-floor-card .media-floor-room-count{font-size:11px;color:#627087;white-space:nowrap}
+.media-floor-card .media-floor-live{font-size:10px;color:#69788d;white-space:nowrap}
+.media-floor-card .media-floor-status-dot{height:8px;width:8px;background:#b5bdc9;border-radius:50%}
+.media-floor-card .media-floor-status-dot.is-live{background:#248a57}
+.media-floor-card .media-floor-status-dot.is-issue{background:#ce4b4b}
+.media-floor-card.is-active{background:#edf3fc;border:1px solid #4778bd;box-shadow:inset 3px 0 0 #4778bd;padding:8px 11px}
+.media-floor-card:hover{background:#f1f5fb}
+@media(max-width:700px){.media-building-layout{grid-template-columns:1fr;gap:10px}.media-floor-cards{display:flex;flex-direction:column}.media-floor-first{padding:12px}.media-floor-card{min-height:38px}.media-target-picker{padding:12px}}
