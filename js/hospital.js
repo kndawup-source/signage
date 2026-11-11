@@ -24,7 +24,7 @@
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,tab='output',statusViewFilter='';
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,tab='videos',statusViewFilter='';
   // Preview stays click-to-load. Parked elements are capped and evicted LRU.
   const floorInlineVideoCache=new Map();
   const floorInlineVideoCacheLimit=3;
@@ -100,7 +100,7 @@
     video.play().catch(()=>{}); // muted/autoplay policy can require an explicit press of Play.
     panel.querySelector('.floor-inline-video-close')?.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();btn.setAttribute('aria-expanded','false');parkFloorInlineVideo(video);panel.remove();});
   });
-  qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab||'output';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));selectedFloorId=tab==='output'?selectedFloorId:null;render();}));
+  qsa('.nav-btn').forEach(b=>b.addEventListener('click',()=>{tab='videos';const target=b.dataset.tab==='output'?'unifiedTvOperations':b.dataset.tab==='settings'?'unifiedHospitalSettings':'unifiedMediaEditor';if(target!=='unifiedMediaEditor')qs('#'+target)?.setAttribute('open','');qs('#'+target)?.scrollIntoView({behavior:'smooth',block:'start'});}));
   const floorplanUrlCache=new Map();
   const buildingImageUrlCache=new Map();
   const statusWakeTimers=new Map();
@@ -1157,8 +1157,16 @@
   }
   // One-page media workspace. The ordered draft is independent of the server's playlist_items.
   // Never persist an incomplete drag/selection; publish only a complete ordered list.
-  let mediaPlaylistId='',mediaDraft=[],mediaDirty=false,mediaSaving=false,mediaFilter='',mediaSaveTimer=null;
-  function scheduleMediaSave(){clearTimeout(mediaSaveTimer);if(!mediaPlaylistId||!mediaDraft.length)return;mediaSaveTimer=setTimeout(()=>{if(mediaDirty&&!mediaSaving&&tab==='videos')void saveHospitalPlaylist();},850);}
+  let mediaPlaylistId='',mediaDraft=[],mediaDirty=false,mediaSaving=false,mediaFilter='',mediaSaveTimer=null,mediaTargetFloor='',mediaTargetRoom='';
+  function scheduleMediaSave(){clearTimeout(mediaSaveTimer);if(!mediaPlaylistId||!mediaDraft.length||mediaPlaylistSharingCount(mediaPlaylistId)>1)return;mediaSaveTimer=setTimeout(()=>{if(mediaDirty&&!mediaSaving&&tab==='videos')void saveHospitalPlaylist();},1100);}
+  function mediaPlaylistSharingCount(id){if(!id)return 0;return state.rooms.filter(r=>String(r.default_playlist_id||state.groups.find(g=>g.id===r.group_id)?.default_playlist_id||'')===String(id)).length;}
+  function mediaTargetInfo(){return state.rooms.find(r=>String(r.id)===mediaTargetRoom)||null;}
+  function mediaSelectTarget(roomId){
+    if(mediaDirty&&!confirm('저장되지 않은 영상 편성을 버리고 TV를 전환할까요?'))return false;
+    clearTimeout(mediaSaveTimer);mediaTargetRoom=String(roomId||'');
+    const room=mediaTargetInfo(),id=room?(room.default_playlist_id||state.groups.find(g=>g.id===room.group_id)?.default_playlist_id||''):'';
+    mediaPlaylistId=String(id||'');mediaDraft=mediaPlaylistId?mediaPlaylistItems(mediaPlaylistId):[];mediaDirty=false;return true;
+  }
   function mediaVideos(){return state.videos.filter(v=>v.active&&(v.site_id===null||v.site_id===undefined||String(v.site_id)===String(targetSiteId)));}
   function mediaPlaylistItems(id){return state.playlistItems.filter(x=>String(x.playlist_id)===String(id)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>String(x.video_id));}
   function mediaThumb(video){return video?.thumbnail_data_url?`<img src="${esc(video.thumbnail_data_url)}" alt="" loading="lazy">`:'<span class="media-no-thumb">▶</span>';}
@@ -1168,25 +1176,30 @@
     const own=state.playlists.filter(p=>String(p.site_id)===String(targetSiteId)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
     const videos=mediaVideos();
     if(mediaPlaylistId&&!own.some(p=>String(p.id)===mediaPlaylistId)){mediaPlaylistId='';mediaDraft=[];mediaDirty=false;}
-    if(!mediaPlaylistId&&own.length&&!mediaDirty){mediaPlaylistId=String(own[0].id);mediaDraft=mediaPlaylistItems(mediaPlaylistId);}
+    // Do not silently choose another TV's playlist. The user selects a TV or a list explicitly.
     const playlist=own.find(p=>String(p.id)===mediaPlaylistId);
     const queueSet=new Set(mediaDraft),filtered=videos.filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase()));
     const rooms=state.rooms.filter(r=>r&&r.id);
     const floorOptions=groupedRooms().filter(g=>(g.rooms||[]).length);
-    return `<section class="media-workspace"><div class="media-work-toolbar"><div><h2>영상관리</h2><p>영상 선택, 재생 순서, TV 적용을 이 화면에서 관리합니다.</p></div><div class="media-work-controls"><select id="staffPlaylistSelect" aria-label="재생목록 선택"><option value="">새 재생목록</option>${own.map(p=>`<option value="${esc(p.id)}" ${String(p.id)===mediaPlaylistId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button type="button" class="btn" data-new-playlist>+ 재생목록</button><button type="button" class="btn primary" id="mediaOpenUpload">+ 영상 업로드</button></div></div>
+    const target=mediaTargetInfo(),activeTargetFloor=mediaTargetFloor||String(target?.group_id||''),floorRooms=rooms.filter(r=>String(r.group_id)===String(activeTargetFloor));
+    const sharedCount=mediaPlaylistSharingCount(mediaPlaylistId),sharedNotice=sharedCount>1?`<p class="media-shared-warning" id="mediaSharedWarning">이 재생목록은 TV ${sharedCount}대가 함께 사용합니다. 순서를 바꾸면 해당 TV 모두에 영향을 줍니다. 공유 목록은 자동 저장하지 않고 확인 후 저장합니다.</p>`:'';
+    const targetSelector=`<section class="media-target-picker"><div class="media-target-heading"><div><strong>어느 TV의 영상을 관리할까요?</strong><small>TV를 선택하면 연결된 재생목록이 바로 열립니다.</small></div><span class="media-target-current">${target?esc(target.name):'TV 선택 전'}</span></div><div class="media-target-fields"><label>층<select id="mediaTargetFloor"><option value="">층 선택</option>${floorOptions.map(g=>`<option value="${esc(g.id)}" ${String(g.id)===String(activeTargetFloor)?'selected':''}>${esc(groupDisplayName(g.name))} · ${g.rooms.length}대</option>`).join('')}</select></label><label>TV<select id="mediaTargetRoom" ${activeTargetFloor?'':'disabled'}><option value="">TV 선택</option>${floorRooms.map(r=>`<option value="${esc(r.id)}" ${String(r.id)===mediaTargetRoom?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label></div>${target?`<p class="media-target-detail">현재 편성: <b>${esc(playlistById(mediaPlaylistId)?.name||'연결된 재생목록 없음')}</b> · ${esc(roomDisplayStatus(target).label||'상태 확인 중')}</p>`:'<p class="media-target-detail">TV를 먼저 선택하면 현재 편성과 편집 기능을 사용할 수 있습니다. 공통 재생목록을 만들려면 오른쪽의 재생목록 선택을 이용하세요.</p>'}</section>`;
+
+    return `<section class="media-workspace">${targetSelector}<div class="media-work-toolbar"><div><h2>영상관리</h2><p>영상 선택, 재생 순서, TV 적용을 이 화면에서 관리합니다.</p></div><div class="media-work-controls"><select id="staffPlaylistSelect" aria-label="재생목록 선택"><option value="">새 재생목록</option>${own.map(p=>`<option value="${esc(p.id)}" ${String(p.id)===mediaPlaylistId?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button type="button" class="btn" data-new-playlist>+ 재생목록</button><button type="button" class="btn primary" id="mediaOpenUpload">+ 영상 업로드</button></div></div><button type="button" id="mediaQuickUpload" class="media-quick-upload"><span>⇧ &nbsp; MP4를 여기에 끌어놓거나 눌러서 업로드</span><small>여러 파일 선택 가능 · 원본 1080p 유지 · 업로드 완료 후 목록에 표시</small></button>
     <div class="media-work-columns"><section class="media-work-panel"><div class="media-work-section-head"><div><h3>영상 보관함</h3><small>${videos.length}개 영상 · 클릭하여 추가</small></div></div><label class="media-work-search"><span>⌕</span><input id="mediaWorkSearch" type="search" placeholder="영상 검색" value="${esc(mediaFilter)}" autocomplete="off" aria-label="영상 검색"></label><div id="mediaWorkLibrary" class="media-work-scroll">${filtered.map(v=>mediaVideoRow(v,queueSet.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>'}</div><p class="media-work-help">영상을 클릭해 추가하거나 오른쪽으로 드래그하세요.</p></section>
-    <section class="media-work-panel"><div class="media-work-section-head"><div><h3>재생 순서</h3><small>카드를 드래그하면 순서가 바뀝니다.</small></div><span class="media-work-count" id="mediaWorkCount">${mediaDraft.length}개</span></div><label class="field media-work-name-field"><span>재생목록 이름</span><input id="staffPlaylistName" maxlength="60" value="${esc(playlist?.name||'')}" placeholder="예: 9층 대기실" autocomplete="off"></label><div id="mediaWorkQueue" class="media-work-scroll media-work-queue" aria-label="재생 순서">${mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>'}</div><div class="media-work-foot"><span id="mediaWorkSaveStatus" role="status">${mediaDirty?'저장되지 않은 변경 사항':'현재 재생목록'}</span><div><button id="staffDeletePlaylist" class="btn danger-outline" type="button" ${playlist?'':'disabled'}>삭제</button><button id="staffSavePlaylist" class="btn primary" type="button">${mediaDirty?'변경 저장':'저장'}</button></div></div></section></div>
+    <section class="media-work-panel"><div class="media-work-section-head"><div><h3>재생 순서</h3><small>카드를 드래그하면 순서가 바뀝니다.</small></div><span class="media-work-count" id="mediaWorkCount">${mediaDraft.length}개</span></div><label class="field media-work-name-field"><span>재생목록 이름</span><input id="staffPlaylistName" maxlength="60" value="${esc(playlist?.name||'')}" placeholder="예: 9층 대기실" autocomplete="off"></label>${sharedNotice}<div id="mediaWorkQueue" class="media-work-scroll media-work-queue" aria-label="재생 순서">${mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>'}</div><div class="media-work-foot"><span id="mediaWorkSaveStatus" role="status">${mediaDirty?'저장되지 않은 변경 사항':'현재 재생목록'}</span><div><button type="button" class="btn" id="mediaApplyCurrent" ${target&&mediaPlaylistId&&!mediaDirty?"":"disabled"}>이 TV에 적용</button><button id="staffDeletePlaylist" class="btn danger-outline" type="button" ${playlist?'':'disabled'}>삭제</button><button id="staffSavePlaylist" class="btn primary" type="button">${mediaDirty?'변경 저장':'저장'}</button></div></div></section></div>
     <section class="media-work-apply"><div class="media-work-section-head"><div><h3>TV 적용</h3><small>층을 선택한 뒤 필요한 TV만 체크하세요. 이미 재생 중인 영상은 바로 끊지 않습니다.</small></div><button class="btn primary" type="button" id="mediaWorkApplyTv" disabled>선택한 TV에 적용</button></div>
-    <div class="media-work-tv-toolbar"><label class="media-work-floor-label">층 선택<select id="mediaWorkFloor"><option value="">층을 선택하세요</option>${floorOptions.map(g=>`<option value="${esc(g.id)}">${esc(groupDisplayName(g.name))} · TV ${g.rooms.length}대</option>`).join('')}</select></label><label class="media-work-tv-search-label">TV 검색<input id="mediaWorkTvSearch" type="search" placeholder="TV 이름 검색" autocomplete="off" disabled></label><span id="mediaWorkTvSelection" class="media-work-selected">선택한 TV 0대</span></div>
-    <div class="media-work-tv-list" id="mediaWorkTvList" aria-label="TV 선택">${rooms.map(r=>`<label class="media-work-tv" data-media-tv-row data-media-floor="${esc(r.group_id||'')}" data-media-search="${esc(String(r.name||'').toLowerCase())}" hidden><input type="checkbox" data-media-tv="${esc(r.id)}"><span><strong>${esc(r.name)}</strong><small>${esc(playlistById(r.default_playlist_id)?.name||'기본 편성')}</small></span></label>`).join('')||'<span class="muted">등록된 TV가 없습니다.</span>'}</div><p class="media-work-tv-empty" id="mediaWorkTvEmpty">먼저 층을 선택하면 해당 층의 TV가 표시됩니다.</p><p class="media-work-help">체크한 TV에만 적용됩니다. 기존 TV 설정은 자동으로 선택하거나 변경하지 않습니다.</p></section>
-    <section class="media-work-manage"><details id="mediaWorkManageDetails"><summary>영상 제목 변경 · 파일 업로드 · 파일 교체</summary><p>이 병원 영상의 제목 변경, MP4 업로드 및 파일 교체를 할 수 있습니다. 원본 영상 ID와 재생목록 연결은 유지됩니다.</p><div class="media-work-edit"><select id="mediaWorkEditVideo"><option value="">영상 선택</option>${videos.filter(v=>String(v.site_id)===String(targetSiteId)).map(v=>`<option value="${esc(v.id)}">${esc(v.title)}</option>`).join('')}</select><input id="mediaWorkEditName" placeholder="새 영상 이름" maxlength="100"><button type="button" class="btn" id="mediaWorkRename">이름 변경</button></div><div class="media-work-edit"><input type="file" id="mediaWorkUploadFile" accept="video/mp4,.mp4"><button class="btn" type="button" id="mediaWorkUpload">새 영상 업로드</button><button class="btn" type="button" id="mediaWorkReplace">선택 영상 파일 교체</button><progress id="mediaWorkUploadProgress" max="100" value="0" hidden></progress></div></details></section></section>`;
+    <details class="media-bulk-apply"><summary>다른 TV에도 같은 재생목록 적용하기</summary><div class="media-work-tv-toolbar"><label class="media-work-floor-label">층 선택<select id="mediaWorkFloor"><option value="">층을 선택하세요</option>${floorOptions.map(g=>`<option value="${esc(g.id)}">${esc(groupDisplayName(g.name))} · TV ${g.rooms.length}대</option>`).join('')}</select></label><label class="media-work-tv-search-label">TV 검색<input id="mediaWorkTvSearch" type="search" placeholder="TV 이름 검색" autocomplete="off" disabled></label><span id="mediaWorkTvSelection" class="media-work-selected">선택한 TV 0대</span></div>
+    <div class="media-work-tv-list" id="mediaWorkTvList" aria-label="TV 선택">${rooms.map(r=>`<label class="media-work-tv" data-media-tv-row data-media-floor="${esc(r.group_id||'')}" data-media-search="${esc(String(r.name||'').toLowerCase())}" hidden><input type="checkbox" data-media-tv="${esc(r.id)}"><span><strong>${esc(r.name)}</strong><small>${esc(playlistById(r.default_playlist_id)?.name||'기본 편성')}</small></span></label>`).join('')||'<span class="muted">등록된 TV가 없습니다.</span>'}</div><p class="media-work-tv-empty" id="mediaWorkTvEmpty">먼저 층을 선택하면 해당 층의 TV가 표시됩니다.</p><p class="media-work-help">체크한 TV에만 적용됩니다. 기존 TV 설정은 자동으로 선택하거나 변경하지 않습니다.</p></details></section>
+    <section class="media-work-manage"><details id="mediaWorkManageDetails"><summary>영상 제목 변경 · 파일 업로드 · 파일 교체</summary><p>이 병원 영상의 제목 변경, MP4 업로드 및 파일 교체를 할 수 있습니다. 원본 영상 ID와 재생목록 연결은 유지됩니다.</p><div class="media-work-edit"><select id="mediaWorkEditVideo"><option value="">영상 선택</option>${videos.filter(v=>String(v.site_id)===String(targetSiteId)).map(v=>`<option value="${esc(v.id)}">${esc(v.title)}</option>`).join('')}</select><input id="mediaWorkEditName" placeholder="새 영상 이름" maxlength="100"><button type="button" class="btn" id="mediaWorkRename">이름 변경</button></div><div class="media-work-edit" id="mediaWorkUploadDrop"><input type="file" id="mediaWorkUploadFile" accept="video/mp4,.mp4" multiple><button class="btn" type="button" id="mediaWorkUpload">새 영상 업로드</button><button class="btn" type="button" id="mediaWorkReplace">선택 영상 파일 교체</button><progress id="mediaWorkUploadProgress" max="100" value="0" hidden></progress></div></details></section></section>`;
   }
   function refreshMediaWorkspace(){
     const panel=qs('#mediaWorkQueue'),library=qs('#mediaWorkLibrary'),counter=qs('#mediaWorkCount');
     if(panel)panel.innerHTML=mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>';
     if(library){const queued=new Set(mediaDraft);library.innerHTML=mediaVideos().filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase())).map(v=>mediaVideoRow(v,queued.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>';}
     if(counter)counter.textContent=`${mediaDraft.length}개`;
-    const status=qs('#mediaWorkSaveStatus');if(status)status.textContent=mediaSaving?'저장 중…':mediaDirty?'저장되지 않은 변경 사항':'저장됨';
+    const status=qs('#mediaWorkSaveStatus');if(status)status.textContent=mediaSaving?'저장 중…':mediaDirty?(mediaPlaylistSharingCount(mediaPlaylistId)>1?'공유 목록 변경 · 저장 확인 필요':'자동 저장 대기'):'저장됨';
+    const currentApply=qs('#mediaApplyCurrent');if(currentApply)currentApply.disabled=!mediaTargetRoom||!mediaPlaylistId||mediaDirty||mediaSaving;
     refreshMediaTvSelection();
     bindMediaDragAndButtons();
   }
@@ -1201,6 +1214,7 @@
   async function saveHospitalPlaylist(){
     clearTimeout(mediaSaveTimer);if(mediaSaving)return false;
     const id=mediaPlaylistId||null,name=(qs('#staffPlaylistName')?.value||'').trim(),videoIds=[...mediaDraft];
+    if(mediaPlaylistSharingCount(id)>1&&!confirm(`이 재생목록을 ${mediaPlaylistSharingCount(id)}대 TV가 함께 사용합니다. 모든 TV의 재생 순서가 바뀝니다. 저장할까요?`))return false;
     if(!name)return toast('재생목록 이름을 입력하세요.','error'),false;
     if(!videoIds.length)return toast('영상은 1개 이상 선택하세요.','error'),false;
     mediaSaving=true;refreshMediaWorkspace();
@@ -1212,7 +1226,7 @@
     }catch(e){mediaDirty=true;toast(e.message||'저장하지 못했습니다. 다시 시도하세요.','error');return false;}
     finally{mediaSaving=false;refreshMediaWorkspace();}
   }
-  async function deleteHospitalPlaylist(){const id=mediaPlaylistId;if(!id||!confirm('이 병원 플레이리스트를 삭제할까요?'))return;const {error}=await db.rpc('hospital_delete_site_playlist',{p_site:targetSiteId,p_id:id});if(error)return toast(error.message,'error');mediaPlaylistId='';mediaDraft=[];mediaDirty=false;toast('병원 플레이리스트를 삭제했습니다.');await load();}
+  async function deleteHospitalPlaylist(){const id=mediaPlaylistId;if(!id)return;if(mediaPlaylistSharingCount(id)>0)return toast('TV에서 사용 중인 재생목록은 삭제할 수 없습니다. 먼저 TV 연결을 변경하세요.','error');if(!confirm('이 병원 플레이리스트를 삭제할까요?'))return;const {error}=await db.rpc('hospital_delete_site_playlist',{p_site:targetSiteId,p_id:id});if(error)return toast(error.message,'error');mediaPlaylistId='';mediaDraft=[];mediaDirty=false;toast('병원 플레이리스트를 삭제했습니다.');await load();}
   function mediaMove(from,to){if(from<0||to<0||from>=mediaDraft.length||to>=mediaDraft.length||from===to)return;const moved=mediaDraft.splice(from,1)[0];mediaDraft.splice(to,0,moved);mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();}
   function bindMediaDragAndButtons(){
     qsa('[data-media-add]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.mediaAdd;if(mediaDraft.includes(id))return;mediaDraft.push(id);mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();}));
@@ -1265,27 +1279,57 @@
   }
   async function mediaRename(){const id=qs('#mediaWorkEditVideo')?.value,name=(qs('#mediaWorkEditName')?.value||'').trim();if(!id||!name)return toast('영상과 새 이름을 입력하세요.','error');const video=state.videos.find(v=>String(v.id)===id);if(!video||String(video.site_id)!==String(targetSiteId))return toast('이 병원 소유 영상만 수정할 수 있습니다.','error');const {error}=await db.from('videos').update({title:name}).eq('id',id).eq('site_id',targetSiteId);if(error)return toast(error.message,'error');toast('영상 이름을 변경했습니다.');await load();}
   async function mediaUpload(replace=false){
-    const file=qs('#mediaWorkUploadFile')?.files?.[0];if(!file)return toast('MP4 파일을 선택하세요.','error');
+    const input=qs('#mediaWorkUploadFile'),files=Array.from(input?.files||[]);
+    if(!files.length)return toast('MP4 파일을 선택하세요.','error');
+    if(replace&&files.length!==1)return toast('파일 교체는 한 번에 하나만 가능합니다.','error');
     const maxSize=auth.role==='admin'?2*1024*1024*1024:350*1024*1024;
-    if(!file.name.toLowerCase().endsWith('.mp4')||file.size>maxSize)return toast(`${auth.role==='admin'?'2GB':'350MB'} 이하 MP4 파일만 업로드할 수 있습니다.`,'error');
+    const invalid=files.find(file=>!file.name.toLowerCase().endsWith('.mp4')||file.size>maxSize);
+    if(invalid)return toast(`${invalid.name}: ${auth.role==='admin'?'2GB':'350MB'} 이하 MP4 파일만 업로드할 수 있습니다.`,'error');
     const target=replace?state.videos.find(v=>String(v.id)===qs('#mediaWorkEditVideo')?.value):null;
-    if(replace&&(!target||String(target.site_id)!==String(targetSiteId)))return toast('파일을 교체할 병원 영상을 먼저 선택하세요.','error');
-    if(replace&&!confirm(`'${target.title}'의 파일을 교체할까요? 재생목록은 그대로 유지됩니다.`))return;
-    const button=qs('#mediaWorkUpload'),replaceButton=qs('#mediaWorkReplace'),progress=qs('#mediaWorkUploadProgress');if(button)button.disabled=true;if(replaceButton)replaceButton.disabled=true;if(progress){progress.hidden=false;progress.value=0;}
-    let signed;
+    if(replace&&(!target||String(target.site_id)!==String(targetSiteId)))return toast('교체할 병원 영상을 먼저 선택하세요.','error');
+    if(replace&&!confirm(`'${target.title}'의 파일을 교체할까요? 기존 재생목록은 그대로 유지됩니다.`))return;
+    const buttons=[qs('#mediaWorkUpload'),qs('#mediaWorkReplace'),qs('#mediaOpenUpload'),qs('#mediaQuickUpload')];
+    const progress=qs('#mediaWorkUploadProgress');buttons.forEach(b=>{if(b)b.disabled=true;});
+    if(progress){progress.hidden=false;progress.value=0;}
+    let success=0,failed=[];
     try{
-      signed=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType:'video/mp4',size:file.size,siteId:targetSiteId})});
-      if(!/^https:\/\//i.test(String(signed.publicUrl||'')))throw new Error('R2 공개 영상 주소가 설정되지 않았습니다.');
-      await uploadByXhr(signed.uploadUrl,file,'video/mp4',v=>{if(progress)progress.value=v;});
-      const title=file.name.replace(/\.mp4$/i,'').trim(),url=signed.publicUrl||signed.url;
-      if(!url)throw new Error('R2 공개 주소 설정이 없어 영상 등록을 완료할 수 없습니다.');
-      const next={source:'r2',storage_path:signed.key,url,size_bytes:file.size,active:true,available:true};
-      const result=replace?await db.from('videos').update(next).eq('id',target.id).eq('site_id',targetSiteId):await db.from('videos').insert({...next,title,site_id:targetSiteId});
-      if(result.error)throw result.error;toast(replace?'영상 파일을 교체했습니다. 기존 재생목록은 유지됩니다.':'영상을 업로드했습니다.');await load();
-    }catch(e){toast(e.message||'업로드에 실패했습니다.','error');}
-    finally{if(button)button.disabled=false;if(replaceButton)replaceButton.disabled=false;}
+      for(let i=0;i<files.length;i++){
+        const file=files[i];
+        try{
+          const signed=await apiJson('/api/r2-presign',{method:'POST',body:JSON.stringify({filename:file.name,contentType:'video/mp4',size:file.size,siteId:targetSiteId})});
+          if(!/^https:\/\//i.test(String(signed.publicUrl||'')))throw new Error('R2 공개 영상 주소가 설정되지 않았습니다.');
+          await uploadByXhr(signed.uploadUrl,file,'video/mp4',v=>{if(progress)progress.value=(i+v/100)/files.length*100;});
+          const title=file.name.replace(/\.mp4$/i,'').trim(),url=signed.publicUrl||signed.url;
+          if(!url)throw new Error('R2 공개 주소가 없습니다.');
+          const next={source:'r2',storage_path:signed.key,url,size_bytes:file.size,active:true,available:true};
+          const result=replace?await db.from('videos').update(next).eq('id',target.id).eq('site_id',targetSiteId):await db.from('videos').insert({...next,title,site_id:targetSiteId});
+          if(result.error)throw result.error;
+          success++;
+        }catch(e){failed.push(`${file.name}: ${e.message||'전송 실패'}`);}
+      }
+      if(failed.length)toast(`${success}개 완료, ${failed.length}개 실패 · ${failed[0]}`,'error');
+      else toast(replace?'기존 영상 파일을 교체했습니다.':`${success}개 영상 업로드 완료`);
+      if(success)await load();
+    }finally{buttons.forEach(b=>{if(b)b.disabled=false;});if(progress)progress.value=success===files.length?100:0;}
+  }
+  async function mediaApplyCurrent(){
+    const room=mediaTargetInfo();if(!room||!mediaPlaylistId||mediaDirty||mediaSaving)return toast('TV와 저장된 재생목록을 선택하세요.','error');
+    if(String(room.default_playlist_id)===mediaPlaylistId)return toast('이미 이 TV에 적용된 목록입니다.');
+    if(!confirm(`${room.name}에 '${playlistById(mediaPlaylistId)?.name||'선택 목록'}'을 적용할까요?`))return;
+    const {error}=await db.rpc('staff_set_room_playlist',{p_room:room.id,p_playlist:mediaPlaylistId});
+    if(error)return toast(error.message||'TV 적용에 실패했습니다.','error');
+    toast(`${room.name}에 재생목록을 적용했습니다.`);await load();
   }
   function bindMediaWorkspace(){
+    qs('#mediaTargetFloor')?.addEventListener('change',e=>{
+      const next=String(e.target.value||'');if(mediaDirty&&!confirm('저장되지 않은 변경 사항을 버리고 층을 변경할까요?')){e.target.value=mediaTargetFloor;return;}
+      mediaTargetFloor=next;mediaSelectTarget('');renderPreservingUi(false);
+    });
+    qs('#mediaTargetRoom')?.addEventListener('change',e=>{
+      const previous=mediaTargetRoom;if(!mediaSelectTarget(e.target.value)){e.target.value=previous;return;}
+      renderPreservingUi(false);
+    });
+    qs('#mediaApplyCurrent')?.addEventListener('click',mediaApplyCurrent);
     qs('#staffPlaylistSelect')?.addEventListener('change',()=>{if(mediaDirty&&!confirm('저장하지 않은 변경 사항을 버릴까요?')){qs('#staffPlaylistSelect').value=mediaPlaylistId;return;}fillHospitalPlaylistEditor();});
     qs('[data-new-playlist]')?.addEventListener('click',()=>{if(mediaDirty&&!confirm('저장하지 않은 변경 사항을 버릴까요?'))return;qs('#staffPlaylistSelect').value='';fillHospitalPlaylistEditor();qs('#staffPlaylistName')?.focus();});
     qs('#staffPlaylistName')?.addEventListener('input',()=>{mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();});
@@ -1300,6 +1344,14 @@
     qs('#mediaWorkEditVideo')?.addEventListener('change',e=>{const v=state.videos.find(v=>String(v.id)===e.target.value);const n=qs('#mediaWorkEditName');if(n)n.value=v?.title||'';});
     qs('#mediaWorkRename')?.addEventListener('click',mediaRename);
     qs('#mediaOpenUpload')?.addEventListener('click',()=>{const details=qs('#mediaWorkManageDetails');if(details){details.open=true;details.scrollIntoView({behavior:'smooth',block:'center'});}qs('#mediaWorkUploadFile')?.focus();});
+    qs('#mediaQuickUpload')?.addEventListener('click',()=>{qs('#mediaWorkManageDetails')?.setAttribute('open','');qs('#mediaWorkUploadFile')?.click();});
+    const uploadDrop=qs('#mediaQuickUpload')||qs('#mediaWorkUploadDrop');
+    if(uploadDrop){
+      uploadDrop.addEventListener('dragover',e=>{e.preventDefault();uploadDrop.classList.add('is-dragging');});
+      uploadDrop.addEventListener('dragleave',()=>uploadDrop.classList.remove('is-dragging'));
+      uploadDrop.addEventListener('drop',e=>{e.preventDefault();uploadDrop.classList.remove('is-dragging');const files=Array.from(e.dataTransfer?.files||[]),input=qs('#mediaWorkUploadFile');if(!files.length||!input)return;if(files.some(f=>!f.name.toLowerCase().endsWith('.mp4')))return toast('MP4 파일만 업로드할 수 있습니다.','error');const transfer=new DataTransfer();files.forEach(f=>transfer.items.add(f));input.files=transfer.files;qs('#mediaWorkManageDetails')?.setAttribute('open','');toast(`${files.length}개 선택 · 새 영상 업로드를 누르면 전송합니다.`);});
+    }
+    qs('#mediaWorkUploadFile')?.addEventListener('change',e=>{if(e.target.files?.length){qs('#mediaWorkManageDetails')?.setAttribute('open','');toast(`${e.target.files.length}개 선택 · 새 영상 업로드를 누르면 전송합니다.`);}});
     qs('#mediaWorkUpload')?.addEventListener('click',()=>mediaUpload(false));
     qs('#mediaWorkReplace')?.addEventListener('click',()=>mediaUpload(true));
     bindMediaDragAndButtons();
@@ -1316,7 +1368,15 @@
     const {error}=await db.rpc('hospital_save_operating_config',{p_site:targetSiteId,p_config:config});if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();
   }
   function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
-  function hospitalVideosPageMarkup(){return `<section class="hospital-content-page hospital-content-media">${hospitalPlaylistManagerMarkup()}</section>`;}
+  function hospitalVideosPageMarkup(){
+    const live=state.rooms.filter(r=>roomDisplayStatus(r).key==='live').length;
+    return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
+      <header class="unified-page-heading"><div><h1>Clinic Signage</h1><p>${esc(state.site?.name||'병원')} · TV 영상과 설정을 한 페이지에서 관리합니다.</p></div><div class="unified-quick-stats"><span>전체 TV <b>${state.rooms.length}</b></span><span>송출 확인 <b>${live}</b></span></div></header>
+      ${hospitalPlaylistManagerMarkup()}
+      <details class="unified-secondary-panel" id="unifiedTvOperations"><summary><span><b>TV 상태 · 층별 도면</b><small>송출 확인, TV 이름·위치 변경, 디스플레이 설정</small></span><span aria-hidden="true">펼치기 ▾</span></summary><div class="unified-secondary-content">${hospitalOperationsSummary()}${staffBuildingOverview(groupedRooms())}</div></details>
+      <details class="unified-secondary-panel" id="unifiedHospitalSettings"><summary><span><b>병원 설정</b><small>운영시간, 병원 정보, 기본 송출 설정</small></span><span aria-hidden="true">펼치기 ▾</span></summary><div class="unified-secondary-content">${hospitalSettingsPageMarkup()}</div></details>
+    </section>`;
+  }
   async function saveHospitalIdentity(){const name=(qs('#staffSiteName')?.value||'').trim(),building=(qs('#staffBuildingLabel')?.value||'').trim();if(!name||!building)return toast('병원명과 건물명을 입력하세요.','error');const {error}=await db.rpc('hospital_update_site_identity',{p_site:targetSiteId,p_name:name,p_building_label:building});if(error)return toast(error.message,'error');toast('병원 정보를 저장했습니다.');await load();}
   const displaySetupRpcMissing=(error)=>String(error?.code||'')==='PGRST202'||/staff_set_display_setup|schema cache|function/i.test(String(error?.message||''))&&/could not find|not found/i.test(String(error?.message||''));
   async function saveDisplayPurpose(roomId){
@@ -1420,7 +1480,7 @@
     qsa('[data-staff-building-upload]').forEach(input=>input.addEventListener('change',()=>{const f=input.files?.[0];if(f)uploadBuildingImage(f);input.value='';}));qs('[data-staff-building-remove]')?.addEventListener('click',removeBuildingImage);qsa('[data-staff-floorplan-upload]').forEach(input=>input.addEventListener('change',()=>{const f=input.files?.[0];if(f)uploadFloorplan(Number(input.dataset.staffFloorplanUpload),f);input.value='';}));
     qsa('[data-staff-floorplan-reset]').forEach(b=>b.addEventListener('click',()=>resetFloorplan(Number(b.dataset.staffFloorplanReset))));
     qsa('details').forEach(d=>d.addEventListener('toggle',()=>{if(d.open)loadFloorplanSvgs(d).catch(()=>{});}));
-    bindFloorSpaceManager();bindDisplaySetup();if(tab==='settings'){loadBuildingImages(qs('#hospitalRoot')).catch(()=>{});loadFloorplanSvgs(qs('#hospitalRoot')).catch(()=>{});}
+    bindFloorSpaceManager();bindDisplaySetup();if(tab==='settings'||tab==='videos'){loadBuildingImages(qs('#hospitalRoot')).catch(()=>{});loadFloorplanSvgs(qs('#hospitalRoot')).catch(()=>{});}
   }
 
 
@@ -1435,6 +1495,7 @@
     const groups=groupedRooms();
     qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
     const siteLabel=qs('#hospitalSiteLabel');if(siteLabel)siteLabel.textContent=state.site?.name||'';
+    tab='videos';
     const head=tab==='videos'?'':tab==='output'
       ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>TV 상태</h1><p>우리 병원의 TV가 잘 나오고 있는지 확인하세요.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">전체 TV <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
       : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상관리':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
@@ -1491,6 +1552,7 @@
       const floor=state.groups.find(g=>g.id===room.group_id&&g.kind==='floor');
       if(!floor){toast('이 TV는 층이 지정되지 않았습니다. 병원 설정에서 층을 먼저 배정해 주세요.','error');return;}
       selectedFloorId=floor.id;
+      qs('#unifiedTvOperations')?.setAttribute('open','');
       statusViewFilter='';
       renderPreservingUi(false);
       requestAnimationFrame(()=>{if(!openInlineTvDetail(room.id))qs('.hospital-floor-console-card')?.scrollIntoView({behavior:'smooth',block:'start'});});
@@ -1503,10 +1565,10 @@
       if(layoutPanelOpen)requestAnimationFrame(()=>qs('#hospitalLayoutWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'}));
     }));
     qs('[data-ops-go-layout]')?.addEventListener('click',()=>{
-      tab='output';layoutPanelOpen=true;spaceEditorGroupId=selectedFloorId||state.groups.find(g=>g.kind==='floor')?.id||null;layoutEditMode='display';spaceRedrawId=null;layoutPlacementRoomId=null;layoutCopyOpen=false;
+      tab='videos';qs('#unifiedTvOperations')?.setAttribute('open','');layoutPanelOpen=true;spaceEditorGroupId=selectedFloorId||state.groups.find(g=>g.kind==='floor')?.id||null;layoutEditMode='display';spaceRedrawId=null;layoutPlacementRoomId=null;layoutCopyOpen=false;
       renderPreservingUi(false);requestAnimationFrame(()=>qs('#hospitalLayoutWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'}));
     });
-    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{tab='settings';qsa('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));renderPreservingUi(false);}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{const id=b.dataset.staffSelectFloor;if(selectedFloorId!==id){selectedFloorId=id;spaceEditorGroupId=id;spaceRedrawId=null;layoutPlacementRoomId=null;layoutEditMode='display';layoutCopyOpen=false;}renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
+    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{qs('#unifiedHospitalSettings')?.setAttribute('open','');qs('#unifiedHospitalSettings')?.scrollIntoView({behavior:'smooth',block:'start'});}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{const id=b.dataset.staffSelectFloor;if(selectedFloorId!==id){selectedFloorId=id;spaceEditorGroupId=id;spaceRedrawId=null;layoutPlacementRoomId=null;layoutEditMode='display';layoutCopyOpen=false;}renderPreservingUi(false);};b.addEventListener('click',open);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});});
     const floorStage=qs('.building-floor-plan-stage');
     const setFloorFocus=(kind,id,contextSpaceId=null)=>{if(!floorStage)return;floorStage.classList.add('has-map-focus');floorStage.dataset.focusKind=kind;floorStage.dataset.focusId=id;qsa('[data-staff-floor-room]',floorStage).forEach(x=>{const active=kind==='display'&&x.dataset.staffFloorRoom===id;const room=state.rooms.find(r=>r.id===x.dataset.staffFloorRoom);const linkedSpace=room?roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct):null;const context=(kind==='space'&&linkedSpace?.id===id)||(kind==='display'&&contextSpaceId&&linkedSpace?.id===contextSpaceId);x.classList.toggle('is-selected',active);x.classList.toggle('is-focus-context',!!context);});qsa('[data-floor-space]',floorStage).forEach(x=>{const active=kind==='space'&&x.dataset.floorSpace===id;const context=kind==='display'&&contextSpaceId&&x.dataset.floorSpace===contextSpaceId;x.classList.toggle('is-selected-space',active);x.classList.toggle('is-focus-context',!!context);});};
     qsa('.floor-ops-tv [data-staff-open-room-detail]').forEach(b=>b.addEventListener('click',()=>openInlineTvDetail(b.dataset.staffOpenRoomDetail)));
