@@ -15,14 +15,20 @@
   // Shared across TV tabs; never prune another TV's active media during sync.
   const OFFLINE_READY_KEY = `clinic-signage:offline-ready:${key || 'none'}`;
   const OFFLINE_CACHE_META_KEY = `clinic-signage:offline-cache-meta:${key || 'none'}`;
+  const SHARED_CACHE_GUARD_PREFIX = 'clinic-signage:cache-guard:';
+  const CACHE_GUARD_TTL_MS = 45*24*60*60*1000;
+  const SWITCH_FAILURE_COOLDOWN_MS = 5*60*1000;
   const OFFLINE_CACHE_USAGE_RATIO = 0.82;
   // Defer large offline playlist downloads until the player has settled.
   // This is deliberately less aggressive than starting 30s after boot: a full R2
   // download can compete with the current clip and its next-slot range request.
   const OFFLINE_CACHE_START_DELAY_MS = 15000;
   const OFFLINE_CACHE_RETRY_MS = 20000;
+  const OFFLINE_CACHE_NOT_FOUND_RETRY_MS = 30*60*1000;
+  const OFFLINE_CACHE_QUOTA_RETRY_MS = 5*60*1000;
+  const OFFLINE_CACHE_MAX_RETRY_MS = 30*60*1000;
   const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 4;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.34.11');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.35.74');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000; // only force when playback is genuinely stuck, never during healthy playback
@@ -177,6 +183,81 @@
   let pendingPlaylistState=null;
   let pendingPlaylistServerTime=null;
   let pendingPlaylistCommitBusy=false;
+  let pendingPlaylistReadyState=null;
+  let pendingPlaylistStreamFallback=false;
+  let pendingPlaylistFailureStreak=0;
+  let pendingCacheCount=0,pendingCacheTotal=0,pendingSince=0;
+  let rejectedSwitchSignature='',rejectedSwitchUntil=0;
+  let storagePersisted=null;
+  // Protect current and other TV tabs' offline recovery lists before pruning.
+  function playlistUrls(s){return (s?.playlist||[]).map(mediaUrl).filter(Boolean);}
+  function updateCacheGuard(){
+    if(PREVIEW||!key)return;
+    try{localStorage.setItem(SHARED_CACHE_GUARD_PREFIX+key,JSON.stringify({at:Date.now(),urls:[...new Set([
+      ...playlistUrls(state),...playlistUrls(pendingPlaylistState),...playlistUrls(offlineReadyState()),
+      ...slots.map(el=>el?.currentSrc||el?.src).filter(Boolean)
+    ])]}));}catch(_){}
+  }
+  async function pruneUnusedPlaylistCache(){
+    if(PREVIEW||!('caches' in window))return 0;
+    const perform=async()=>{
+      updateCacheGuard();
+      const keep=new Set([...playlistUrls(state),...playlistUrls(pendingPlaylistState),
+        ...playlistUrls(offlineReadyState()),...slots.map(el=>el?.currentSrc||el?.src).filter(Boolean)]);
+      try{for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);if(!k?.startsWith(SHARED_CACHE_GUARD_PREFIX))continue;
+        const record=readJsonStorage(k);
+        // Old registrations are kept conservatively; stale records only cease
+        // protecting files after a long inactivity period.
+        if(!record||Date.now()-Number(record.at||0)>CACHE_GUARD_TTL_MS)continue;
+        for(const url of record.urls||[])keep.add(url);
+      }}catch(_){}
+      const cache=await caches.open(PLAYLIST_MEDIA_CACHE),requests=await cache.keys();
+      let removed=0;for(const req of requests){
+        if(keep.has(req.url))continue;
+        // Bound cleanup work so it never monopolizes a low-end PC.
+        if(removed>=4)break;
+        if(await cache.delete(req))removed++;
+      }
+      return removed;
+    };
+    try{
+      if(navigator.locks?.request)return await navigator.locks.request('clinic-signage-cache-maintenance',{mode:'exclusive'},perform);
+      return await perform();
+    }catch(e){console.warn('Clinic Signage cache cleanup skipped:',e?.message||e);return 0;}
+  }
+  // Staged changes to the background playlist are applied only at a clip boundary.
+  // Patient/session/broadcast/manual mode transitions always bypass this staging.
+  function stageableBackgroundChange(current,next){
+    return current?.mode==='default'&&next?.mode==='default'&&
+      !next?.manual_control&&!next?.force_immediate;
+  }
+  function clearPendingPlaylist(){
+    pendingPlaylistState=null;pendingPlaylistServerTime=null;pendingPlaylistReadyState=null;
+    pendingPlaylistStreamFallback=false;
+    pendingCacheCount=0;pendingCacheTotal=0;pendingSince=0;
+  }
+  function cacheRetryDelay(error){
+    const code=String(error||'');
+    if(/(?:_404|_410|invalid_media_url|media_url_reused)/i.test(code))return OFFLINE_CACHE_NOT_FOUND_RETRY_MS;
+    if(/quota|capacity|disk_full|length_mismatch/i.test(code))return OFFLINE_CACHE_QUOTA_RETRY_MS;
+    return Math.min(OFFLINE_CACHE_MAX_RETRY_MS,OFFLINE_CACHE_RETRY_MS*Math.pow(2,Math.min(6,Math.max(0,pendingPlaylistFailureStreak-1))));
+  }
+  function deferOfflineRetry(error){
+    pendingPlaylistFailureStreak=Math.min(9,pendingPlaylistFailureStreak+1);
+    offlineCacheNextRetryAt=Date.now()+cacheRetryDelay(error);
+  }
+  function pendingReadyForCommit(){
+    return Boolean(pendingPlaylistReadyState&&pendingPlaylistIsCurrent(pendingPlaylistReadyState)&&
+      !(rejectedSwitchSignature===playlistSignature(pendingPlaylistReadyState)&&Date.now()<rejectedSwitchUntil));
+  }
+  function maybeCommitAtBoundary(){
+    if(!pendingReadyForCommit()||pendingPlaylistCommitBusy)return false;
+    const active=activeVideoEl();
+    if(active&&!active.ended&&!(active.paused&&Number.isFinite(active.duration)&&active.duration>0&&active.currentTime>=active.duration-.2))return false;
+    void commitPendingPlaylist(pendingPlaylistReadyState);
+    return true;
+  }
   let lastUnsafeReplacementSignature='';
   // A replacement must publish a new immutable media URL. If the server uses
   // the same URL for different bytes, the active and staged playlists cannot
@@ -197,7 +278,10 @@
         (oldHash&&newHash&&oldHash!==newHash);
     });
   }
-  function downloadTargetState(){return pendingPlaylistState||state;}
+  function downloadTargetState(){
+    // Never starve the currently playing list when a pending update is stuck.
+    return pendingPlaylistState&&offlineCacheNextRetryAt<=Date.now()?pendingPlaylistState:state;
+  }
   function pendingPlaylistIsCurrent(snapshot){
     return Boolean(pendingPlaylistState&&snapshot&&
       playlistSignature(pendingPlaylistState)===playlistSignature(snapshot));
@@ -259,7 +343,10 @@
     const url=mediaUrl(v);if(!url)return false;
     if(!forceRefresh&&await cachedMediaIsComplete(cache,v))return true;
     const size=Number(v?.size||0);
-    if(!(await storageHasRoomFor(size)))throw new Error('offline_cache_quota');
+    if(!(await storageHasRoomFor(size))){
+      await pruneUnusedPlaylistCache();
+      if(!(await storageHasRoomFor(size)))throw new Error('offline_cache_quota');
+    }
     // Offline downloads can be hundreds of MB. Yield the network to the active
     // playback instead of finishing a background download while the TV freezes.
     const controller=new AbortController();
@@ -297,18 +384,21 @@
     }finally{clearInterval(monitor);}
   }
   async function syncOfflinePlaylistCache(){
+    if(pendingReadyForCommit())return true;
     const target=downloadTargetState();
     if(offlineCacheBusy||!('caches' in window)||!target?.playlist?.length||!navigator.onLine||target?.mode==='closed')return false;
     offlineCacheBusy=true;const token=++offlineCacheSyncToken;
     const snapshot=JSON.parse(JSON.stringify(target));
     const items=cacheablePlaylistItems(snapshot),total=items.length;
     const missingMedia=total!==(snapshot.playlist||[]).length;
-    offlineCacheTotal=total;offlineCacheCount=0;offlineCacheError=null;
+    if(pendingPlaylistIsCurrent(snapshot)){pendingCacheTotal=total;pendingCacheCount=0;}
+    else{offlineCacheTotal=total;offlineCacheCount=0;}
+    offlineCacheError=null;updateCacheGuard();
     // Keep the last fully verified playlist usable until the replacement is complete.
     const previousReady=offlineReadyState();
     const hadReady=Boolean(previousReady?.playlist?.length);
     try{
-      try{await navigator.storage?.persist?.();}catch(_){}
+      try{storagePersisted=await navigator.storage?.persist?.()??null;}catch(_){storagePersisted=null;}
       const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
       const signature=playlistSignature(snapshot);
       const forceRefresh=false; // Cache is keyed by exact media URL; playlist edits must not redownload unchanged video files.
@@ -316,24 +406,52 @@
       for(const v of items){
         if(token!==offlineCacheSyncToken)return false;
         try{if(await cacheOnePlaylistVideo(cache,v,token,forceRefresh))complete++;}
-        catch(e){offlineCacheError=e?.message||String(e);console.warn('Clinic Signage offline cache item failed:',v?.title||v?.id,offlineCacheError);}
-        offlineCacheCount=complete;
+        catch(e){
+          offlineCacheError=e?.message||String(e);
+          console.warn('Clinic Signage offline cache item failed:',v?.title||v?.id,offlineCacheError);
+          // A missing object or exhausted quota cannot be fixed by downloading
+          // the remaining hundreds of MB in this pass.
+          if(/(?:_404|_410|quota|capacity|disk_full)/i.test(offlineCacheError)){
+            if(pendingPlaylistIsCurrent(snapshot))pendingCacheCount=complete;else offlineCacheCount=complete;
+            break;
+          }
+        }
+        if(pendingPlaylistIsCurrent(snapshot))pendingCacheCount=complete;else offlineCacheCount=complete;
         await new Promise(r=>setTimeout(r,120));
       }
       const allReady=!missingMedia&&total>0&&complete===total;
       if(missingMedia)offlineCacheError='playlist_contains_invalid_media_url';
+      if(!allReady&&pendingPlaylistIsCurrent(snapshot)&&!missingMedia&&
+          /(?:quota|disk_full|capacity)/i.test(String(offlineCacheError||''))){
+        // Browser storage is full: allow the network stream to be trialed at
+        // the next natural boundary. Failure rolls back; NEVER replace the
+        // verified offline recovery manifest with un-cached media.
+        pendingPlaylistReadyState=snapshot;
+        pendingPlaylistStreamFallback=true;
+        recordPlaybackEvent('staged_stream_fallback_due_to_quota');
+        maybeCommitAtBoundary();
+        scheduleReport(0);
+        return true;
+      }
       if(allReady&&token===offlineCacheSyncToken&&
          (!pendingPlaylistState||pendingPlaylistIsCurrent(snapshot))){
         offlineCacheNextRetryAt=0;
+        pendingPlaylistFailureStreak=0;
         // Commit new metadata before any cleanup. If storage refuses the write,
         // the previous offline playlist must stay the active recovery point.
         if(pendingPlaylistIsCurrent(snapshot)){
           // Stage complete != playback committed. Keep last known-good offline
           // manifest until the new playlist actually renders successfully.
-          void commitPendingPlaylist(snapshot);
+          pendingPlaylistReadyState=snapshot;
+          pendingPlaylistStreamFallback=false;
+          pendingPlaylistFailureStreak=0;
+          // Do not truncate the currently playing clip on download completion.
+          maybeCommitAtBoundary();
+          scheduleReport(0);
           return true;
         }
         if(!writeJsonStorage(OFFLINE_READY_KEY,snapshot))throw new Error('offline_state_commit_failed');
+        void pruneUnusedPlaylistCache();
         offlineCacheReady=true;offlineCacheUpdatedAt=new Date().toISOString();
         writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:complete,total,updated_at:offlineCacheUpdatedAt,playlist_signature:playlistSignature(snapshot)});scheduleReport(0);
         return true;
@@ -341,19 +459,43 @@
       // Never mark the old successful cache as unavailable because a new media
       // download failed or an updated playlist was only partially retrieved.
       if(!hadReady){offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false,count:complete,total,updated_at:new Date().toISOString(),playlist_signature:signature});}
-      offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_RETRY_MS;
+      deferOfflineRetry(offlineCacheError||'offline_cache_incomplete');
+      // A pending 404 must not prevent downloading missing active playlist media.
+      if(pendingPlaylistIsCurrent(snapshot))void fillActiveCacheAfterPendingFailure();
       scheduleReport(0);
       return false;
     }catch(e){
-      offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_RETRY_MS;
-      offlineCacheError=e?.message||String(e);console.warn('Clinic Signage offline playlist cache failed:',offlineCacheError);scheduleReport(0);
+      offlineCacheError=e?.message||String(e);
+      deferOfflineRetry(offlineCacheError);
+      if(pendingPlaylistIsCurrent(snapshot))void fillActiveCacheAfterPendingFailure();
+      console.warn('Clinic Signage offline playlist cache failed:',offlineCacheError);scheduleReport(0);
       return false;
     }finally{offlineCacheBusy=false;
       // The last successful snapshot remains the rollback point while partial
       // downloads are retried. Don't wait for a playlist change to retry.
       if(navigator.onLine&&downloadTargetState()?.mode!=='closed'&&
-         (offlineCacheNextRetryAt||pendingPlaylistState))scheduleOfflinePlaylistCache(true);
+         !pendingReadyForCommit()&&(offlineCacheNextRetryAt||pendingPlaylistState))scheduleOfflinePlaylistCache(true);
     }
+  }
+  function fillActiveCacheAfterPendingFailure(){
+    // A failed pending update must not starve the actively playing playlist.
+    // Repair one missing active item at a time; leave the display and pending
+    // retry deadline untouched.
+    setTimeout(async()=>{
+      if(offlineCacheBusy||!state?.playlist?.length||!navigator.onLine||PREVIEW)return;
+      const token=offlineCacheSyncToken;
+      try{
+        const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
+        const items=cacheablePlaylistItems(state);
+        for(const v of items){
+          if(token!==offlineCacheSyncToken||offlineCacheBusy)return;
+          if(await cachedMediaIsComplete(cache,v))continue;
+          if(!(await storageHasRoomFor(Number(v?.size||0))))return;
+          await cacheOnePlaylistVideo(cache,v,token);
+          return;
+        }
+      }catch(e){console.warn('Clinic Signage active cache repair deferred:',e?.message||e);}
+    },5000);
   }
   let lastBufferInterruptionAt=0;
   function recordBufferInterruption(kind,el){
@@ -384,6 +526,7 @@
     clearTimeout(offlineCacheTimer);
     const target=downloadTargetState();
     if(!navigator.onLine||!target?.playlist?.length||target?.mode==='closed')return;
+    if(pendingReadyForCommit()){maybeCommitAtBoundary();return;}
     const meta=readJsonStorage(OFFLINE_CACHE_META_KEY);
     if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(target)){
       // Browser quota eviction can remove media even if our metadata says ready.
@@ -391,7 +534,10 @@
         if(!downloadTargetState()||playlistSignature(downloadTargetState())!==meta.playlist_signature)return;
         if(cached&&playlistSignature(cached)===meta.playlist_signature){
           offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;
-          if(pendingPlaylistIsCurrent(cached))void commitPendingPlaylist(cached);
+          if(pendingPlaylistIsCurrent(cached)){
+            pendingPlaylistReadyState=cached;
+            maybeCommitAtBoundary();
+          }
         }else{offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false});scheduleOfflinePlaylistCache(true);}
       });return;
     }
@@ -415,6 +561,19 @@
   }
   function playlistSignature(s) {
     return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${s?.playlist_hash||''}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}:${v.sha256||''}`).join(',')}`;
+  }
+  function statusPlaylistHash(s){
+    if(!s)return null;
+    const input=playlistSignature(s);
+    // Non-cryptographic identifier for UI diagnostics only. Content integrity
+    // continues to depend on per-file SHA-256, never on this short label.
+    let h1=2166136261,h2=2166136261;
+    for(let i=0;i<input.length;i++){
+      const c=input.charCodeAt(i);
+      h1=Math.imul(h1^c,16777619);
+      h2=Math.imul(h2^(c+(i&255)),16777619);
+    }
+    return (h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
   }
   function stateSignature(s) {
     const r=s?.room||{};
@@ -869,6 +1028,7 @@
     // Ended clips still advance while backgrounded; only failure escalation waits.
     if(playlistAdvanceBusy){advancePending=true;return;}
     const items=list();if(!items.length)return;
+    if(maybeCommitAtBoundary())return;
     playlistAdvanceBusy=true;
     const target=nextPlayableIndex();
     try{
@@ -947,16 +1107,23 @@
       updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
       const rendered=await renderFull({allowRecovery:false});
       if(!rendered){
+        rejectedSwitchSignature=playlistSignature(next);
+        rejectedSwitchUntil=Date.now()+SWITCH_FAILURE_COOLDOWN_MS;
         state=previousState;index=previousIndex;
         lastPlaylistSig=previousPlaylistSig;lastStateSig=previousStateSig;
         updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
         offlineCacheError='playlist_switch_failed_kept_previous';
-        offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_RETRY_MS;
+        pendingPlaylistReadyState=null;
+        pendingPlaylistStreamFallback=false;
+        offlineCacheNextRetryAt=rejectedSwitchUntil;
+        deferOfflineRetry('playlist_switch_failed');
+        offlineCacheNextRetryAt=Math.max(offlineCacheNextRetryAt,rejectedSwitchUntil);
         recordPlaybackEvent('playlist_switch_rolled_back');
         // Existing active video slot remains visible on a failed candidate.
         // If no valid slot survived, explicitly attempt to restore it.
         if(!activeVideoEl()?.dataset?.videoId)await renderFull({allowRecovery:false});
         scheduleReport(0);
+        if(activeVideoEl()?.ended&&canAutoPlay())queueMicrotask(()=>void advanceSeamless());
         return false;
       }
       // A more recent playlist can arrive while renderFull() awaits play().
@@ -966,14 +1133,20 @@
         scheduleOfflinePlaylistCache(true);
         return false;
       }
+      rejectedSwitchSignature='';rejectedSwitchUntil=0;
       const latestStillMatches=pendingPlaylistState===next&&pendingPlaylistIsCurrent(verified);
-      if(latestStillMatches){pendingPlaylistState=null;pendingPlaylistServerTime=null;}
+      const committedViaStream=pendingPlaylistStreamFallback;
+      if(latestStillMatches)clearPendingPlaylist();
       lastPlaylistSig=playlistSignature(state);lastStateSig=stateSignature(state);
       cycleFailures=0;recoveryAttempts=0;recoveryStage=0;
       lastProgressAt=Date.now();lastError=null;
-      // Persist only after the first successful render; the old manifest is
-      // still the recovery point if this write fails.
-      if(!writeJsonStorage(OFFLINE_READY_KEY,next)){
+      // Never claim an un-cached streaming fallback is available offline.
+      // Keep the previous verified manifest as the last offline recovery point.
+      if(committedViaStream){
+        offlineCacheReady=Boolean(offlineReadyState()?.playlist?.length);
+        offlineCacheError='streaming_fallback_storage_full';
+        offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_QUOTA_RETRY_MS;
+      }else if(!writeJsonStorage(OFFLINE_READY_KEY,next)){
         offlineCacheError='offline_state_commit_failed';
       }else{
         offlineCacheReady=true;offlineCacheError=null;offlineCacheUpdatedAt=new Date().toISOString();
@@ -981,10 +1154,12 @@
           total:next.playlist?.length||0,updated_at:offlineCacheUpdatedAt,
           playlist_signature:playlistSignature(next)});
       }
+      updateCacheGuard();void pruneUnusedPlaylistCache();
       saveState();recordPlaybackEvent('playlist_switch_committed',{items:next.playlist?.length||0});
       syncedAt=serverTime||syncedAt;queueHeartbeat(true);reportNow();
       // Continue staging the newer server revision without dropping this good media.
       if(!latestStillMatches&&pendingPlaylistState)scheduleOfflinePlaylistCache(true);
+      else if(committedViaStream)scheduleOfflinePlaylistCache(true);
       return true;
     }finally{pendingPlaylistCommitBusy=false;}
   }
@@ -1007,7 +1182,7 @@
       else if(data.room.reload_nonce!==lastNonce){clearPosition();intentionalNavigation=true;try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
       const fetchedAt=data.server_time||null;
-      const mayStage=!PREVIEW&&navigator.onLine&&state?.playlist?.length&&
+      const mayStage=stageableBackgroundChange(state,data)&&!PREVIEW&&navigator.onLine&&state?.playlist?.length&&
         data.mode!=='closed'&&data.playlist?.length&&playlistChanged&&'caches' in window;
       if(mayStage&&hasUnsafeSameUrlReplacement(state,data)){
         // Same URL with changed media bytes would overwrite the old rollback
@@ -1016,14 +1191,23 @@
           lastUnsafeReplacementSignature=newPlaylistSig;
           recordPlaybackEvent('playlist_rejected_reused_media_url');
         }
-        pendingPlaylistState=null;pendingPlaylistServerTime=null;
+        clearPendingPlaylist();
         offlineCacheError='media_url_reused_for_replacement';
+        // Reject the media replacement, not independent pause/mute/volume commands.
+        state={...state,room:data.room,notice_text:data.notice_text,
+          emergency_video:data.emergency_video,operating:data.operating,
+          server_time:data.server_time};
+        applyLiveControls();renderBarsOnly();scheduleExpiry();scheduleTransition();
         scheduleReport(0);return;
       }
       if(mayStage){
         const changedTarget=!pendingPlaylistState||playlistSignature(pendingPlaylistState)!==newPlaylistSig;
         pendingPlaylistState=data;pendingPlaylistServerTime=fetchedAt;
+        updateCacheGuard();
         if(changedTarget){
+          pendingPlaylistReadyState=null;pendingPlaylistStreamFallback=false;
+          pendingPlaylistFailureStreak=0;pendingCacheCount=0;pendingCacheTotal=data.playlist?.length||0;pendingSince=Date.now();
+          rejectedSwitchSignature='';rejectedSwitchUntil=0;
           // Interrupt a superseded download, not the playing video.
           offlineCacheSyncToken++;offlineCacheNextRetryAt=0;
           recordPlaybackEvent('playlist_update_staged',{items:data.playlist.length});
@@ -1031,8 +1215,7 @@
         // Apply emergency pause/mute/volume controls without switching the old media.
         // Keep active playlist and its revisions until the new media is verified.
         state={...state,room:data.room,notice_text:data.notice_text,
-          emergency_video:data.emergency_video,next_transition_at:data.next_transition_at,
-          session_expires_at:data.session_expires_at,operating:data.operating,
+          emergency_video:data.emergency_video,operating:data.operating,
           server_time:data.server_time};
         updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
         if(!emergencyPlaying)lastError=null;
@@ -1044,19 +1227,20 @@
       }
       // A pending update remains staged while unrelated control changes arrive.
       if(pendingPlaylistState&&newPlaylistSig===lastPlaylistSig){
-        pendingPlaylistState=null;pendingPlaylistServerTime=null;
+        clearPendingPlaylist();
         offlineCacheSyncToken++;
       }
+      if(pendingPlaylistState){clearPendingPlaylist();offlineCacheSyncToken++;}
       state=data;updatePlayerTabTitle(state);if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();
       if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}
-      else{pendingPlaylistState=null;pendingPlaylistServerTime=null;clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}
+      else{clearPendingPlaylist();clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}
       subscribePlayerRealtime();
       lastStateSig=newStateSig;
       const meaningful=!fromPoll||playlistChanged||stateChanged||!syncedAt;
       if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=restoredIndex(data);cycleFailures=0;recoveryAttempts=0;recoveryStage=0;lastProgressAt=Date.now();emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
       else{if(stateChanged){applyLiveControls();renderBarsOnly();queueHeartbeat(true);}if(meaningful)syncedAt=fetchedAt;}
       if(meaningful)reportNow();
-    }catch(e){if(fromPoll)consecutivePollFailures=Math.min(4,consecutivePollFailures+1);lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=await verifiedOfflineReadyState();if(cached?.playlist?.length){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;lastError=null;await renderFull();}}queueHeartbeat(true);}
+    }catch(e){if(fromPoll)consecutivePollFailures=Math.min(4,consecutivePollFailures+1);lastError=e?.message||String(e);if(state?.mode!=='closed'&&!navigator.onLine){const cached=await verifiedOfflineReadyState();if(cached?.playlist?.length&&(!activeVideoEl()?.dataset?.videoId||activeVideoEl()?.error)){state=cached;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=restoredIndex(cached);lastError=null;await renderFull();}}queueHeartbeat(true);}
     finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){const urgent=fetchQueuedUrgent;fetchQueued=false;fetchQueuedUrgent=false;queueMicrotask(()=>fetchState({fromPoll:!urgent}));}}
   }
   async function loadSaved(){
@@ -1135,7 +1319,8 @@
   function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(backgrounded()&&el&&!el.error&&!state?.room?.paused)return el.ended?'ended':(el.paused?'loading':'playing');if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(el.readyState<3)return 'loading';if(confirmedPlaybackState==='playing')return 'playing';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:offlineCacheError,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    const cacheDiagnostic=pendingSince&&Date.now()-pendingSince>10*60*1000?'pending_stuck':offlineCacheError;
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:cacheDiagnostic,storage_persisted:storagePersisted,active_hash:statusPlaylistHash(state),pending_hash:statusPlaylistHash(pendingPlaylistState),pending_count:pendingPlaylistState?pendingCacheCount:null,pending_total:pendingPlaylistState?pendingCacheTotal:null,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
   /* Live status report: meaningful changes wake admin/staff immediately; presence stays low-frequency. */
   /* Status class: what an admin card can actually show differently. Video-to-video transitions
@@ -1145,7 +1330,7 @@
     // Initial loading -> first real video frame must wake the admin immediately.
     // A playing-to-playing playlist transition keeps the same key, avoiding per-video wake-ups.
     const c=p==='emergency'?'playing':p;
-    return `${c}|${st?.mode||''}|${st?.error?1:0}|${st?.recovery_stage||0}|${st?.update_pending_version||''}|${st?.offline_cache_error?1:0}|${Number(st?.failed_video_count||0)>0?1:0}`;
+    return `${c}|${st?.mode||''}|${st?.error?1:0}|${st?.recovery_stage||0}|${st?.update_pending_version||''}|${st?.offline_cache_error?1:0}|${st?.pending_hash||''}|${st?.pending_count??''}|${Number(st?.failed_video_count||0)>0?1:0}`;
   }
   let lastWakeKey=null,lastWakeAt=0,lastHeartbeatKey=null,wakeRetryTimer=null;
   function notifyAdminOnStatusChange(wakeKey){
@@ -1448,6 +1633,7 @@
     // Without this ordering a reboot without network can show a blank player.
     if(!PREVIEW)await Promise.race([registerPlayerServiceWorker(),new Promise(resolve=>setTimeout(resolve,5000))]);
     await loadSaved();
+    if(!PREVIEW){updateCacheGuard();setInterval(updateCacheGuard,30000);}
     acquireWake();
     void fetchState();
   }
@@ -1455,10 +1641,11 @@
   document.addEventListener('visibilitychange',()=>{acquireWake();if(backgrounded()){onPlayerBackground();return;}onPlayerForeground();scheduleReport();void checkForPlayerUpdate(true);});
   window.addEventListener('focus',()=>{if(!backgrounded())onPlayerForeground();scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
-  window.addEventListener('offline',()=>{pendingPlaylistState=null;pendingPlaylistServerTime=null;offlineCacheSyncToken++;void (async()=>{
+  window.addEventListener('offline',()=>{clearPendingPlaylist();offlineCacheSyncToken++;void (async()=>{
     const cached=await verifiedOfflineReadyState();
-    if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){
-      state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;await renderFull();
+    if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)&&
+       (!activeVideoEl()?.dataset?.videoId||activeVideoEl()?.error)){
+      state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=restoredIndex(cached);await renderFull();
     }
   })();});
   // Best-effort shutdown notice. A covered/background window does not trigger pagehide.
