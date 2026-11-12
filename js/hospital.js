@@ -24,7 +24,7 @@
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,tab='videos',statusViewFilter='';
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,tab='videos',statusViewFilter='',tvOperationsExpanded=true;
   // Preview stays click-to-load. Parked elements are capped and evicted LRU.
   const floorInlineVideoCache=new Map();
   const floorInlineVideoCacheLimit=3;
@@ -282,14 +282,28 @@
     if(rooms.some(r=>roomDisplayStatus(r).key==='live'))return {key:'live',label:'송출 중'};
     return {key:'offline',label:'송출 안 됨'};
   }
+  // Both map targets use the same inspector sections and reading order.
+  // A space is a group of TVs, so controls act on a selected TV, never silently on all of them.
   function staffFloorSpacePreviewHtml(sp){
-    const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp);
-    const currentRows=rooms.map(r=>{const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em>${videoCopyButton(current,'floor-space-copy-btn')}</span><i class="status-${st.key}">${esc(st.label)}</i></div>`;}).join('');
-    return `<div class="floor-room-focus floor-space-focus">
-      <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')}</span></div><em>${rooms.length}대</em></div>
-      <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(spaceOperationalPurpose(sp))}</p></div>
+    const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp),broadcast=floorSpaceBroadcastStatus(sp);
+    const currentRows=rooms.map(r=>{
+      const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=current?.title||r.player_status?.title||'현재 재생 영상 없음';
+      return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em>${videoCopyButton(current,'floor-space-copy-btn')}</span><i class="status-${st.key}">${esc(st.label)}</i></div>`;
+    }).join('');
+    const nextRows=rooms.map(r=>{
+      const currentId=String(r.player_status?.video_id||'');
+      const nextId=staffBaseIds(r).find(id=>String(id)!==currentId);
+      const next=state.videos.find(v=>String(v.id)===String(nextId));
+      return `<div class="floor-space-next-row"><b>${esc(r.name)}</b><span>${next?esc(next.title):'다음 영상 없음'}</span></div>`;
+    }).join('');
+    const controls=rooms.map(r=>`<button type="button" class="btn small" data-staff-space-room-focus="${esc(r.id)}">${esc(r.name)} 관리</button>`).join('');
+    return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector">
+      <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')} · TV ${rooms.length}대</span></div><em class="status-${broadcast.key}">${esc(broadcast.label)}</em></div>
+      <div class="floor-room-current floor-space-current-list"><small>현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 TV가 없습니다.</p>'}</div>
+      <div class="floor-room-next floor-space-next-list"><small>다음 영상</small>${nextRows||'<p class="muted">TV가 연결되면 다음 영상이 표시됩니다.</p>'}</div>
       <div class="floor-room-why floor-space-why"><small>콘텐츠 이유</small>${journeyReasonPanel(journey)}</div>
-      <div class="floor-space-current-list"><small>현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 디스플레이가 없습니다.</p>'}</div>
+      <div class="floor-room-purpose"><small>운영 목적</small><p>${esc(spaceOperationalPurpose(sp))}</p></div>
+      <div class="floor-room-controls floor-space-controls"><small>TV 관리</small><div class="floor-room-subactions">${controls||'<span class="muted">연결된 TV 없음</span>'}</div></div>
     </div>`;
   }
   function staffFloorRoomPreviewHtml(r){
@@ -1246,7 +1260,7 @@
     <section class="media-work-panel"><div class="media-work-section-head"><div><h3>재생 순서</h3><small>카드를 드래그하면 순서가 바뀝니다.</small></div><span class="media-work-count" id="mediaWorkCount">${mediaDraft.length}개</span></div><label class="field media-work-name-field"><span>재생목록 이름</span><input id="staffPlaylistName" maxlength="60" value="${esc(playlist?.name||'')}" placeholder="예: 9층 대기실" autocomplete="off"></label>${sharedNotice}<div id="mediaWorkQueue" class="media-work-scroll media-work-queue" aria-label="재생 순서">${mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>'}</div><div class="media-work-foot"><span id="mediaWorkSaveStatus" role="status">${mediaDirty?'저장되지 않은 변경 사항':'현재 재생목록'}</span><div><button type="button" class="btn" id="mediaApplyCurrent" ${target&&mediaPlaylistId&&!mediaDirty?"":"disabled"}>이 TV에 적용</button><button id="staffDeletePlaylist" class="btn danger-outline" type="button" ${playlist?'':'disabled'}>삭제</button><button id="staffSavePlaylist" class="btn primary" type="button">${mediaDirty?'변경 저장':'저장'}</button></div></div></section></div>
     <section class="media-work-apply"><div class="media-work-section-head"><div><h3>TV 적용</h3><small>층을 선택한 뒤 필요한 TV만 체크하세요. 이미 재생 중인 영상은 바로 끊지 않습니다.</small></div><button class="btn primary" type="button" id="mediaWorkApplyTv" disabled>선택한 TV에 적용</button></div>
     <details class="media-bulk-apply"><summary>다른 TV에도 같은 재생목록 적용하기</summary><div class="media-work-tv-toolbar"><label class="media-work-floor-label">층 선택<select id="mediaWorkFloor"><option value="">층을 선택하세요</option>${floorOptions.map(g=>`<option value="${esc(g.id)}">${Number(g.floor_number)}층 · TV ${g.rooms.length}대</option>`).join('')}</select></label><label class="media-work-tv-search-label">TV 검색<input id="mediaWorkTvSearch" type="search" placeholder="TV 이름 검색" autocomplete="off" disabled></label><span id="mediaWorkTvSelection" class="media-work-selected">선택한 TV 0대</span></div>
-    <div class="media-work-tv-list" id="mediaWorkTvList" aria-label="TV 선택">${rooms.map(r=>`<label class="media-work-tv" data-media-tv-row data-media-floor="${esc(floorOptions.find(g=>g.rooms.some(x=>String(x.id)===String(r.id)))?.id||'')}" data-media-search="${esc(String(r.name||'').toLowerCase())}" hidden><input type="checkbox" data-media-tv="${esc(r.id)}"><span><strong>${esc(r.name)}</strong><small>${esc(playlistById(r.default_playlist_id)?.name||'기본 편성')}</small></span></label>`).join('')||'<span class="muted">등록된 TV가 없습니다.</span>'}</div><p class="media-work-tv-empty" id="mediaWorkTvEmpty">먼저 층을 선택하면 해당 층의 TV가 표시됩니다.</p><p class="media-work-help">체크한 TV에만 적용됩니다. 기존 TV 설정은 자동으로 선택하거나 변경하지 않습니다.</p></details></section>
+    <div class="media-work-tv-list" id="mediaWorkTvList" aria-label="TV 선택">${rooms.map(r=>`<label class="media-work-tv media-work-tv-compact" data-media-tv-row data-media-floor="${esc(floorOptions.find(g=>g.rooms.some(x=>String(x.id)===String(r.id)))?.id||'')}" data-media-search="${esc(String(r.name||'').toLowerCase())}" hidden><input type="checkbox" data-media-tv="${esc(r.id)}"><span><strong>${esc(r.name)}</strong><small>${esc(playlistById(r.default_playlist_id)?.name||'기본 편성')}</small></span></label>`).join('')||'<span class="muted">등록된 TV가 없습니다.</span>'}</div><p class="media-work-tv-empty" id="mediaWorkTvEmpty">먼저 층을 선택하면 해당 층의 TV가 표시됩니다.</p><p class="media-work-help">체크한 TV에만 적용됩니다. 기존 TV 설정은 자동으로 선택하거나 변경하지 않습니다.</p></details></section>
     <section class="media-work-manage"><details id="mediaWorkManageDetails"><summary>영상 제목 변경 · 파일 업로드 · 파일 교체</summary><p>이 병원 영상의 제목 변경, MP4 업로드 및 파일 교체를 할 수 있습니다. 원본 영상 ID와 재생목록 연결은 유지됩니다.</p><div class="media-work-edit"><select id="mediaWorkEditVideo"><option value="">영상 선택</option>${videos.filter(v=>String(v.site_id)===String(targetSiteId)).map(v=>`<option value="${esc(v.id)}">${esc(v.title)}</option>`).join('')}</select><input id="mediaWorkEditName" placeholder="새 영상 이름" maxlength="100"><button type="button" class="btn" id="mediaWorkRename">이름 변경</button></div><div class="media-work-edit" id="mediaWorkUploadDrop"><input type="file" id="mediaWorkUploadFile" accept="video/mp4,.mp4" multiple><button class="btn" type="button" id="mediaWorkUpload">새 영상 업로드</button><button class="btn" type="button" id="mediaWorkReplace">선택 영상 파일 교체</button><progress id="mediaWorkUploadProgress" max="100" value="0" hidden></progress></div></details></section></section>`;
   }
   function refreshMediaWorkspace(){
@@ -1435,9 +1449,9 @@
     const live=state.rooms.filter(r=>roomDisplayStatus(r).key==='live').length;
     return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
       <header class="unified-page-heading"><div><h1>Clinic Signage</h1><p>${esc(state.site?.name||'병원')} · TV 영상과 설정을 한 페이지에서 관리합니다.</p></div><div class="unified-quick-stats"><span>전체 TV <b>${state.rooms.length}</b></span><span>송출 확인 <b>${live}</b></span></div></header>
+      <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>TV 전체 송출 상태</b><small>전체 TV의 송출 상태와 확인 필요 기기</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content">${hospitalOperationsSummary()}</div></details>
       <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       ${hospitalPlaylistManagerMarkup()}
-      <details class="unified-secondary-panel" id="unifiedTvOperations"><summary><span><b>TV 전체 송출 상태</b><small>전체 TV의 송출 상태, 확인 필요 기기 조회</small></span><span aria-hidden="true">펼치기 ▾</span></summary><div class="unified-secondary-content">${hospitalOperationsSummary()}</div></details>
       <details class="unified-secondary-panel" id="unifiedHospitalSettings"><summary><span><b>병원 설정</b><small>운영시간, 병원 정보, 기본 송출 설정</small></span><span aria-hidden="true">펼치기 ▾</span></summary><div class="unified-secondary-content">${hospitalSettingsPageMarkup()}</div></details>
     </section>`;
   }
@@ -1633,6 +1647,7 @@
       tab='videos';qs('#unifiedTvOperations')?.setAttribute('open','');layoutPanelOpen=true;spaceEditorGroupId=selectedFloorId||state.groups.find(g=>g.kind==='floor')?.id||null;layoutEditMode='display';spaceRedrawId=null;layoutPlacementRoomId=null;layoutCopyOpen=false;
       renderPreservingUi(false);requestAnimationFrame(()=>qs('#hospitalLayoutWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'}));
     });
+    qs('#unifiedTvOperations')?.addEventListener('toggle',event=>{tvOperationsExpanded=event.currentTarget.open;});
     qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{qs('#unifiedHospitalSettings')?.setAttribute('open','');qs('#unifiedHospitalSettings')?.scrollIntoView({behavior:'smooth',block:'start'});}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{
       const id=b.dataset.staffSelectFloor;
       const selectedGroup=state.groups.find(g=>String(g.id)===String(id));
@@ -1660,6 +1675,16 @@
     }));
 
     qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){const linkedSpace=roomSpace(r)||spaceContainingPoint(r.group_id,r.map_x_pct,r.map_y_pct);setFloorFocus('display',id,linkedSpace?.id||null);inspector.innerHTML=staffFloorRoomPreviewHtml(r);const open=qs('[data-staff-open-room-detail]',inspector);if(open)open.addEventListener('click',()=>openInlineTvDetail(id));}}));
+    qs('[data-staff-floor-zone-inspector]')?.addEventListener('click',event=>{
+      const button=event.target.closest('[data-staff-space-room-focus]');
+      if(!button)return;
+      const id=button.dataset.staffSpaceRoomFocus,room=roomById(id),inspector=event.currentTarget;
+      if(!room)return;
+      const linkedSpace=roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct);
+      setFloorFocus('display',id,linkedSpace?.id||null);
+      inspector.innerHTML=staffFloorRoomPreviewHtml(room);
+      inspector.querySelector('[data-staff-open-room-detail]')?.addEventListener('click',()=>openInlineTvDetail(id));
+    });
     qsa('.building-floor-plan-stage [data-floor-space]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const id=b.dataset.floorSpace,sp=state.floorSpaces.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(!sp||!inspector)return;setFloorFocus('space',id);inspector.innerHTML=staffFloorSpacePreviewHtml(sp);}));
     floorStage?.addEventListener('click',e=>{if(e.target.closest('[data-staff-floor-room],[data-floor-space]'))return;floorStage.classList.remove('has-map-focus');delete floorStage.dataset.focusKind;delete floorStage.dataset.focusId;qsa('.is-selected,.is-selected-space,.is-focus-context',floorStage).forEach(x=>x.classList.remove('is-selected','is-selected-space','is-focus-context'));const inspector=qs('[data-staff-floor-zone-inspector]');if(inspector)inspector.innerHTML='<div class="floor-zone-inspector-empty"><div><b>디스플레이 또는 공간을 선택하세요.</b></div><p>운영 목적과 현재 영상을 확인할 수 있습니다.</p></div>';});
 
