@@ -3816,3 +3816,11 @@ button.building-stack-floor:hover{border-color:#c9cbd3;background:#fbfbfe}
   .hospital-page .hospital-unified-ops .floor-ops-tv>summary{grid-template-columns:minmax(0,1fr) 92px 18px!important;gap:5px!important}
   .hospital-page .hospital-unified-ops .floor-ops-tv .floor-ops-state{max-width:92px!important;font-size:10px!important}
 }
+
+/* v2.35.67: read-only TV diagnostic detail; no changes to building/floorplan. */
+.tv-diagnostics{display:grid;gap:7px;margin:10px 0;padding:12px 14px;border:1px solid var(--line,#e5e7eb);border-radius:10px;background:var(--panel,#f8fafc);font-size:12px;min-width:0}
+.tv-diagnostics-title{font-weight:700;font-size:13px}
+.tv-diagnostics-item{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
+.tv-diagnostics-item span{color:var(--muted,#64748b);flex-shrink:0}
+.tv-diagnostics-item strong{font-weight:600;text-align:right;overflow-wrap:anywhere;min-width:0}
+@media(max-width:600px){.tv-diagnostics-item{align-items:flex-start;flex-direction:column;gap:2px}.tv-diagnostics-item strong{text-align:left}}

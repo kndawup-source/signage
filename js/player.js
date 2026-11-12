@@ -173,6 +173,35 @@
   let offlineCacheTimer=null,offlineCacheSyncToken=0,offlineCacheBusy=false;
   let offlineCacheReady=false,offlineCacheCount=0,offlineCacheTotal=0,offlineCacheUpdatedAt=null,offlineCacheError=null;
   let offlineCacheNextRetryAt=0;
+  // The currently playing playlist is never replaced by an unverified download.
+  let pendingPlaylistState=null;
+  let pendingPlaylistServerTime=null;
+  let pendingPlaylistCommitBusy=false;
+  let lastUnsafeReplacementSignature='';
+  // A replacement must publish a new immutable media URL. If the server uses
+  // the same URL for different bytes, the active and staged playlists cannot
+  // safely coexist in Cache Storage (same cache key).
+  function hasUnsafeSameUrlReplacement(current,next){
+    const oldById=new Map((current?.playlist||[]).filter(v=>v?.id).map(v=>[String(v.id),v]));
+    return (next?.playlist||[]).some(v=>{
+      const before=oldById.get(String(v?.id||''));
+      if(!before||!before.url||!v?.url||String(before.url)!==String(v.url))return false;
+      const oldVersion=String(before.file_modified_at||before.revision||'');
+      const newVersion=String(v.file_modified_at||v.revision||'');
+      const oldSize=Number(before.size_bytes||before.size||0);
+      const newSize=Number(v.size_bytes||v.size||0);
+      const oldHash=String(before.sha256||'').trim().toLowerCase();
+      const newHash=String(v.sha256||'').trim().toLowerCase();
+      return (oldVersion&&newVersion&&oldVersion!==newVersion)||
+        (oldSize>0&&newSize>0&&oldSize!==newSize)||
+        (oldHash&&newHash&&oldHash!==newHash);
+    });
+  }
+  function downloadTargetState(){return pendingPlaylistState||state;}
+  function pendingPlaylistIsCurrent(snapshot){
+    return Boolean(pendingPlaylistState&&snapshot&&
+      playlistSignature(pendingPlaylistState)===playlistSignature(snapshot));
+  }
   const mediaFailures=new Map();
   const MEDIA_FAILURE_LIMIT=2; // telemetry only; never exclude a clip for a whole playlist lap
 
@@ -209,8 +238,9 @@
     const expected=Number(v?.size||0);
     const header=hit.headers.get('content-length');
     const actual=header!==null?Number(header):NaN;
-    // An absent length is not proof that a partial download is complete.
-    if(expected>0&&(header===null||!Number.isFinite(actual)||Math.abs(expected-actual)>1))return false;
+    // No reliable byte count means we cannot assert that the complete file is offline.
+    if(header===null||!Number.isSafeInteger(actual)||actual<=0)return false;
+    if(expected>0&&Math.abs(expected-actual)>1)return false;
     return true;
   }
   async function verifiedOfflineReadyState(){
@@ -267,10 +297,12 @@
     }finally{clearInterval(monitor);}
   }
   async function syncOfflinePlaylistCache(){
-    if(offlineCacheBusy||!('caches' in window)||!state?.playlist?.length||!navigator.onLine||state?.mode==='closed')return false;
+    const target=downloadTargetState();
+    if(offlineCacheBusy||!('caches' in window)||!target?.playlist?.length||!navigator.onLine||target?.mode==='closed')return false;
     offlineCacheBusy=true;const token=++offlineCacheSyncToken;
-    const snapshot=JSON.parse(JSON.stringify(state));
+    const snapshot=JSON.parse(JSON.stringify(target));
     const items=cacheablePlaylistItems(snapshot),total=items.length;
+    const missingMedia=total!==(snapshot.playlist||[]).length;
     offlineCacheTotal=total;offlineCacheCount=0;offlineCacheError=null;
     // Keep the last fully verified playlist usable until the replacement is complete.
     const previousReady=offlineReadyState();
@@ -288,11 +320,19 @@
         offlineCacheCount=complete;
         await new Promise(r=>setTimeout(r,120));
       }
-      const allReady=total>0&&complete===total;
-      if(allReady&&token===offlineCacheSyncToken){
+      const allReady=!missingMedia&&total>0&&complete===total;
+      if(missingMedia)offlineCacheError='playlist_contains_invalid_media_url';
+      if(allReady&&token===offlineCacheSyncToken&&
+         (!pendingPlaylistState||pendingPlaylistIsCurrent(snapshot))){
         offlineCacheNextRetryAt=0;
         // Commit new metadata before any cleanup. If storage refuses the write,
         // the previous offline playlist must stay the active recovery point.
+        if(pendingPlaylistIsCurrent(snapshot)){
+          // Stage complete != playback committed. Keep last known-good offline
+          // manifest until the new playlist actually renders successfully.
+          void commitPendingPlaylist(snapshot);
+          return true;
+        }
         if(!writeJsonStorage(OFFLINE_READY_KEY,snapshot))throw new Error('offline_state_commit_failed');
         offlineCacheReady=true;offlineCacheUpdatedAt=new Date().toISOString();
         writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:complete,total,updated_at:offlineCacheUpdatedAt,playlist_signature:playlistSignature(snapshot)});scheduleReport(0);
@@ -311,7 +351,8 @@
     }finally{offlineCacheBusy=false;
       // The last successful snapshot remains the rollback point while partial
       // downloads are retried. Don't wait for a playlist change to retry.
-      if(token===offlineCacheSyncToken&&offlineCacheNextRetryAt&&navigator.onLine&&state?.mode!=='closed')scheduleOfflinePlaylistCache(true);
+      if(navigator.onLine&&downloadTargetState()?.mode!=='closed'&&
+         (offlineCacheNextRetryAt||pendingPlaylistState))scheduleOfflinePlaylistCache(true);
     }
   }
   let lastBufferInterruptionAt=0;
@@ -341,14 +382,16 @@
   function scheduleOfflinePlaylistCache(force=false){
     if(PREVIEW)return;
     clearTimeout(offlineCacheTimer);
-    if(!navigator.onLine||!state?.playlist?.length||state?.mode==='closed')return;
+    const target=downloadTargetState();
+    if(!navigator.onLine||!target?.playlist?.length||target?.mode==='closed')return;
     const meta=readJsonStorage(OFFLINE_CACHE_META_KEY);
-    if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(state)){
+    if(!force&&meta?.ready&&meta?.playlist_signature===playlistSignature(target)){
       // Browser quota eviction can remove media even if our metadata says ready.
       void verifiedOfflineReadyState().then(cached=>{
-        if(!state||playlistSignature(state)!==meta.playlist_signature)return;
+        if(!downloadTargetState()||playlistSignature(downloadTargetState())!==meta.playlist_signature)return;
         if(cached&&playlistSignature(cached)===meta.playlist_signature){
           offlineCacheReady=true;offlineCacheCount=Number(meta.count||0);offlineCacheTotal=Number(meta.total||0);offlineCacheUpdatedAt=meta.updated_at||null;
+          if(pendingPlaylistIsCurrent(cached))void commitPendingPlaylist(cached);
         }else{offlineCacheReady=false;writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:false});scheduleOfflinePlaylistCache(true);}
       });return;
     }
@@ -371,7 +414,7 @@
     },waitMs);
   }
   function playlistSignature(s) {
-    return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}`).join(',')}`;
+    return `${s?.mode||''}|${s?.sync_revision||s?.broadcast_revision||0}|${s?.playlist_hash||''}|${(s?.playlist||[]).map(v=>`${v.id}:${v.url||''}:${v.file_modified_at||''}:${v.size||0}:${v.sha256||''}`).join(',')}`;
   }
   function stateSignature(s) {
     const r=s?.room||{};
@@ -855,7 +898,7 @@
     transitionInProgress=false;confirmedPlaybackState='idle';clearTimeout(pauseConfirmTimer);slots.forEach(el=>{try{el.pause();}catch(_){}el.classList.remove('is-active');});
     queueHeartbeat(true);
   }
-  async function renderFull(){
+  async function renderFull({allowRecovery=true}={}){
     if(!state)return;
     clearTimeout(recoveryTimer);clearTimeout(syncStartTimer);clearEmergencyObjectUrl();cancelPreroll();emergencyPlaying=false;
     if(state.mode==='closed'){clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;blankPlayer();root.classList.add('is-closed');qs('#playerBar')?.remove();return true;}
@@ -869,7 +912,7 @@
     recordPlaybackEvent(ok?'initial_render_ready':'initial_render_failed',{
       elapsed_ms:Math.round(performance.now()-bootStartedAt)
     });
-    if(!ok&&!backgrounded()&&mySeq===renderSeq&&!emergencyPlaying&&!state?.room?.paused)await handleMediaFailure(current(),index);
+    if(!ok&&allowRecovery&&!backgrounded()&&mySeq===renderSeq&&!emergencyPlaying&&!state?.room?.paused)await handleMediaFailure(current(),index);
     return ok;
   }
   function enableSound(){
@@ -889,6 +932,62 @@
     queueHeartbeat(true);
   }
 
+  async function commitPendingPlaylist(verified){
+    if(pendingPlaylistCommitBusy||!pendingPlaylistIsCurrent(verified)||!navigator.onLine)return false;
+    pendingPlaylistCommitBusy=true;
+    const previousState=state,previousIndex=index;
+    const previousPlaylistSig=lastPlaylistSig,previousStateSig=lastStateSig;
+    try{
+      const next=pendingPlaylistState;
+      const serverTime=pendingPlaylistServerTime;
+      if(!next||next.mode==='closed')return false;
+      // Don't mark the new manifest as known-good until it has actually
+      // started playing. No media cache deletion happens in this operation.
+      state=next;index=restoredIndex(next);
+      updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
+      const rendered=await renderFull({allowRecovery:false});
+      if(!rendered){
+        state=previousState;index=previousIndex;
+        lastPlaylistSig=previousPlaylistSig;lastStateSig=previousStateSig;
+        updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
+        offlineCacheError='playlist_switch_failed_kept_previous';
+        offlineCacheNextRetryAt=Date.now()+OFFLINE_CACHE_RETRY_MS;
+        recordPlaybackEvent('playlist_switch_rolled_back');
+        // Existing active video slot remains visible on a failed candidate.
+        // If no valid slot survived, explicitly attempt to restore it.
+        if(!activeVideoEl()?.dataset?.videoId)await renderFull({allowRecovery:false});
+        scheduleReport(0);
+        return false;
+      }
+      // A more recent playlist can arrive while renderFull() awaits play().
+      // Do not erase that pending update or claim it was displayed.
+      if(state!==next){
+        recordPlaybackEvent('playlist_switch_superseded_during_render');
+        scheduleOfflinePlaylistCache(true);
+        return false;
+      }
+      const latestStillMatches=pendingPlaylistState===next&&pendingPlaylistIsCurrent(verified);
+      if(latestStillMatches){pendingPlaylistState=null;pendingPlaylistServerTime=null;}
+      lastPlaylistSig=playlistSignature(state);lastStateSig=stateSignature(state);
+      cycleFailures=0;recoveryAttempts=0;recoveryStage=0;
+      lastProgressAt=Date.now();lastError=null;
+      // Persist only after the first successful render; the old manifest is
+      // still the recovery point if this write fails.
+      if(!writeJsonStorage(OFFLINE_READY_KEY,next)){
+        offlineCacheError='offline_state_commit_failed';
+      }else{
+        offlineCacheReady=true;offlineCacheError=null;offlineCacheUpdatedAt=new Date().toISOString();
+        writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:next.playlist?.length||0,
+          total:next.playlist?.length||0,updated_at:offlineCacheUpdatedAt,
+          playlist_signature:playlistSignature(next)});
+      }
+      saveState();recordPlaybackEvent('playlist_switch_committed',{items:next.playlist?.length||0});
+      syncedAt=serverTime||syncedAt;queueHeartbeat(true);reportNow();
+      // Continue staging the newer server revision without dropping this good media.
+      if(!latestStillMatches&&pendingPlaylistState)scheduleOfflinePlaylistCache(true);
+      return true;
+    }finally{pendingPlaylistCommitBusy=false;}
+  }
   /* fromPoll=true only for the fallback timer. A fallback poll that finds nothing new must not
      rewrite synced_at or push a status write: that used to change the status fingerprint every
      poll, which turned the admin delta query into a full-table read and doubled DB writes. */
@@ -907,8 +1006,51 @@
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
       else if(data.room.reload_nonce!==lastNonce){clearPosition();intentionalNavigation=true;try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
-      state=data;updatePlayerTabTitle(state);if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}else{clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}subscribePlayerRealtime();
       const fetchedAt=data.server_time||null;
+      const mayStage=!PREVIEW&&navigator.onLine&&state?.playlist?.length&&
+        data.mode!=='closed'&&data.playlist?.length&&playlistChanged&&'caches' in window;
+      if(mayStage&&hasUnsafeSameUrlReplacement(state,data)){
+        // Same URL with changed media bytes would overwrite the old rollback
+        // cache entry. Require versioned/immutable R2 object URLs from upload.
+        if(lastUnsafeReplacementSignature!==newPlaylistSig){
+          lastUnsafeReplacementSignature=newPlaylistSig;
+          recordPlaybackEvent('playlist_rejected_reused_media_url');
+        }
+        pendingPlaylistState=null;pendingPlaylistServerTime=null;
+        offlineCacheError='media_url_reused_for_replacement';
+        scheduleReport(0);return;
+      }
+      if(mayStage){
+        const changedTarget=!pendingPlaylistState||playlistSignature(pendingPlaylistState)!==newPlaylistSig;
+        pendingPlaylistState=data;pendingPlaylistServerTime=fetchedAt;
+        if(changedTarget){
+          // Interrupt a superseded download, not the playing video.
+          offlineCacheSyncToken++;offlineCacheNextRetryAt=0;
+          recordPlaybackEvent('playlist_update_staged',{items:data.playlist.length});
+        }
+        // Apply emergency pause/mute/volume controls without switching the old media.
+        // Keep active playlist and its revisions until the new media is verified.
+        state={...state,room:data.room,notice_text:data.notice_text,
+          emergency_video:data.emergency_video,next_transition_at:data.next_transition_at,
+          session_expires_at:data.session_expires_at,operating:data.operating,
+          server_time:data.server_time};
+        updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
+        if(!emergencyPlaying)lastError=null;
+        applyLiveControls();renderBarsOnly();subscribePlayerRealtime();
+        cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(changedTarget);
+        // Do not report new synced_at until that playlist is actually on screen.
+        if(changedTarget)queueHeartbeat(true);
+        return;
+      }
+      // A pending update remains staged while unrelated control changes arrive.
+      if(pendingPlaylistState&&newPlaylistSig===lastPlaylistSig){
+        pendingPlaylistState=null;pendingPlaylistServerTime=null;
+        offlineCacheSyncToken++;
+      }
+      state=data;updatePlayerTabTitle(state);if(!emergencyPlaying)lastError=null;saveState();scheduleExpiry();scheduleTransition();
+      if(state.mode!=='closed'){cacheEmergency().catch(()=>{});scheduleOfflinePlaylistCache(playlistChanged);}
+      else{pendingPlaylistState=null;pendingPlaylistServerTime=null;clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;}
+      subscribePlayerRealtime();
       lastStateSig=newStateSig;
       const meaningful=!fromPoll||playlistChanged||stateChanged||!syncedAt;
       if(playlistChanged||state?.mode==='closed'){lastPlaylistSig=newPlaylistSig;index=restoredIndex(data);cycleFailures=0;recoveryAttempts=0;recoveryStage=0;lastProgressAt=Date.now();emergencyPlaying=false;await renderFull();if(meaningful)syncedAt=fetchedAt;queueHeartbeat(true);}
@@ -1313,7 +1455,7 @@
   document.addEventListener('visibilitychange',()=>{acquireWake();if(backgrounded()){onPlayerBackground();return;}onPlayerForeground();scheduleReport();void checkForPlayerUpdate(true);});
   window.addEventListener('focus',()=>{if(!backgrounded())onPlayerForeground();scheduleReport();void checkForPlayerUpdate();});
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
-  window.addEventListener('offline',()=>{void (async()=>{
+  window.addEventListener('offline',()=>{pendingPlaylistState=null;pendingPlaylistServerTime=null;offlineCacheSyncToken++;void (async()=>{
     const cached=await verifiedOfflineReadyState();
     if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)){
       state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=0;await renderFull();

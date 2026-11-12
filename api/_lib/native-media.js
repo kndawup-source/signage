@@ -40,7 +40,9 @@ function mediaItem(item) {
   if (!item || typeof item !== 'object') return null;
   const original = validUrl(item.url);
   if (!original) return null;
-  const fallback = { url: original, bytes: byteSize(item.size_bytes ?? item.size), quality: 'original' };
+  const rawHash = typeof item.sha256 === 'string' ? item.sha256.trim().toLowerCase() : '';
+  const originalHash = /^[a-f0-9]{64}$/.test(rawHash) ? rawHash : null;
+  const fallback = { url: original, bytes: byteSize(item.size_bytes ?? item.size), sha256: originalHash, quality: 'original' };
   const optimized = [sourceVariant(item, '480p'), sourceVariant(item, '720p')].filter(Boolean);
   const preferred = fallback;
   const id = String(item.id || '').slice(0, 80);
