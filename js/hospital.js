@@ -493,7 +493,7 @@
     const cls=`hospital-floor-row${selectedFloorId===g.id?' is-selected':''}${hasPlaybackIssue?' has-issue':''}`;
     return `<button type="button" class="${cls}" data-staff-select-floor="${esc(g.id)}" aria-pressed="${selectedFloorId===g.id?'true':'false'}">
       <span class="hospital-floor-number">${n}F</span>
-      <span class="hospital-floor-name" title="${n}층">${n}층<span class="floor-ops-floor-state" data-ops-floor-status="${esc(g.id)}" role="group" aria-label="${n}층 TV별 송출 상태">${dots}</span></span>
+      <span class="hospital-floor-name" title="${esc(shortName)}">${esc(shortName)}<span class="floor-ops-floor-state" data-ops-floor-status="${esc(g.id)}" role="group" aria-label="${esc(shortName)} TV별 송출 상태">${dots}</span></span>
       <span class="hospital-floor-chevron" aria-hidden="true">›</span>
     </button>`;
   }
