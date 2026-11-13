@@ -216,3 +216,10 @@ body.hospital-page .nav-btn{display:none!important}
 
 .hospital-floor-ops-content .floor-layout-stage.mode-space .floor-space-overlay{touch-action:none;user-select:none;cursor:grab}
 .hospital-floor-ops-content .floor-layout-stage.mode-space .floor-space-overlay:active{cursor:grabbing}
+
+/* v2.35.79: guided space + display placement */
+.floor-layout-space-create{display:flex;flex-wrap:wrap;align-items:end;gap:10px}
+.floor-layout-space-create>label{flex:1 1 170px;min-width:145px}
+.floor-layout-space-create #staffCombinedTvCount{min-width:130px}
+.media-linked-target{font-size:12px;font-weight:700;color:#32539a;padding:8px 10px;border-radius:8px;background:#eef3fc;margin:8px 0}
+.floor-layout-stage.is-awaiting-placement{outline:2px solid #4173cd;outline-offset:2px}
