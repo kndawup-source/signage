@@ -196,3 +196,23 @@ body.hospital-page .nav-btn{display:none!important}
 .hospital-floor-detail .floor-map-unified-inspector .floor-space-display-row{min-width:0;grid-template-columns:76px minmax(0,1fr) auto;gap:11px;align-items:center}
 .hospital-floor-detail .floor-map-unified-inspector .floor-space-current-thumb{width:76px;height:auto;aspect-ratio:16/9}
 @media(max-width:700px){.hospital-floor-detail .floor-map-unified-inspector .floor-space-display-row{grid-template-columns:76px minmax(0,1fr)}.hospital-floor-detail .floor-map-unified-inspector .floor-space-display-row>i{grid-column:2}}
+
+/* v2.35.78: floor-first, in-place drawing / TV placement */
+.hospital-floor-ops-content>.hospital-layout-workspace{margin:0;min-width:0;border:0;box-shadow:none;background:transparent;padding:14px}
+.hospital-floor-console-grid:has(.hospital-layout-workspace) .hospital-floor-list{align-self:start}
+.hospital-floor-ops-content .floor-layout-editor{min-width:0}
+.hospital-floor-ops-content .floor-layout-topbar>label{display:none}
+.hospital-floor-ops-content .floor-layout-quick-actions{display:flex;gap:8px;flex-wrap:wrap}
+.hospital-floor-ops-content .floor-layout-quick-actions>.btn{min-height:38px}
+.hospital-floor-ops-content .floor-layout-stage{touch-action:none;min-height:300px}
+.hospital-floor-ops-content .floor-layout-stage.mode-space .floor-space-overlay{pointer-events:auto;cursor:pointer;opacity:.78}
+.hospital-floor-ops-content .floor-layout-stage.mode-space .floor-space-overlay:hover{outline:2px solid #3434a6;opacity:1}
+.hospital-layout-floorplan-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:12px;border:1px solid var(--line,#dfe3e9);border-radius:12px;background:#fff}
+.hospital-layout-floorplan-actions>div:first-child{flex:1;min-width:160px;display:grid;gap:4px}
+.hospital-layout-floorplan-actions small{color:var(--muted,#64748b);font-size:12px}
+.hospital-layout-floorplan-actions input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.hospital-layout-floorplan-actions label{position:relative;cursor:pointer}
+@media(max-width:760px){.hospital-floor-ops-content>.hospital-layout-workspace{padding:10px}.hospital-layout-workspace-head{align-items:start;flex-direction:column}.hospital-layout-floorplan-actions{gap:8px}.hospital-floor-ops-content .floor-layout-quick-actions>.btn{flex:1}}
+
+.hospital-floor-ops-content .floor-layout-stage.mode-space .floor-space-overlay{touch-action:none;user-select:none;cursor:grab}
+.hospital-floor-ops-content .floor-layout-stage.mode-space .floor-space-overlay:active{cursor:grabbing}
