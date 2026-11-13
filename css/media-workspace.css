@@ -162,3 +162,37 @@ body.hospital-page .nav-btn{display:none!important}
   .hospital-floor-detail .floor-map-unified-inspector .floor-room-focus-head{border-right:0!important}
   .floor-space-next-row{grid-template-columns:1fr;gap:4px}
 }
+
+/* v2.35.76: space and display map selection share one responsive inspector structure. */
+.hospital-floor-detail .floor-room-focus.floor-map-unified-inspector{
+ display:grid!important;grid-template-columns:minmax(170px,230px) minmax(0,1fr)!important;
+ grid-template-areas:"head current" "next next" "why why" "purpose purpose" "controls controls"!important;
+ align-items:stretch!important;gap:0!important;padding:0!important;width:100%!important;min-width:0!important;
+}
+.hospital-floor-detail .floor-map-unified-inspector>.floor-room-focus-head{grid-area:head!important;padding:16px!important;border:0!important;border-right:1px solid #e9ecf1!important;border-bottom:1px solid #e9ecf1!important}
+.hospital-floor-detail .floor-map-unified-inspector>.floor-room-current{grid-area:current!important;min-width:0!important;padding:14px 16px!important;border:0!important;border-bottom:1px solid #e9ecf1!important}
+.hospital-floor-detail .floor-map-unified-inspector>.floor-room-next{grid-area:next!important;padding:14px 16px!important;border:0!important;border-bottom:1px solid #e9ecf1!important}
+.hospital-floor-detail .floor-map-unified-inspector>.floor-room-why{grid-area:why!important;padding:14px 16px!important;border:0!important;border-bottom:1px solid #e9ecf1!important}
+.hospital-floor-detail .floor-map-unified-inspector>.floor-room-purpose{grid-area:purpose!important;padding:14px 16px!important;border:0!important;border-bottom:1px solid #e9ecf1!important}
+.hospital-floor-detail .floor-map-unified-inspector>.floor-room-controls{grid-area:controls!important;min-width:0!important;padding:14px 16px!important;border:0!important}
+.hospital-floor-detail .floor-map-unified-inspector .journey-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}
+.hospital-floor-detail .floor-map-unified-inspector .floor-room-focus-head b{white-space:normal;overflow-wrap:anywhere}
+.floor-layout-quick-create{display:grid;grid-template-columns:minmax(160px,1fr) minmax(145px,.65fr) auto;gap:10px;align-items:end;padding:11px 0;border-top:1px solid #e7ebf2}
+.floor-layout-quick-create label{display:grid;gap:5px;min-width:0}
+.floor-layout-quick-create label span{font-size:11px;font-weight:750;color:#5f6879}
+.floor-layout-quick-create input,.floor-layout-quick-create select{min-width:0;width:100%;height:40px;border:1px solid #dfe4eb;border-radius:9px;background:#fff;padding:0 10px;font:inherit}
+.floor-layout-quick-create button{height:40px;white-space:nowrap}
+.hospital-floor-fast-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+@media(max-width:700px){
+ .hospital-floor-detail .floor-room-focus.floor-map-unified-inspector{grid-template-columns:minmax(0,1fr)!important;grid-template-areas:"head" "current" "next" "why" "purpose" "controls"!important}
+ .hospital-floor-detail .floor-map-unified-inspector>.floor-room-focus-head{border-right:0!important}
+ .hospital-floor-detail .floor-map-unified-inspector .journey-summary{grid-template-columns:1fr!important}
+ .floor-layout-quick-create{grid-template-columns:1fr}
+ .hospital-floor-fast-actions{width:100%;margin-left:0}
+ .hospital-floor-fast-actions .btn{flex:1}
+}
+/* The group variant can contain multiple TVs; keep it in the same current-video cell. */
+.hospital-floor-detail .floor-map-unified-inspector>.floor-space-current-list{display:block!important;overflow-wrap:anywhere}
+.hospital-floor-detail .floor-map-unified-inspector .floor-space-display-row{min-width:0;grid-template-columns:76px minmax(0,1fr) auto;gap:11px;align-items:center}
+.hospital-floor-detail .floor-map-unified-inspector .floor-space-current-thumb{width:76px;height:auto;aspect-ratio:16/9}
+@media(max-width:700px){.hospital-floor-detail .floor-map-unified-inspector .floor-space-display-row{grid-template-columns:76px minmax(0,1fr)}.hospital-floor-detail .floor-map-unified-inspector .floor-space-display-row>i{grid-column:2}}
