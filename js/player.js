@@ -28,7 +28,7 @@
   const OFFLINE_CACHE_QUOTA_RETRY_MS = 5*60*1000;
   const OFFLINE_CACHE_MAX_RETRY_MS = 30*60*1000;
   const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 4;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.35.74');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.35.75');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000; // only force when playback is genuinely stuck, never during healthy playback
@@ -189,13 +189,35 @@
   let pendingCacheCount=0,pendingCacheTotal=0,pendingSince=0;
   let rejectedSwitchSignature='',rejectedSwitchUntil=0;
   let storagePersisted=null;
+  const failedVideos=new Map();
+  let filteredSourceSignature='';
+  let previousListCleanupEligible=false;
+  let previousProtectedState=null;
+  let completedPlaylistLaps=0;
+  const VIDEO_FAILURE_RECOVERY_THRESHOLD=3;
+  const CACHE_YIELD_FALLBACK_THRESHOLD=3;
+  const cacheYieldCounts=new Map();
+  let activeCacheRepairBusy=false;
+  function compactFailure(v,reason){
+    const id=String(v?.id||'').slice(0,100),title=String(v?.title||'영상').slice(0,60);
+    if(!id)return;
+    failedVideos.delete(id);failedVideos.set(id,{id,title,code:String(reason||'error').slice(0,40)});
+    while(failedVideos.size>5)failedVideos.delete(failedVideos.keys().next().value);
+  }
+  function normalMediaIsBroken(){
+    const el=activeVideoEl();
+    return emergencyPlaying||Boolean(el?.error)||mediaFailureBusy||stallRecovering||
+      recoveryStage>0||cycleFailures>=VIDEO_FAILURE_RECOVERY_THRESHOLD||
+      confirmedPlaybackState==='error';
+  }
+  function normalizeCacheUrl(url){try{return new URL(String(url),location.href).href;}catch(_){return String(url||'');}}
   // Protect current and other TV tabs' offline recovery lists before pruning.
-  function playlistUrls(s){return (s?.playlist||[]).map(mediaUrl).filter(Boolean);}
+  function playlistUrls(s){return (s?.playlist||[]).map(mediaUrl).filter(Boolean).map(normalizeCacheUrl);}
   function updateCacheGuard(){
     if(PREVIEW||!key)return;
     try{localStorage.setItem(SHARED_CACHE_GUARD_PREFIX+key,JSON.stringify({at:Date.now(),urls:[...new Set([
-      ...playlistUrls(state),...playlistUrls(pendingPlaylistState),...playlistUrls(offlineReadyState()),
-      ...slots.map(el=>el?.currentSrc||el?.src).filter(Boolean)
+      ...playlistUrls(state),...playlistUrls(pendingPlaylistState),...playlistUrls(previousProtectedState),...playlistUrls(offlineReadyState()),
+      ...slots.map(el=>el?.currentSrc||el?.src).filter(Boolean).map(normalizeCacheUrl)
     ])]}));}catch(_){}
   }
   async function pruneUnusedPlaylistCache(){
@@ -203,14 +225,14 @@
     const perform=async()=>{
       updateCacheGuard();
       const keep=new Set([...playlistUrls(state),...playlistUrls(pendingPlaylistState),
-        ...playlistUrls(offlineReadyState()),...slots.map(el=>el?.currentSrc||el?.src).filter(Boolean)]);
+        ...playlistUrls(previousProtectedState),...playlistUrls(previousListCleanupEligible?null:offlineReadyState()),...slots.map(el=>el?.currentSrc||el?.src).filter(Boolean).map(normalizeCacheUrl)]);
       try{for(let i=0;i<localStorage.length;i++){
         const k=localStorage.key(i);if(!k?.startsWith(SHARED_CACHE_GUARD_PREFIX))continue;
         const record=readJsonStorage(k);
         // Old registrations are kept conservatively; stale records only cease
         // protecting files after a long inactivity period.
         if(!record||Date.now()-Number(record.at||0)>CACHE_GUARD_TTL_MS)continue;
-        for(const url of record.urls||[])keep.add(url);
+        for(const url of record.urls||[])keep.add(normalizeCacheUrl(url));
       }}catch(_){}
       const cache=await caches.open(PLAYLIST_MEDIA_CACHE),requests=await cache.keys();
       let removed=0;for(const req of requests){
@@ -229,7 +251,7 @@
   // Staged changes to the background playlist are applied only at a clip boundary.
   // Patient/session/broadcast/manual mode transitions always bypass this staging.
   function stageableBackgroundChange(current,next){
-    return current?.mode==='default'&&next?.mode==='default'&&
+    return ['default','group'].includes(current?.mode)&&current?.mode===next?.mode&&
       !next?.manual_control&&!next?.force_immediate;
   }
   function clearPendingPlaylist(){
@@ -248,13 +270,15 @@
     offlineCacheNextRetryAt=Date.now()+cacheRetryDelay(error);
   }
   function pendingReadyForCommit(){
-    return Boolean(pendingPlaylistReadyState&&pendingPlaylistIsCurrent(pendingPlaylistReadyState)&&
+    return Boolean(pendingPlaylistReadyState&&pendingPlaylistState&&
+      (pendingPlaylistIsCurrent(pendingPlaylistReadyState)||
+       pendingPlaylistReadyState.__sourceSignature===playlistSignature(pendingPlaylistState))&&
       !(rejectedSwitchSignature===playlistSignature(pendingPlaylistReadyState)&&Date.now()<rejectedSwitchUntil));
   }
   function maybeCommitAtBoundary(){
     if(!pendingReadyForCommit()||pendingPlaylistCommitBusy)return false;
     const active=activeVideoEl();
-    if(active&&!active.ended&&!(active.paused&&Number.isFinite(active.duration)&&active.duration>0&&active.currentTime>=active.duration-.2))return false;
+    if(active&&!normalMediaIsBroken()&&!active.ended&&!(active.paused&&Number.isFinite(active.duration)&&active.duration>0&&active.currentTime>=active.duration-.2))return false;
     void commitPendingPlaylist(pendingPlaylistReadyState);
     return true;
   }
@@ -339,6 +363,17 @@
     }catch(_){return null;}
   }
   async function cacheOnePlaylistVideo(cache,v,token,forceRefresh=false){
+    // Serialize across independent TV tabs on one PC. All callers use this wrapper.
+    if(navigator.locks?.request){
+      return navigator.locks.request('clinic-signage-cache-download',{mode:'exclusive'},async()=>{
+        if(token!==offlineCacheSyncToken)return false;
+        if(!forceRefresh&&await cachedMediaIsComplete(cache,v))return true;
+        return downloadOnePlaylistVideo(cache,v,token,forceRefresh);
+      });
+    }
+    return downloadOnePlaylistVideo(cache,v,token,forceRefresh);
+  }
+  async function downloadOnePlaylistVideo(cache,v,token,forceRefresh=false){
     if(token!==offlineCacheSyncToken)return false;
     const url=mediaUrl(v);if(!url)return false;
     if(!forceRefresh&&await cachedMediaIsComplete(cache,v))return true;
@@ -386,7 +421,7 @@
   async function syncOfflinePlaylistCache(){
     if(pendingReadyForCommit())return true;
     const target=downloadTargetState();
-    if(offlineCacheBusy||!('caches' in window)||!target?.playlist?.length||!navigator.onLine||target?.mode==='closed')return false;
+    if(offlineCacheBusy||activeCacheRepairBusy||!('caches' in window)||!target?.playlist?.length||!navigator.onLine||target?.mode==='closed')return false;
     offlineCacheBusy=true;const token=++offlineCacheSyncToken;
     const snapshot=JSON.parse(JSON.stringify(target));
     const items=cacheablePlaylistItems(snapshot),total=items.length;
@@ -402,13 +437,24 @@
       const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
       const signature=playlistSignature(snapshot);
       const forceRefresh=false; // Cache is keyed by exact media URL; playlist edits must not redownload unchanged video files.
-      let complete=0;
+      let complete=0;const excludedNotFound=new Set();
       for(const v of items){
         if(token!==offlineCacheSyncToken)return false;
         try{if(await cacheOnePlaylistVideo(cache,v,token,forceRefresh))complete++;}
         catch(e){
           offlineCacheError=e?.message||String(e);
           console.warn('Clinic Signage offline cache item failed:',v?.title||v?.id,offlineCacheError);
+          if(/offline_cache_incomplete_(404|410)/i.test(offlineCacheError)){
+            excludedNotFound.add(String(v.id));compactFailure(v,offlineCacheError);
+            // Continue downloading the remaining valid videos. 5xx/timeouts are retried.
+            continue;
+          }
+          if(offlineCacheError==='offline_cache_yield_to_playback'){
+            const count=(cacheYieldCounts.get(mediaUrl(v))||0)+1;
+            cacheYieldCounts.set(mediaUrl(v),count);
+            if(count>=CACHE_YIELD_FALLBACK_THRESHOLD)offlineCacheError='offline_cache_repeated_yield';
+          }
+
           // A missing object or exhausted quota cannot be fixed by downloading
           // the remaining hundreds of MB in this pass.
           if(/(?:_404|_410|quota|capacity|disk_full)/i.test(offlineCacheError)){
@@ -420,6 +466,17 @@
         await new Promise(r=>setTimeout(r,120));
       }
       const allReady=!missingMedia&&total>0&&complete===total;
+      if(excludedNotFound.size&&pendingPlaylistIsCurrent(snapshot)&&complete>0&&
+         !missingMedia&&complete+excludedNotFound.size===total){
+        const filtered={...snapshot,playlist:snapshot.playlist.filter(v=>!excludedNotFound.has(String(v.id))),
+          __sourceSignature:playlistSignature(snapshot)};
+        pendingPlaylistReadyState=filtered;
+        pendingPlaylistStreamFallback=false;
+        pendingCacheCount=complete;
+        offlineCacheError='playlist_missing_videos_excluded';
+        maybeCommitAtBoundary();scheduleReport(0);
+        return true;
+      }
       if(missingMedia)offlineCacheError='playlist_contains_invalid_media_url';
       if(!allReady&&pendingPlaylistIsCurrent(snapshot)&&!missingMedia&&
           /(?:quota|disk_full|capacity)/i.test(String(offlineCacheError||''))){
@@ -482,7 +539,8 @@
     // Repair one missing active item at a time; leave the display and pending
     // retry deadline untouched.
     setTimeout(async()=>{
-      if(offlineCacheBusy||!state?.playlist?.length||!navigator.onLine||PREVIEW)return;
+      if(offlineCacheBusy||activeCacheRepairBusy||!state?.playlist?.length||!navigator.onLine||PREVIEW)return;
+      activeCacheRepairBusy=true;
       const token=offlineCacheSyncToken;
       try{
         const cache=await caches.open(PLAYLIST_MEDIA_CACHE);
@@ -495,6 +553,7 @@
           return;
         }
       }catch(e){console.warn('Clinic Signage active cache repair deferred:',e?.message||e);}
+      finally{activeCacheRepairBusy=false;}
     },5000);
   }
   let lastBufferInterruptionAt=0;
@@ -1039,6 +1098,12 @@
         ok=await switchToIndex(target,{force:true});
       }
       if(!ok&&!backgrounded()&&items===list()&&canAutoPlay())await handleMediaFailure(items[target],target);
+      if(ok&&target===0&&!pendingPlaylistState){
+        completedPlaylistLaps++;
+        if(completedPlaylistLaps>=1&&!previousListCleanupEligible){
+          previousListCleanupEligible=true;previousProtectedState=null;updateCacheGuard();void pruneUnusedPlaylistCache();
+        }
+      }
     }catch(e){
       console.warn('[Clinic Signage] playlist advance failed:',e?.message||e);
       if(!backgrounded()&&items===list()&&canAutoPlay())await handleMediaFailure(items[target],target);
@@ -1060,7 +1125,7 @@
   }
   async function renderFull({allowRecovery=true}={}){
     if(!state)return;
-    clearTimeout(recoveryTimer);clearTimeout(syncStartTimer);clearEmergencyObjectUrl();cancelPreroll();emergencyPlaying=false;
+    clearTimeout(recoveryTimer);clearTimeout(syncStartTimer);cancelPreroll();
     if(state.mode==='closed'){clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;blankPlayer();root.classList.add('is-closed');qs('#playerBar')?.remove();return true;}
     root.classList.remove('is-closed');
     const v=current();
@@ -1069,6 +1134,7 @@
     const mySeq=++renderSeq;
     const bootStartedAt=performance.now();
     const ok=await switchToIndex(index,{sync:true});
+    if(ok){emergencyPlaying=false;clearEmergencyObjectUrl();}
     recordPlaybackEvent(ok?'initial_render_ready':'initial_render_failed',{
       elapsed_ms:Math.round(performance.now()-bootStartedAt)
     });
@@ -1093,20 +1159,27 @@
   }
 
   async function commitPendingPlaylist(verified){
-    if(pendingPlaylistCommitBusy||!pendingPlaylistIsCurrent(verified)||!navigator.onLine)return false;
+    if(pendingPlaylistCommitBusy||!pendingReadyForCommit()||pendingPlaylistReadyState!==verified||!navigator.onLine)return false;
     pendingPlaylistCommitBusy=true;
     const previousState=state,previousIndex=index;
     const previousPlaylistSig=lastPlaylistSig,previousStateSig=lastStateSig;
     try{
-      const next=pendingPlaylistState;
+      const next=verified;
       const serverTime=pendingPlaylistServerTime;
       if(!next||next.mode==='closed')return false;
       // Don't mark the new manifest as known-good until it has actually
       // started playing. No media cache deletion happens in this operation.
-      state=next;index=restoredIndex(next);
+      const endedVideoId=String(previousState?.playlist?.[previousIndex]?.id||'');
+      const lastVideoPos=next.playlist?.findIndex(v=>String(v.id)===endedVideoId)??-1;
+      const repairingBrokenPlayback=normalMediaIsBroken();
+      state=next;
+      index=repairingBrokenPlayback?0:(lastVideoPos>=0?(lastVideoPos+1)%next.playlist.length:0);
+      // A deliberate recovery starts at the first valid new clip.
+      if(!Number.isFinite(index))index=0;
       updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
       const rendered=await renderFull({allowRecovery:false});
       if(!rendered){
+        if(emergencyPlaying) scheduleRecovery();
         rejectedSwitchSignature=playlistSignature(next);
         rejectedSwitchUntil=Date.now()+SWITCH_FAILURE_COOLDOWN_MS;
         state=previousState;index=previousIndex;
@@ -1134,10 +1207,12 @@
         return false;
       }
       rejectedSwitchSignature='';rejectedSwitchUntil=0;
-      const latestStillMatches=pendingPlaylistState===next&&pendingPlaylistIsCurrent(verified);
+      const latestStillMatches=pendingReadyForCommit()&&pendingPlaylistReadyState===verified;
       const committedViaStream=pendingPlaylistStreamFallback;
       if(latestStillMatches)clearPendingPlaylist();
-      lastPlaylistSig=playlistSignature(state);lastStateSig=stateSignature(state);
+      filteredSourceSignature=next.__sourceSignature||'';
+      lastPlaylistSig=filteredSourceSignature||playlistSignature(state);lastStateSig=stateSignature(state);
+      previousProtectedState=previousState;previousListCleanupEligible=false;completedPlaylistLaps=0;
       cycleFailures=0;recoveryAttempts=0;recoveryStage=0;
       lastProgressAt=Date.now();lastError=null;
       // Never claim an un-cached streaming fallback is available offline.
@@ -1149,12 +1224,12 @@
       }else if(!writeJsonStorage(OFFLINE_READY_KEY,next)){
         offlineCacheError='offline_state_commit_failed';
       }else{
-        offlineCacheReady=true;offlineCacheError=null;offlineCacheUpdatedAt=new Date().toISOString();
+        offlineCacheReady=true;offlineCacheError=filteredSourceSignature?'playlist_missing_videos_excluded':null;offlineCacheUpdatedAt=new Date().toISOString();
         writeJsonStorage(OFFLINE_CACHE_META_KEY,{ready:true,count:next.playlist?.length||0,
           total:next.playlist?.length||0,updated_at:offlineCacheUpdatedAt,
           playlist_signature:playlistSignature(next)});
       }
-      updateCacheGuard();void pruneUnusedPlaylistCache();
+      updateCacheGuard();if(!filteredSourceSignature)void pruneUnusedPlaylistCache();
       saveState();recordPlaybackEvent('playlist_switch_committed',{items:next.playlist?.length||0});
       syncedAt=serverTime||syncedAt;queueHeartbeat(true);reportNow();
       // Continue staging the newer server revision without dropping this good media.
@@ -1182,6 +1257,17 @@
       else if(data.room.reload_nonce!==lastNonce){clearPosition();intentionalNavigation=true;try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
       const newPlaylistSig=playlistSignature(data),newStateSig=stateSignature(data),playlistChanged=newPlaylistSig!==lastPlaylistSig,stateChanged=newStateSig!==lastStateSig;
       const fetchedAt=data.server_time||null;
+      // The server still references a 404/410 media object intentionally omitted
+      // from the last committed healthy subset; never restore that bad object on poll.
+      if(filteredSourceSignature&&newPlaylistSig===filteredSourceSignature&&
+          state?.mode===data.mode&&!data.force_immediate){
+        state={...state,room:data.room,notice_text:data.notice_text,
+          emergency_video:data.emergency_video,operating:data.operating,server_time:data.server_time};
+        applyLiveControls();renderBarsOnly();scheduleExpiry();scheduleTransition();
+        if(stateChanged)queueHeartbeat(true);
+        return;
+      }
+      if(filteredSourceSignature&&newPlaylistSig!==filteredSourceSignature)filteredSourceSignature='';
       const mayStage=stageableBackgroundChange(state,data)&&!PREVIEW&&navigator.onLine&&state?.playlist?.length&&
         data.mode!=='closed'&&data.playlist?.length&&playlistChanged&&'caches' in window;
       if(mayStage&&hasUnsafeSameUrlReplacement(state,data)){
@@ -1205,6 +1291,7 @@
         pendingPlaylistState=data;pendingPlaylistServerTime=fetchedAt;
         updateCacheGuard();
         if(changedTarget){
+          failedVideos.clear();
           pendingPlaylistReadyState=null;pendingPlaylistStreamFallback=false;
           pendingPlaylistFailureStreak=0;pendingCacheCount=0;pendingCacheTotal=data.playlist?.length||0;pendingSince=Date.now();
           rejectedSwitchSignature='';rejectedSwitchUntil=0;
@@ -1277,7 +1364,14 @@
     try{const r=await fetch(url,{method:'GET',headers:{Range:'bytes=0-0'},cache:'no-store'});return r.ok||r.status===206;}
     catch(_){try{await fetch(url,{method:'HEAD',mode:'no-cors',cache:'no-store'});return true;}catch(__){return false;}}
   }
-  function scheduleRecovery(){clearTimeout(recoveryTimer);recoveryTimer=setTimeout(async()=>{await fetchState();if(await probeMedia()){emergencyPlaying=false;await renderFull();}else scheduleRecovery();},15000);}
+  function scheduleRecovery(){clearTimeout(recoveryTimer);recoveryTimer=setTimeout(async()=>{
+    await fetchState();
+    // The active failure can be repaired by a newer staged manifest even if the
+    // old media probe always fails (404, decode failure, removed R2 object).
+    if(maybeCommitAtBoundary())return;
+    if(await probeMedia()){emergencyPlaying=false;await renderFull();}
+    else scheduleRecovery();
+  },15000);}
   /* The active slot's 'error' event and the caller of a failed switch can both report the same
      failure. Only one recovery pass runs at a time so failures are not double-counted. */
   let mediaFailureBusy=false;
@@ -1319,8 +1413,11 @@
   function playbackState(){if(state?.mode==='closed')return 'closed';const el=activeVideoEl();if(backgrounded()&&el&&!el.error&&!state?.room?.paused)return el.ended?'ended':(el.paused?'loading':'playing');if(!el)return list().length?'loading':'idle';if(lastError&&!emergencyPlaying)return 'error';if(state?.room?.paused)return 'paused';if(transitionInProgress)return confirmedPlaybackState==='playing'?'playing':'loading';if(emergencyPlaying)return 'emergency';if(el.ended)return 'ended';if(el.paused)return 'paused';if(el.readyState<3)return 'loading';if(confirmedPlaybackState==='playing')return 'playing';return 'playing';}
   function buildLiveStatus(){
     const el=activeVideoEl(),v=emergencyPlaying?state?.emergency_video:current(),items=list(),currentIndex=items.length?(index%items.length):0,nextVideo=items.length>1?items[(currentIndex+1)%items.length]:null;
-    const cacheDiagnostic=pendingSince&&Date.now()-pendingSince>10*60*1000?'pending_stuck':offlineCacheError;
-    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:cacheDiagnostic,storage_persisted:storagePersisted,active_hash:statusPlaylistHash(state),pending_hash:statusPlaylistHash(pendingPlaylistState),pending_count:pendingPlaylistState?pendingCacheCount:null,pending_total:pendingPlaylistState?pendingCacheTotal:null,operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
+    const waitingForHealthyBoundary=Boolean(pendingReadyForCommit()&&!normalMediaIsBroken()&&
+      activeVideoEl()&&!activeVideoEl().ended);
+    const cacheDiagnostic=pendingSince&&Date.now()-pendingSince>10*60*1000&&
+      !waitingForHealthyBoundary?'pending_stuck':offlineCacheError;
+    return {video_id:v?.id||null,title:v?.title||null,mode:emergencyPlaying?'emergency':state?.mode,playback_state:playbackState(),current_time:el&&Number.isFinite(el.currentTime)?Math.round(el.currentTime):0,duration:el&&Number.isFinite(el.duration)?Math.round(el.duration):0,muted:Boolean(el?.muted),volume:el?Math.round(el.volume*100):Number(state?.room?.volume||0),online:navigator.onLine,error:lastError,source:emergencyPlaying?'emergency-cache':(!navigator.onLine&&offlineCacheReady?'offline-playlist-cache':'cloud-r2'),recovery_stage:recoveryStage||null,synced_at:syncedAt,sync_revision:state?.sync_revision?String(state.sync_revision).slice(0,160):null,playlist_video_ids:emergencyPlaying?(v?.id?[v.id]:[]):items.slice(0,20).map(item=>item.id).filter(Boolean),playlist_titles:emergencyPlaying?(v?.title?[v.title]:[]):items.slice(0,8).map(item=>String(item.title||'영상').slice(0,120)),playlist_count:emergencyPlaying?(v?1:0):items.length,current_index:emergencyPlaying?0:currentIndex,next_title:emergencyPlaying?null:(nextVideo?.title||null),offline_cache_ready:offlineCacheReady,offline_cache_count:offlineCacheCount,offline_cache_total:offlineCacheTotal,offline_cache_error:cacheDiagnostic,storage_persisted:storagePersisted,active_hash:statusPlaylistHash(state),pending_hash:statusPlaylistHash(pendingPlaylistState),pending_count:pendingPlaylistState?pendingCacheCount:null,pending_total:pendingPlaylistState?pendingCacheTotal:null,failed_videos:[...failedVideos.values()].slice(-5),operating_active:state?.operating?.active!==false,priority:state?.priority||state?.mode||'default',update_pending_version:updatePendingVersion,update_error:updateError||null,failed_video_count:[...mediaFailures.values()].filter(x=>x.count>=MEDIA_FAILURE_LIMIT).length,app_version:APP_VERSION,reported_at:new Date().toISOString()};
   }
   /* Live status report: meaningful changes wake admin/staff immediately; presence stays low-frequency. */
   /* Status class: what an admin card can actually show differently. Video-to-video transitions
@@ -1330,7 +1427,7 @@
     // Initial loading -> first real video frame must wake the admin immediately.
     // A playing-to-playing playlist transition keeps the same key, avoiding per-video wake-ups.
     const c=p==='emergency'?'playing':p;
-    return `${c}|${st?.mode||''}|${st?.error?1:0}|${st?.recovery_stage||0}|${st?.update_pending_version||''}|${st?.offline_cache_error?1:0}|${st?.pending_hash||''}|${st?.pending_count??''}|${Number(st?.failed_video_count||0)>0?1:0}`;
+    return `${c}|${st?.mode||''}|${st?.error?1:0}|${st?.recovery_stage||0}|${st?.update_pending_version||''}|${st?.offline_cache_error?1:0}|${st?.pending_hash||''}|${Number(st?.failed_video_count||0)>0?1:0}`;
   }
   let lastWakeKey=null,lastWakeAt=0,lastHeartbeatKey=null,wakeRetryTimer=null;
   function notifyAdminOnStatusChange(wakeKey){
@@ -1369,7 +1466,7 @@
     clearTimeout(reportTimer);reportTimer=null;
     const shouldWake=reportWakePending;reportWakePending=false;
     try{
-      const status=buildLiveStatus();
+      const status=heartbeatSafeStatus(buildLiveStatus());
       let {error}=await db.rpc(reportRpc,{p_key:key,p_status:status});
       if(error&&reportRpc!=='player_live_ping'&&Signage.isMissingFunction(error)){reportRpc='player_live_ping';({error}=await db.rpc(reportRpc,{p_key:key,p_status:status}));}
       if(error)throw error;
@@ -1389,11 +1486,23 @@
      "early" relative to lastReportAt (set after the RPC returns), skips, and an idle/paused/closed
      TV ends up reporting every 2x interval (600s) — exactly the 10-min offline threshold. */
   function presenceTick(){const limit=(state?.mode==='closed'?5*60*1000:LIVE_PRESENCE_MS)*0.8;if(Date.now()-lastReportAt>=limit)void reportLive({wake:false});}
+  function heartbeatSafeStatus(input){
+    // Keep the heartbeat under the PostgreSQL 4096-byte jsonb storage limit.
+    // A deliberately small wire budget also accounts for JSONB object overhead.
+    const out={...input};
+    const bytes=obj=>new TextEncoder().encode(JSON.stringify(obj)).length;
+    if(bytes(out)>3000){out.failed_videos=[];out.playlist_titles=[];out.playlist_video_ids=[];}
+    for(const field of ['title','next_title','error','sync_revision']){
+      while(bytes(out)>3000&&out[field])out[field]=String(out[field]).slice(0,Math.max(0,String(out[field]).length-32));
+    }
+    if(bytes(out)>3000){delete out.pending_hash;delete out.active_hash;delete out.offline_cache_error;}
+    return out;
+  }
   async function heartbeat(){
     if(PREVIEW)return;
     if(heartbeatInFlight){heartbeatQueued=true;return;}if(!db||!state?.room)return;if(state?.mode==='closed'&&Date.now()-lastHeartbeatAt<5*60*1000)return;heartbeatInFlight=true;
     try{
-      const status=buildLiveStatus();
+      const status=heartbeatSafeStatus(buildLiveStatus());
       const {error}=await db.rpc('player_heartbeat',{p_key:key,p_status:status});
       if(error)throw error;
       lastHeartbeatAt=Date.now();lastHeartbeatKey=statusClassKey(status);

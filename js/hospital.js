@@ -351,7 +351,12 @@
     const active=String(s.active_hash||'').trim(),pending=String(s.pending_hash||'').trim();
     let sync='보고 없음';
     if(diskFull)sync='저장 공간 부족';
-    else if(raw)sync='오류 · '+raw;
+    else if(raw){
+      const translations={pending_stuck:'새 목록 준비 지연',playlist_missing_videos_excluded:'일부 영상을 제외하고 재생 중',
+        streaming_fallback_storage_full:'저장 공간 부족 · 온라인 재생 중',offline_cache_quota:'저장 공간 부족',
+        playlist_switch_failed_kept_previous:'새 목록 적용 실패 · 이전 영상 유지'};
+      sync='오류 · '+(translations[raw]||raw);
+    }
     else if(pending&&pending!==active)sync=total?`새 목록 준비 중 ${Math.min(done,total)}/${total}`:'새 목록 적용 대기';
     else if(cacheTotal&&!s.offline_cache_ready)sync=`영상 다운로드 중 ${Math.min(cacheDone,cacheTotal)}/${cacheTotal}`;
     else if(s.offline_cache_ready===true)sync=cacheTotal?`영상 준비 완료 ${Math.min(cacheDone,cacheTotal)}/${cacheTotal}`:'영상 준비 완료';
@@ -362,6 +367,9 @@
     if(stale)sync='최근 보고 없음 · 이전 상태는 확인 불가';
     const items=[{label:'영상 준비·동기화',value:sync},{label:'마지막 상태 보고',value:seen}];
     if(s.failed_video_count>0)items.push({label:'실패한 영상',value:`${n(s.failed_video_count)}개`});
+    for(const failure of (Array.isArray(s.failed_videos)?s.failed_videos:[]).slice(0,5)){
+      items.push({label:'제외된 영상',value:`${String(failure.title||failure.id||'영상').slice(0,60)} · ${String(failure.code||'오류').slice(0,40)}`});
+    }
     if(s.storage_persisted===false)items.push({label:'오프라인 저장소',value:'영구 저장 미보장'});
     if(s.update_pending_version)items.push({label:'업데이트 대기',value:String(s.update_pending_version).slice(0,24)});
     return items;

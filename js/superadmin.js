@@ -26,6 +26,15 @@
     return '';
   };
   const roomHasIssue=(r)=>Boolean(roomIssueReason(r));
+  function roomDiagnosticSummary(r){
+    const st=r.player_status||{};
+    const pending=Number(st.pending_total||0),done=Number(st.pending_count||0);
+    const failures=(Array.isArray(st.failed_videos)?st.failed_videos:[]).slice(0,5)
+      .map(x=>`${String(x.title||x.id||'영상').slice(0,60)} (${String(x.code||'오류').slice(0,40)})`);
+    const preparing=st.pending_hash&&st.pending_hash!==st.active_hash?
+      `새 목록 준비 ${done}/${pending}`:'새 목록 대기 없음';
+    return [preparing,st.offline_cache_error||'',...failures].filter(Boolean).join(' · ');
+  }
   const isOnline=(r)=>isRemoteDisplay(r)&&!isOffline(r);
 
   function loadRisk(onlineRemote){
@@ -128,6 +137,7 @@
       <div class="superadmin-site-metrics"><div><small>전체 디스플레이</small><b>${stats.total}</b></div><div><small>현재 연결</small><b>${isActive?stats.online:'—'}</b></div><div class="${stats.issues?'has-issue':''}"><small>확인 필요</small><b>${isActive?stats.issues:'—'}</b></div></div>
       <div class="superadmin-attention ${stats.issues?'has-issue':''}"><small>지금 확인할 내용</small><b>${esc(!isActive?'병원이 비활성화되어 송출이 중지되어 있습니다.':issueHeadline(stats))}</b></div>
       <div class="superadmin-floor-summary"><div class="superadmin-subhead"><b>층별 현황</b>${problemFloors.length&&normalFloors.length?`<small>정상 ${normalFloors.length}개 층은 접어 표시</small>`:''}</div>${floorHtml||'<p class="muted">층 정보가 없습니다.</p>'}</div>
+      <details class="superadmin-maintenance"><summary><b>TV 진단 상세</b></summary><div class="superadmin-maintenance-body">${siteRooms(site.id).map(r=>`<p><b>${esc(r.name||'TV')}</b> · ${esc(roomDiagnosticSummary(r))}</p>`).join('')||'TV 없음'}</div></details>
       <div class="superadmin-site-actions">${isActive?`<a class="btn primary superadmin-open-hospital" href="${esc(sitePath(site))}">병원 관리자 페이지 열기</a>`:''}<button type="button" class="btn quiet" data-toggle-site="${site.id}" data-next-active="${isActive?'false':'true'}">${isActive?'병원 비활성화':'병원 활성화'}</button></div>
       <details class="superadmin-maintenance"><summary><span><b>관리 도구</b><small>PIN, 백업, 삭제</small></span></summary><div class="superadmin-maintenance-body"><label class="field"><span>병원 관리자 PIN</span><div class="inline"><input id="selectedHospitalPin" type="password" inputmode="numeric" maxlength="6" placeholder="4~6자리" ${isActive?'':'disabled'}><button type="button" class="btn" data-save-site-pin="${site.id}" ${isActive?'':'disabled'}>PIN 변경</button></div></label><div class="inline"><button type="button" class="btn" data-export-site="${site.id}">설정 백업</button><label class="btn"><input type="file" accept="application/json" data-import-site="${site.id}" hidden>설정 복원</label><button type="button" class="btn" data-prune-logs>오래된 로그 정리</button></div>${!isActive?`<div class="danger-zone"><div><b>병원 삭제</b><small>비활성 병원만 삭제할 수 있습니다. 병원 소속 층·디스플레이·플레이리스트·환자 세션이 함께 삭제됩니다.</small></div><button type="button" class="btn danger" data-delete-site="${site.id}">병원 삭제</button></div>`:''}</div></details>
     </aside>`;
