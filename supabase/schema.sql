@@ -425,6 +425,13 @@ begin
     'online',case when jsonb_typeof(p_status->'online')='boolean' then (p_status->>'online')::boolean else false end,
     'error',left(coalesce(p_status->>'error',''),300),'source',left(coalesce(p_status->>'source',''),64),
     'playlist_titles',coalesce((select jsonb_agg(left(x.value,120) order by x.ord) from jsonb_array_elements_text(case when jsonb_typeof(p_status->'playlist_titles')='array' then p_status->'playlist_titles' else '[]'::jsonb end) with ordinality as x(value,ord) where x.ord<=12),'[]'::jsonb),
+    'active_hash',left(coalesce(p_status->>'active_hash',''),100),
+    'pending_hash',left(coalesce(p_status->>'pending_hash',''),100),
+    'pending_count',case when jsonb_typeof(p_status->'pending_count')='number' then greatest(0,least((p_status->>'pending_count')::int,500)) end,
+    'pending_total',case when jsonb_typeof(p_status->'pending_total')='number' then greatest(0,least((p_status->>'pending_total')::int,500)) end,
+    'storage_persisted',case when jsonb_typeof(p_status->'storage_persisted')='boolean' then (p_status->>'storage_persisted')::boolean end,
+    'offline_cache_error',left(coalesce(p_status->>'offline_cache_error',''),160),
+    'failed_videos',coalesce((select jsonb_agg(jsonb_build_object('id',left(coalesce(x.item->>'id',''),100),'title',left(coalesce(x.item->>'title',''),60),'code',left(coalesce(x.item->>'code',''),40))) from jsonb_array_elements(case when jsonb_typeof(p_status->'failed_videos')='array' then p_status->'failed_videos' else '[]'::jsonb end) with ordinality as x(item,ord) where x.ord<=5),'[]'::jsonb),
     'playlist_count',case when jsonb_typeof(p_status->'playlist_count')='number' then greatest(0,least((p_status->>'playlist_count')::int,500)) else 0 end,
     'current_index',case when jsonb_typeof(p_status->'current_index')='number' then greatest(0,least((p_status->>'current_index')::int,499)) else 0 end,
     'next_title',left(coalesce(p_status->>'next_title',''),160),'app_version',left(coalesce(p_status->>'app_version',''),24),'reported_at',left(coalesce(p_status->>'reported_at',''),48)
@@ -1280,6 +1287,12 @@ begin
     'offline_cache_count', case when jsonb_typeof(p_status->'offline_cache_count')='number' then greatest(0,least((p_status->>'offline_cache_count')::int,500)) else 0 end,
     'offline_cache_total', case when jsonb_typeof(p_status->'offline_cache_total')='number' then greatest(0,least((p_status->>'offline_cache_total')::int,500)) else 0 end,
     'offline_cache_error', nullif(left(coalesce(p_status->>'offline_cache_error',''),160),''),
+    'active_hash',left(coalesce(p_status->>'active_hash',''),100),
+    'pending_hash',left(coalesce(p_status->>'pending_hash',''),100),
+    'pending_count',case when jsonb_typeof(p_status->'pending_count')='number' then greatest(0,least((p_status->>'pending_count')::int,500)) end,
+    'pending_total',case when jsonb_typeof(p_status->'pending_total')='number' then greatest(0,least((p_status->>'pending_total')::int,500)) end,
+    'storage_persisted',case when jsonb_typeof(p_status->'storage_persisted')='boolean' then (p_status->>'storage_persisted')::boolean end,
+        'failed_videos',coalesce((select jsonb_agg(jsonb_build_object('id',left(coalesce(x.item->>'id',''),100),'title',left(coalesce(x.item->>'title',''),60),'code',left(coalesce(x.item->>'code',''),40))) from jsonb_array_elements(case when jsonb_typeof(p_status->'failed_videos')='array' then p_status->'failed_videos' else '[]'::jsonb end) with ordinality as x(item,ord) where x.ord<=5),'[]'::jsonb),
     'operating_active', case when jsonb_typeof(p_status->'operating_active')='boolean' then (p_status->>'operating_active')::boolean else true end,
     'priority', nullif(left(coalesce(p_status->>'priority',''),32),''),
     'update_pending_version', nullif(left(coalesce(p_status->>'update_pending_version',''),24),''),
@@ -1289,7 +1302,7 @@ begin
   )) || jsonb_build_object('reported_at', v_now);
 
   -- 재생 위치/보고 시각을 제외한 "의미 있는 변경" 지문
-  v_fp := md5((v_clean - 'current_time' - 'reported_at')::text);
+  v_fp := md5((v_clean - 'current_time' - 'reported_at' - 'pending_count')::text);
 
   select status_fp, last_seen_at into v_prev_fp, v_prev_seen
     from public.player_live_status where room_id = v_room;
