@@ -1599,18 +1599,12 @@
     const live=state.rooms.filter(r=>roomDisplayStatus(r).key==='live').length;
     return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
       <header class="unified-page-heading"><div><h1>Clinic Signage</h1><p>${esc(state.site?.name||'병원')} · TV 영상과 설정을 한 페이지에서 관리합니다.</p></div><div class="unified-quick-stats"><span>전체 TV <b>${state.rooms.length}</b></span><span>송출 확인 <b>${live}</b></span></div></header>
-      <nav class="signage-section-nav" aria-label="관리 화면 바로가기">
-        <a href="#signagePlaylistManagement" class="signage-section-nav-primary">재생목록 관리</a>
-        <a href="#mediaWorkLibrary">영상 보관함</a>
-        <a href="#unifiedFloorplanPrimary">층별 TV · 도면</a>
-        <a href="#unifiedTvOperations">송출 상태</a>
-      </nav>
+      <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>TV 전체 송출 상태</b><small>전체 TV의 송출 상태와 확인 필요 기기</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content">${hospitalOperationsSummary()}</div></details>
       <section id="signagePlaylistManagement" class="signage-playlist-management" aria-label="재생목록 관리">
-        <header class="signage-playlist-management-head"><div><h2>재생목록 관리</h2><p>삭제할 영상은 재생목록을 선택한 뒤 오른쪽 목록에서 ×로 제거하고 저장하세요. 송출 중인 TV 연결도 별도로 확인해야 합니다.</p></div></header>
+        <header class="signage-playlist-management-head"><div><h2>재생목록 관리</h2><p>영상 제거·재생 순서 변경·저장은 아래에서 진행하세요. 송출 중인 TV의 연결도 확인해야 합니다.</p></div></header>
         ${hospitalPlaylistManagerMarkup()}
       </section>
-      <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       <details class="unified-secondary-panel" id="unifiedHospitalSettings"><summary><span><b>병원 설정</b><small>운영시간, 병원 정보, 기본 송출 설정</small></span><span aria-hidden="true">펼치기 ▾</span></summary><div class="unified-secondary-content">${hospitalSettingsPageMarkup()}</div></details>
     </section>`;
   }
