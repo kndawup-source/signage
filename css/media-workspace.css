@@ -257,3 +257,166 @@ body.hospital-page .nav-btn{display:none!important}
 .media-bulk-global{margin-top:14px;padding:10px;background:#fff7f5;border:1px solid #f2cfca;border-radius:10px}
 .media-bulk-global>summary{cursor:pointer;font-size:13px;font-weight:700}
 #mediaBulkPlaylistResult{font-size:12px;line-height:1.5;color:#66758b;overflow-wrap:anywhere}
+
+
+
+/* =======================================================================
+   Clinic Signage | Enterprise Visual System R1
+   Reference direction: light-neutral canvas, quiet white cards, restrained
+   coral action accent. VISUAL ONLY: hierarchy, layout order, and JS untouched.
+   Status colors remain semantic (live blue, issue red, manual amber).
+   ======================================================================= */
+body.hospital-page {
+  --cs-canvas:#f6f7f9;
+  --cs-surface:#fff;
+  --cs-text:#222b37;
+  --cs-subtle:#6d7888;
+  --cs-border:#e6e9ed;
+  --cs-accent:#e66d65;
+  --cs-accent-hover:#d65650;
+  --cs-soft-accent:#fff4f2;
+  --cs-radius:12px;
+  background:var(--cs-canvas);
+  color:var(--cs-text);
+  -webkit-font-smoothing:antialiased;
+}
+body.hospital-page .topbar{background:#fff!important;border-bottom:1px solid var(--cs-border)!important;box-shadow:none!important}
+body.hospital-page .topbar .brand{color:#303947!important;font-weight:800!important;letter-spacing:.05em!important}
+body.hospital-page .topbar .text-btn{color:#66717f!important}
+body.hospital-page .shell{max-width:1500px!important;padding-top:28px!important}
+body.hospital-page .unified-hospital-page{gap:20px!important}
+body.hospital-page .unified-page-heading{margin:0 0 2px;gap:16px;align-items:center}
+body.hospital-page .unified-page-heading h1{color:#222b37!important;font-size:clamp(25px,2.8vw,31px)!important;font-weight:760;letter-spacing:-.045em}
+body.hospital-page .unified-page-heading p{color:var(--cs-subtle)!important;font-size:13px;line-height:1.6}
+body.hospital-page .unified-quick-stats{gap:10px}
+body.hospital-page .unified-quick-stats span{background:#fff!important;border:1px solid var(--cs-border)!important;border-radius:10px!important;padding:12px 14px!important;min-height:49px;white-space:nowrap;box-shadow:0 1px 2px rgba(24,35,47,.02)}
+body.hospital-page .unified-quick-stats b{font-size:17px!important;color:#202b39!important}
+
+/* Preserve original sequence: 1 TV status, 2 floorplan, 3 playlist, 4 settings. */
+body.hospital-page #unifiedTvOperations,
+body.hospital-page #unifiedFloorplanPrimary,
+body.hospital-page #signagePlaylistManagement,
+body.hospital-page #unifiedHospitalSettings{position:relative;min-width:0}
+body.hospital-page .unified-secondary-panel,
+body.hospital-page .signage-playlist-management,
+body.hospital-page .hospital-building-dashboard,
+body.hospital-page .hospital-floor-console-card,
+body.hospital-page .hospital-settings-card{
+  background:var(--cs-surface)!important;
+  border:1px solid var(--cs-border)!important;
+  border-radius:var(--cs-radius)!important;
+  box-shadow:0 2px 12px rgba(23,35,48,.022)!important;
+}
+body.hospital-page .unified-secondary-panel>summary{padding:18px 22px!important;min-height:68px;gap:14px}
+body.hospital-page .unified-secondary-panel>summary b{font-size:16px!important;color:#253040!important;letter-spacing:-.02em}
+body.hospital-page .unified-secondary-panel>summary small{color:var(--cs-subtle)!important;font-size:12px!important;line-height:1.55}
+body.hospital-page .unified-secondary-content{border-color:var(--cs-border)!important;padding:16px 18px!important}
+body.hospital-page .unified-secondary-panel>summary:focus-visible{outline:2px solid var(--cs-accent);outline-offset:-4px;border-radius:var(--cs-radius)}
+body.hospital-page .unified-tv-overview-first>summary{padding:18px 22px!important}
+body.hospital-page .unified-tv-overview-first>.unified-secondary-content{padding:16px 18px!important}
+
+/* Status cards are informational: do not change blue/red/amber meaning. */
+body.hospital-page .hospital-ops-summary-easy{gap:12px!important;margin:0 0 6px!important}
+body.hospital-page .hospital-ops-summary-easy>.ops-status-card{padding:17px 18px!important;min-height:126px;border:1px solid var(--cs-border)!important;border-radius:11px!important;background:#fff!important;box-shadow:none!important}
+body.hospital-page .hospital-ops-summary-easy>.ops-status-card:hover{background:#fbfcfd!important;border-color:#cbd3dc!important}
+body.hospital-page .hospital-ops-summary-easy .ops-status-title{font-size:13px!important;font-weight:700!important;color:#425063}
+body.hospital-page .hospital-ops-summary-easy .ops-status-card strong{font-size:30px!important;letter-spacing:-.045em}
+body.hospital-page .hospital-ops-summary-easy .ops-status-help{font-size:12px!important;color:var(--cs-subtle)!important}
+body.hospital-page .hospital-ops-summary-easy .ops-status-action{font-size:12px}
+
+/* Floor and map: keep large and prominent immediately beneath TV status. */
+body.hospital-page #unifiedFloorplanPrimary{scroll-margin-top:84px}
+body.hospital-page .hospital-building-console{min-width:0}
+body.hospital-page .hospital-floor-console-card{overflow:hidden}
+body.hospital-page .hospital-floor-row{border-color:#edf0f3!important}
+body.hospital-page .hospital-floor-row:hover{background:#fafafa!important}
+body.hospital-page .hospital-floor-detail{border-color:var(--cs-border)!important}
+body.hospital-page .building-floorplan-wrap{border-color:var(--cs-border)!important;border-radius:10px!important}
+body.hospital-page .hospital-floor-detail .floor-map-unified-inspector>.floor-room-focus-head,
+body.hospital-page .hospital-floor-detail .floor-map-unified-inspector>.floor-room-current,
+body.hospital-page .hospital-floor-detail .floor-map-unified-inspector>.floor-room-next,
+body.hospital-page .hospital-floor-detail .floor-map-unified-inspector>.floor-room-why,
+body.hospital-page .hospital-floor-detail .floor-map-unified-inspector>.floor-room-purpose{border-color:var(--cs-border)!important}
+
+/* Media and playlist panels share one set of spacing and component metrics. */
+body.hospital-page .signage-playlist-management{padding:22px!important;margin:0!important;scroll-margin-top:84px}
+body.hospital-page .signage-playlist-management-head{margin-bottom:18px}
+body.hospital-page .signage-playlist-management-head h2,
+body.hospital-page .media-work-toolbar h2{font-size:19px!important;font-weight:750;color:#263241!important;margin:0 0 6px!important}
+body.hospital-page .signage-playlist-management-head p,
+body.hospital-page .media-work-toolbar p{font-size:12px!important;color:var(--cs-subtle)!important}
+body.hospital-page .media-workspace{gap:18px!important}
+body.hospital-page .media-work-panel,
+body.hospital-page .media-work-apply,
+body.hospital-page .media-work-manage,
+body.hospital-page .media-target-picker{border:1px solid var(--cs-border)!important;border-radius:11px!important;background:#fff!important;padding:17px!important;box-shadow:none!important}
+body.hospital-page .media-work-columns{gap:14px!important}
+body.hospital-page .media-work-search{background:#f8f9fb!important;border-color:var(--cs-border)!important;border-radius:9px!important;min-height:43px}
+body.hospital-page .media-work-library-item,
+body.hospital-page .media-work-queue-item{min-height:64px;padding:9px 12px!important;border-color:var(--cs-border)!important;border-radius:9px!important;gap:12px!important}
+body.hospital-page .media-work-library-item:hover,
+body.hospital-page .media-work-queue-item:hover{border-color:#ced5dc!important;background:#fbfcfd!important}
+body.hospital-page .media-work-thumb{width:88px!important;min-width:88px!important;border-radius:7px!important}
+body.hospital-page .media-work-name strong{font-size:13px!important;color:#273445!important;font-weight:700!important}
+body.hospital-page .media-work-name small{font-size:12px!important;color:var(--cs-subtle)!important}
+
+/* Common controls; preserve semantic error/disable states. */
+body.hospital-page .btn,
+body.hospital-page .media-work-controls button,
+body.hospital-page .signage-section-nav a{border-radius:9px!important;min-height:38px;box-shadow:none!important;font-weight:700;transition:border-color .15s,background-color .15s,color .15s}
+body.hospital-page .btn.primary,
+body.hospital-page button.btn.primary{background:var(--cs-accent)!important;border-color:var(--cs-accent)!important;color:#fff!important}
+body.hospital-page .btn.primary:hover:not(:disabled){background:var(--cs-accent-hover)!important;border-color:var(--cs-accent-hover)!important}
+body.hospital-page .btn.danger,
+body.hospital-page .btn.danger-outline{background:#fff5f4!important;color:#b84642!important;border-color:#f2cfcb!important}
+body.hospital-page .btn.danger:hover:not(:disabled),
+body.hospital-page .btn.danger-outline:hover:not(:disabled){background:#fee9e7!important}
+body.hospital-page .btn:disabled,
+body.hospital-page button:disabled{cursor:not-allowed;opacity:.55}
+body.hospital-page input:not([type="checkbox"]):not([type="radio"]),
+body.hospital-page select,
+body.hospital-page textarea{border-color:#dfe4ea;border-radius:8px;min-height:38px}
+body.hospital-page input:focus-visible,
+body.hospital-page select:focus-visible,
+body.hospital-page textarea:focus-visible,
+body.hospital-page button:focus-visible,
+body.hospital-page a:focus-visible{outline:2px solid #e88a82;outline-offset:2px}
+body.hospital-page input[type="checkbox"]{appearance:auto!important;box-sizing:border-box!important;width:17px!important;height:17px!important;min-width:17px!important;min-height:17px!important;max-width:17px!important;max-height:17px!important;margin:0!important;padding:0!important;flex:0 0 17px!important;accent-color:var(--cs-accent);vertical-align:middle;cursor:pointer;transform:none!important}
+
+/* Bulk delete: compact aligned selectors instead of oversized native controls. */
+body.hospital-page .media-bulk-playlists{background:#fafbfc!important;border-color:var(--cs-border)!important;border-radius:11px!important;padding:14px 16px!important;margin-top:18px!important}
+body.hospital-page .media-bulk-playlists>summary{font-size:14px;font-weight:750;color:#283548;padding:4px 0 8px}
+body.hospital-page .media-bulk-playlists>p{margin:5px 0 12px;color:var(--cs-subtle);line-height:1.65}
+body.hospital-page .media-bulk-playlist-controls{min-height:44px;gap:12px;padding:0 2px;margin:4px 0 10px!important}
+body.hospital-page .media-bulk-playlist-controls label{display:inline-flex!important;flex-direction:row!important;align-items:center!important;gap:10px!important;min-height:38px!important;line-height:1.4!important;font-size:13px!important;font-weight:650}
+body.hospital-page #mediaBulkSelectedCount{margin-left:auto;font-size:12px;color:var(--cs-subtle)}
+body.hospital-page .media-bulk-playlist-list{border-color:var(--cs-border)!important;border-radius:9px!important;max-height:300px}
+body.hospital-page .media-bulk-playlist-row{display:grid!important;grid-template-columns:17px minmax(0,1fr)!important;align-items:center!important;gap:12px!important;min-height:66px!important;padding:12px 15px!important;border-color:#edf0f3!important;background:#fff!important}
+body.hospital-page .media-bulk-playlist-row:hover{background:#fbfbfc!important}
+body.hospital-page .media-bulk-playlist-row span{display:grid!important;gap:4px!important;min-width:0}
+body.hospital-page .media-bulk-playlist-row strong{font-size:13px!important;line-height:1.35;color:#283446}
+body.hospital-page .media-bulk-playlist-row small{font-size:12px!important;line-height:1.4;color:var(--cs-subtle)}
+body.hospital-page .media-bulk-global{background:#fffbfa!important;border-color:#f0dcd8!important;border-radius:9px!important;padding:13px!important}
+body.hospital-page .media-bulk-playlist-actions{justify-content:flex-start!important;gap:16px!important;margin:14px 0 0!important}
+body.hospital-page #mediaBulkDeletePlaylists{min-height:40px;padding:0 15px}
+body.hospital-page #mediaBulkPlaylistResult{font-size:12px}
+
+/* Preserve layout on narrow screens, no horizontal clipped panels. */
+@media(max-width:850px){
+ body.hospital-page .shell{padding:18px 12px!important}
+ body.hospital-page .media-work-columns{grid-template-columns:1fr!important}
+ body.hospital-page .unified-quick-stats{width:100%;flex-wrap:wrap}
+ body.hospital-page .unified-secondary-content{padding:12px!important}
+ body.hospital-page .unified-tv-overview-first>.unified-secondary-content{padding:12px!important}
+}
+@media(max-width:640px){
+ body.hospital-page .unified-hospital-page{gap:14px!important}
+ body.hospital-page .signage-playlist-management{padding:14px!important}
+ body.hospital-page .media-work-panel,body.hospital-page .media-work-apply,body.hospital-page .media-work-manage{padding:12px!important}
+ body.hospital-page .hospital-ops-summary-easy{grid-template-columns:1fr!important}
+ body.hospital-page .hospital-ops-summary-easy>.ops-status-card{min-height:98px!important}
+ body.hospital-page .unified-page-heading h1{font-size:25px!important}
+ body.hospital-page .media-work-thumb{width:70px!important;min-width:70px!important}
+ body.hospital-page .media-bulk-playlist-row{min-height:62px!important;padding:10px 11px!important}
+}
+@media(prefers-reduced-motion:reduce){body.hospital-page .btn,body.hospital-page .media-work-library-item{transition:none!important}}
