@@ -322,7 +322,9 @@
   }
   function staffOutputList(r){
     const items=staffRoomOutputItems(r);
-    return `<div class="staff-output-list staff-output-readonly">${items.map((x,i)=>`<div class="staff-output-item">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<span class="staff-output-item-name"><b>${esc(x.video.title)}</b><small>${x.rule?.enabled===false?'TV에서 제외됨':`${i+1}번 영상`}</small></span></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;
+    const playlistId=r.default_playlist_id||state.groups.find(g=>g.id===r.group_id)?.default_playlist_id||'';
+    const editable=new Set(playlistId?state.playlistItems.filter(x=>String(x.playlist_id)===String(playlistId)).map(x=>String(x.video_id)):[]);
+    return `<div class="staff-output-list staff-output-readonly">${items.map((x,i)=>`<div class="staff-output-item">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<span class="staff-output-item-name"><b>${esc(x.video.title)}</b><small>${x.rule?.enabled===false?'TV에서 제외됨':`${i+1}번 영상`}</small></span>${editable.has(String(x.id))?`<button type="button" class="btn small staff-output-remove" data-tv-remove-video="${esc(x.id)}" data-room="${esc(r.id)}" aria-label="${esc(x.video.title)} 재생목록에서 제거">목록에서 제거</button>`:''}</div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;
   }
 
   const displayControlMode=(r)=>String(r?.display_control_mode||'remote');
@@ -1926,6 +1928,32 @@
     const floorStage=qs('.building-floor-plan-stage');
     const setFloorFocus=(kind,id,contextSpaceId=null)=>{if(!floorStage)return;floorStage.classList.add('has-map-focus');floorStage.dataset.focusKind=kind;floorStage.dataset.focusId=id;qsa('[data-staff-floor-room]',floorStage).forEach(x=>{const active=kind==='display'&&x.dataset.staffFloorRoom===id;const room=state.rooms.find(r=>r.id===x.dataset.staffFloorRoom);const linkedSpace=room?roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct):null;const context=(kind==='space'&&linkedSpace?.id===id)||(kind==='display'&&contextSpaceId&&linkedSpace?.id===contextSpaceId);x.classList.toggle('is-selected',active);x.classList.toggle('is-focus-context',!!context);});qsa('[data-floor-space]',floorStage).forEach(x=>{const active=kind==='space'&&x.dataset.floorSpace===id;const context=kind==='display'&&contextSpaceId&&x.dataset.floorSpace===contextSpaceId;x.classList.toggle('is-selected-space',active);x.classList.toggle('is-focus-context',!!context);});};
     // Open exactly one editor from the TV card; retain unsaved-change guard.
+    // TV card removal is an editor shortcut, not an immediate DB or R2 deletion.
+    // The user must explicitly save the draft in the single playlist editor.
+    qsa('[data-tv-remove-video]').forEach(button=>button.addEventListener('click',event=>{
+      event.preventDefault();event.stopPropagation();
+      const roomId=button.dataset.room,videoId=String(button.dataset.tvRemoveVideo||'');
+      if(!syncMediaTargetFromMap(roomId))return;
+      if(!mediaPlaylistId||!mediaDraft.includes(videoId)){
+        toast('이 영상은 현재 기본 재생목록에 없습니다. 수동·전체·층 송출 또는 TV별 예외 설정을 확인하세요.','error');
+        return;
+      }
+      if(mediaGlobalReadonly(mediaPlaylistId)){
+        toast('공용 재생목록은 슈퍼어드민만 수정할 수 있습니다. 병원별 수정은 공용 목록을 복사하세요.','error');
+        qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+        return;
+      }
+      if(mediaDraft.length===1){
+        toast('마지막 영상은 제거 후 저장할 수 없습니다. 재생목록 자체를 삭제하거나 다른 영상을 먼저 추가하세요.','error');
+        qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+        return;
+      }
+      mediaDraft=mediaDraft.filter(id=>id!==videoId);
+      mediaDirty=true;
+      refreshMediaWorkspace();
+      qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+      toast('편집 목록에서 영상을 제거했습니다. 오른쪽의 변경 저장을 눌러 적용하세요. 원본 파일은 유지됩니다.');
+    }));
     qsa('[data-tv-edit-playlist]').forEach(button=>button.addEventListener('click',event=>{
       event.preventDefault();event.stopPropagation();
       const roomId=button.dataset.tvEditPlaylist;
