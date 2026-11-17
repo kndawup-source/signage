@@ -121,7 +121,7 @@ body.hospital-page .nav-btn{display:none!important}
 @media(max-width:700px){.unified-floorplan-primary .hospital-floor-console-grid{min-width:0}}
 
 
-/* v2.35.75 — most important overview first, expanded by default */
+/* v2.35.76 — most important overview first, expanded by default */
 .unified-tv-overview-first{order:0}
 .unified-tv-overview-first>summary{padding:14px 18px}
 .unified-tv-overview-first>summary .unified-panel-chevron{transition:transform .15s ease}

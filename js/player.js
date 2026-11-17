@@ -28,7 +28,7 @@
   const OFFLINE_CACHE_QUOTA_RETRY_MS = 5*60*1000;
   const OFFLINE_CACHE_MAX_RETRY_MS = 30*60*1000;
   const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 4;
-  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.35.75');
+  const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.35.76');
   const RELEASE_URL='/player-release.json';
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000; // only force when playback is genuinely stuck, never during healthy playback
