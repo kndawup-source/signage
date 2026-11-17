@@ -223,3 +223,8 @@ body.hospital-page .nav-btn{display:none!important}
 .floor-layout-space-create #staffCombinedTvCount{min-width:130px}
 .media-linked-target{font-size:12px;font-weight:700;color:#32539a;padding:8px 10px;border-radius:8px;background:#eef3fc;margin:8px 0}
 .floor-layout-stage.is-awaiting-placement{outline:2px solid #4173cd;outline-offset:2px}
+
+/* v2.35.77: destructive action stays small and distinct from playlist removal. */
+.media-work-library-item .media-video-delete{flex:0 0 auto;border:1px solid transparent;background:transparent;color:#94a3b8;border-radius:7px;min-width:28px;min-height:32px;padding:0 6px;font-size:11px;font-weight:600;line-height:1;cursor:pointer}
+.media-work-library-item .media-video-delete:hover,.media-work-library-item .media-video-delete:focus-visible{color:#b91c1c;background:#fef2f2;border-color:#fecaca}
+.media-work-library-item .media-work-name{min-width:0;flex:1}
