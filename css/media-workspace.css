@@ -450,3 +450,23 @@ body.hospital-page #mediaBulkPlaylistResult{font-size:12px}
 
 /* TV per-video actions are always rendered for all output sources. */
 .staff-output-readonly .staff-output-item > .staff-output-remove {display:inline-flex !important;visibility:visible !important;opacity:1 !important;align-items:center;justify-content:center;margin-left:auto;max-width:160px;flex-shrink:0;}
+
+
+/* PC playlist UX refinement — visual-only adjustments, existing ordering preserved. */
+body.hospital-page .media-upload-collapse{border:1px solid #e2e7ef;border-radius:10px;background:#fbfcfe;margin:0 0 14px;overflow:hidden}
+body.hospital-page .media-upload-collapse>summary{list-style:none;cursor:pointer;min-height:46px;padding:13px 18px;color:#56657b;font-size:13px;font-weight:650;display:flex;align-items:center;justify-content:space-between}
+body.hospital-page .media-upload-collapse>summary::-webkit-details-marker{display:none}
+body.hospital-page .media-upload-collapse>summary::after{content:'+';font-size:19px;font-weight:400;color:#718098}
+body.hospital-page .media-upload-collapse[open]>summary::after{content:'−'}
+body.hospital-page .media-upload-collapse .media-quick-upload{width:calc(100% - 24px);margin:0 12px 12px}
+body.hospital-page .media-work-columns{align-items:stretch}
+body.hospital-page .media-work-columns>.media-work-panel:first-child{background:#fbfcfd!important}
+body.hospital-page .media-work-editor{background:#fff!important;border-color:#d4dce6!important}
+body.hospital-page .media-work-editor-head{position:sticky;top:0;z-index:4;background:#fff;padding:10px 0 12px;margin:-10px 0 10px;border-bottom:1px solid #ecf0f4;gap:12px;flex-wrap:wrap}
+body.hospital-page .media-work-editor-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
+body.hospital-page .media-work-save-top{min-height:40px;padding:9px 17px!important;white-space:nowrap;font-weight:700}
+body.hospital-page .media-work-panel .media-work-section-head h3{font-size:16px;font-weight:750}
+body.hospital-page .media-work-name small:empty{display:none}
+body.hospital-page .media-work-editor .media-work-scroll{scrollbar-gutter:stable}
+@media(max-width:950px){body.hospital-page .media-work-editor-head{position:static}}
+@media(max-width:560px){body.hospital-page .media-work-editor-actions{width:100%;justify-content:space-between}body.hospital-page .media-work-save-top{flex:1}}
