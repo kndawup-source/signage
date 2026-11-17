@@ -420,3 +420,25 @@ body.hospital-page #mediaBulkPlaylistResult{font-size:12px}
  body.hospital-page .media-bulk-playlist-row{min-height:62px!important;padding:10px 11px!important}
 }
 @media(prefers-reduced-motion:reduce){body.hospital-page .btn,body.hospital-page .media-work-library-item{transition:none!important}}
+
+/* Playlist editing consolidation: keep monitoring compact, editing in one place. */
+.floor-ops-tv-expanded .staff-output-edit-action,
+.staff-room-control-body .staff-output-edit-action {
+  display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+  padding:10px 0;
+}
+.staff-output-edit-action small { color:var(--muted,#64748b); font-size:12px; line-height:1.5; }
+.staff-output-readonly .staff-output-item { display:flex; align-items:center; min-height:58px; gap:12px; }
+.staff-output-readonly .staff-output-item-name { display:flex; min-width:0; flex:1; flex-direction:column; gap:3px; }
+.staff-output-readonly .staff-output-item-name b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.staff-output-readonly .staff-output-item-name small { font-size:12px; color:var(--muted,#64748b); }
+.staff-output-readonly .staff-output-item .staff-output-thumb { flex-shrink:0; }
+.media-work-foot #mediaWorkSaveStatus { font-size:13px; color:var(--muted,#64748b); line-height:1.5; }
+.media-work-foot #staffSavePlaylist { min-height:40px; font-weight:700; }
+.media-work-queue-actions [data-media-remove] { min-width:36px; min-height:36px; }
+@media(max-width:680px) {
+  .staff-output-edit-action { align-items:stretch; }
+  .staff-output-edit-action .btn { width:100%; }
+  .media-work-foot { align-items:stretch; }
+  .media-work-foot > div { display:flex; flex-wrap:wrap; gap:8px; }
+}
