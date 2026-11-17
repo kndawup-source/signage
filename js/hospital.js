@@ -1176,7 +1176,6 @@
       <details class="hospital-layout-add-tools"><summary>층 추가 · TV 등록</summary>${structureSetupMarkup()}</details>
     </section>`;
   }
-  function hospitalSetupProgress(){const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,spaces=state.floorSpaces.length,total=state.rooms.length,placed=state.rooms.filter(roomMapPlaced).length;const steps=[['병원 정보',!!state.site?.name&&!!state.site?.building_label],['도면',custom>0],['공간',spaces>0],['디스플레이',total>0&&placed===total]];const done=steps.filter(x=>x[1]).length;return `<div class="hospital-setup-progress"><div><b>초기 설치</b><span>${done}/${steps.length} 완료</span></div><div>${steps.map(([l,ok],i)=>`<span class="${ok?'is-done':''}"><i>${ok?'✓':i+1}</i>${l}</span>`).join('')}</div></div>`;}
   function structureSetupMarkup(){const floors=[...state.groups].filter(g=>Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층 · 디스플레이 만들기</b><small>처음 설치할 때 필요한 기본 구조만 추가합니다.</small></div></div><div class="grid-2"><div class="settings-card"><h3>층 추가</h3><label class="field"><span>층 번호</span><input id="staffNewFloorNumber" type="number" min="1" max="99" placeholder="예: 8"></label><label class="field"><span>표시 이름</span><input id="staffNewFloorName" maxlength="30" placeholder="비우면 8F"></label><button id="staffCreateFloor" class="btn" type="button">층 추가</button></div><div class="settings-card"><h3>디스플레이 추가</h3><label class="field"><span>층</span><select id="staffNewDisplayGroup"><option value="">층 선택</option>${floors.map(g=>`<option value="${g.id}">${esc(floorSettingsLabel(g))}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffNewDisplayName" maxlength="40" placeholder="예: 진료실 1"></label><label class="field"><span>운영 방식</span><select id="staffNewDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button id="staffCreateDisplay" class="btn" type="button">디스플레이 추가</button></div><div class="settings-card" style="grid-column:1/-1"><h3>등록된 층 관리</h3><p class="muted">TV, 공간 또는 방송 설정이 연결된 층은 삭제할 수 없습니다. 다른 층의 데이터는 변경하지 않습니다.</p><div class="floor-delete-list">${floors.map(g=>{const tvCount=state.rooms.filter(r=>r.group_id===g.id).length,spaceCount=state.floorSpaces.filter(sp=>sp.group_id===g.id).length;return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line,#ddd)"><div><b>${esc(floorSettingsLabel(g))}</b> <small class="muted">${g.kind!=='floor'?' · 이전 층 그룹':''} · TV ${tvCount}대 · 공간 ${spaceCount}개</small></div><button type="button" class="btn small" data-staff-delete-floor="${g.id}" ${tvCount||spaceCount?'disabled title="TV나 공간이 있는 층은 삭제할 수 없습니다"':''}>층 삭제</button></div>`;}).join('')||'<p class="muted">등록된 층 없음</p>'}</div></div></div></div></div>`;}
   async function createHospitalFloor(){const n=Number(qs('#staffNewFloorNumber')?.value),name=(qs('#staffNewFloorName')?.value||'').trim();if(!Number.isInteger(n)||n<1||n>99)return toast('층 번호는 1~99 사이로 입력하세요.','error');const {error}=await db.rpc('hospital_create_floor',{p_site:targetSiteId,p_floor:n,p_name:name||null});if(error)return toast(error.message,'error');toast(`${n}층을 추가했습니다.`);await load();}
   async function deleteHospitalFloor(groupId){
@@ -1667,12 +1666,12 @@
     config.emergency_video_id=qs('#staffEmergencyVideo')?.value||null;
     const {error}=await db.rpc('hospital_save_operating_config',{p_site:targetSiteId,p_config:config});if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();
   }
-  function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page">${hospitalSetupProgress()}<div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
+  function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page"><div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
   function hospitalVideosPageMarkup(){
     const live=state.rooms.filter(r=>roomDisplayStatus(r).key==='live').length;
     return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
       <header class="unified-page-heading"><div><h1>Clinic Signage</h1><p>${esc(state.site?.name||'병원')} · TV 영상과 설정을 한 페이지에서 관리합니다.</p></div><div class="unified-quick-stats"><span>전체 TV <b>${state.rooms.length}</b></span><span>송출 확인 <b>${live}</b></span></div></header>
-      <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>TV 전체 송출 상태</b><small>전체 TV의 송출 상태와 확인 필요 기기</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content">${hospitalOperationsSummary()}</div></details>
+      <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>TV 전체 송출 상태</b><small>전체 TV의 송출 상태와 확인 필요 기기</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content"><div class="hospital-status-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line,#e5e7eb)"><span style="font-size:13px;color:var(--muted,#64748b)">TV 상태 확인 및 원격 제어</span><div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" id="staffStatusRefresh" class="btn small">상태 새로고침</button><button type="button" id="staffReloadAllPlayers" class="btn small danger-outline">전체 플레이어 새로고침</button></div></div>${hospitalOperationsSummary()}</div></details>
       <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       <section id="signagePlaylistManagement" class="signage-playlist-management" aria-label="재생목록 관리">
         <header class="signage-playlist-management-head"><div><h2>재생목록 관리</h2><p>영상 제거·재생 순서 변경·저장은 아래에서 진행하세요. 송출 중인 TV의 연결도 확인해야 합니다.</p></div></header>
@@ -1904,7 +1903,7 @@
       renderPreservingUi(false);requestAnimationFrame(()=>qs('#hospitalLayoutWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'}));
     });
     qs('#unifiedTvOperations')?.addEventListener('toggle',event=>{tvOperationsExpanded=event.currentTarget.open;});
-    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{qs('#unifiedHospitalSettings')?.setAttribute('open','');qs('#unifiedHospitalSettings')?.scrollIntoView({behavior:'smooth',block:'start'});}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{
+    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#staffReloadAllPlayers')?.addEventListener('click',event=>{void reloadAllSitePlayers(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{qs('#unifiedHospitalSettings')?.setAttribute('open','');qs('#unifiedHospitalSettings')?.scrollIntoView({behavior:'smooth',block:'start'});}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{
       const id=b.dataset.staffSelectFloor;
       const selectedGroup=state.groups.find(g=>String(g.id)===String(id));
       const physicalFloor=Number(selectedGroup?.floor_number||0);
@@ -2094,6 +2093,29 @@
      echo when a load started after the signal was received. */
   function scheduleStaffStateReload(){const signalAt=Date.now();clearTimeout(stateReloadTimer);stateReloadTimer=setTimeout(()=>{if(document.hidden||busy||lastLoadStartedAt>=signalAt-50)return;load({background:true}).catch(()=>{});},250);}
 
+  // Reboot only remote/hybrid players owned by the current site. The RPC validates
+  // the PIN session and performs the site-scoped update; no cross-site table writes.
+  let siteReloadInFlight=false;
+  async function reloadAllSitePlayers(button){
+    if(siteReloadInFlight)return;
+    const targets=state.rooms.filter(r=>['remote','hybrid'].includes(displayControlMode(r)));
+    if(!targets.length)return toast('원격으로 새로고침할 TV가 없습니다.','error');
+    if(!window.confirm(`이 병원의 원격 관리 TV ${targets.length}대에 플레이어 새로고침 명령을 보낼까요?\n\n재생 중인 영상이 잠시 중단됩니다. 수동 운영 TV는 제외하며, 연결이 끊긴 TV는 즉시 반영되지 않을 수 있습니다.`))return;
+    siteReloadInFlight=true;
+    if(button){button.disabled=true;button.textContent='명령 전송 중…';}
+    try{
+      const {data,error}=await db.rpc('hospital_reload_site_players',{p_site:targetSiteId});
+      if(error)throw error;
+      const count=Number(data)||0;
+      toast(`이 병원의 원격 TV ${count}대에 새로고침 명령을 보냈습니다. 실제 반영은 TV 연결 상태에 따라 달라집니다.`);
+      await refreshVisibleStatuses(null);
+    }catch(err){
+      toast(`플레이어 새로고침 실패 · ${err?.message||String(err)}`,'error');
+    }finally{
+      siteReloadInFlight=false;
+      if(button?.isConnected){button.disabled=false;button.textContent='전체 플레이어 새로고침';}
+    }
+  }
   // User-initiated check reads current persisted player status without reloading
   // playlists, floor plans, or draft settings. It cannot force a disconnected TV
   // to report immediately; the displayed presence age remains authoritative.
@@ -2112,7 +2134,7 @@
       toast(`TV 상태 확인 실패 · ${e?.message||String(e)}`,'error');
     }finally{
       manualStatusRefreshInFlight=false;
-      if(button?.isConnected){button.disabled=false;button.textContent='새로고침';}
+      if(button?.isConnected){button.disabled=false;button.textContent='상태 새로고침';}
     }
   }
   async function refreshLiveRoom(roomId){
