@@ -320,9 +320,20 @@
       <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">실제 화면 보기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button>`}<button type="button" class="text-btn dark" data-map-open-playlist="${r.id}">재생목록 편집</button><button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">수동 디스플레이는 설정만 저장되며 원격 재생 명령은 보내지 않습니다.</small>':''}</div>
     </div>`;
   }
+  // Every visible output has an action. Its source determines what can safely be changed.
   function staffOutputList(r){
     const items=staffRoomOutputItems(r);
-    return `<div class="staff-output-list staff-output-readonly">${items.map((x,i)=>`<div class="staff-output-item">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<span class="staff-output-item-name"><b>${esc(x.video.title)}</b><small>${x.rule?.enabled===false?'TV에서 제외됨':`${i+1}번 영상`}</small></span></div>`).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;
+    const mode=String(r.player_status?.mode||'');
+    const overridden=['broadcast','broadcast_schedule','group','group_schedule','emergency'].includes(mode);
+    const manualIds=new Set((r.manual_active&&Array.isArray(r.manual_video_ids)?r.manual_video_ids:[]).map(String));
+    const playlistId=r.default_playlist_id||state.groups.find(g=>g.id===r.group_id)?.default_playlist_id||state.playlists.filter(p=>p.active!==false&&p.kind==='default').sort((a,b)=>(a.sort_order||0)-(b.sort_order||0))[0]?.id||'';
+    const baseIds=new Set(playlistId?state.playlistItems.filter(x=>String(x.playlist_id)===String(playlistId)).map(x=>String(x.video_id)):[]);
+    return `<div class="staff-output-list staff-output-readonly">${items.map((x,i)=>{
+      const id=String(x.id);
+      const kind=overridden?'override':manualIds.has(id)?'manual':baseIds.has(id)?'playlist':'other';
+      const label=kind==='override'?'송출 설정 확인':kind==='other'?'편집 위치 확인':'목록에서 제거';
+      return `<div class="staff-output-item">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<span class="staff-output-item-name"><b>${esc(x.video.title)}</b><small>${x.rule?.enabled===false?'TV에서 제외됨':`${i+1}번 영상`}${kind==='manual'?' · TV 개별 송출':kind==='override'?' · 우선 송출':''}</small></span><button type="button" class="btn small staff-output-remove" data-tv-remove-video="${esc(id)}" data-room="${esc(r.id)}" data-remove-kind="${kind}" aria-label="${esc(x.video.title)} · ${label}">${label}</button></div>`;
+    }).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;
   }
 
   const displayControlMode=(r)=>String(r?.display_control_mode||'remote');
@@ -1852,7 +1863,7 @@
     return `<details class="monitor-room staff-monitor-room health-${health}" data-room-card="${r.id}" data-health="${health}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><span data-staff-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="room-status-badge status-${display.key}" data-staff-room-status>${esc(display.label)}</span></div><div class="monitor-current-thumb" data-staff-live-thumb>${staffThumbLink(currentVideo,'monitor-current-thumb-link','현재 영상 열기')}</div><div class="monitor-now"><span>우선순위 · ${esc(priorityLabel(st.priority||st.mode))}</span><b data-staff-live-title>${esc(current)}</b><small data-staff-live-detail>${displayControlMode(r)==='manual'?esc(roomIssueReason(r)):(on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}`:'오프라인 · 플레이어 연결 끊김')}</small></div><div class="monitor-next"><span>다음</span><b data-staff-live-next>${esc(next||'—')}</b></div><div class="monitor-card-foot"><span>${esc(roomTypeLabel(r.room_mode))}${manual?' · 개별 영상':activeTreatment?` · ${esc(treatmentLabel(activeTreatment))}`:defaultPlaylist?` · ${esc(defaultPlaylist.name)}`:''}</span><b>관리</b></div></summary><div class="monitor-room-controls staff-room-control-body">
       ${playerDiagnosticsHtml(r)}
       ${audience?`<div class="room-output-note">맞춤 대상 · ${esc(audience)}</div>`:''}
-      ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>수동 디스플레이</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 플레이리스트</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>원격 연결이 없어도 설정은 저장할 수 있습니다. 플레이어로 즉시 전송되지는 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'미확인으로 변경':'오늘 확인 완료'}</button></div>`:`<details class="staff-output-details"><summary>현재 송출 영상 목록 · 보기 전용</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV 기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집 · 영상 추가/제거</button><small>목록 편집 내용은 저장 후 이 목록을 사용하는 TV에 적용됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 송출 복귀</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">실제 화면 보기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div>`}
+      ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>수동 디스플레이</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 플레이리스트</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>원격 연결이 없어도 설정은 저장할 수 있습니다. 플레이어로 즉시 전송되지는 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'미확인으로 변경':'오늘 확인 완료'}</button></div>`:`<details class="staff-output-details"><summary>현재 송출 영상 목록 · 영상 관리</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV 기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집 · 영상 추가/제거</button><small>목록 편집 내용은 저장 후 이 목록을 사용하는 TV에 적용됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 송출 복귀</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">실제 화면 보기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div>`}
       ${p?`<div class="room-patient compact"><b>${esc(p.label||`대기 ${p.queue_no}`)}</b><span>${esc(waitText(p))}</span></div>`:''}
       ${displayControlMode(r)!=='manual'&&isPatientRoom(r)?`<div class="room-card-actions">${!p?`<button class="btn" data-open-quick="${r.id}">${quick?'맞춤 변경':'환자 맞춤'}</button>${quick?`<button class="btn" data-quick-clear="${r.id}">맞춤 해제</button>`:''}`:'<span class="room-managed-note">환자 관리에서 변경</span>'}</div>${!p?quickPanel(r):''}`:''}
     </div></details>`;
@@ -1926,6 +1937,56 @@
     const floorStage=qs('.building-floor-plan-stage');
     const setFloorFocus=(kind,id,contextSpaceId=null)=>{if(!floorStage)return;floorStage.classList.add('has-map-focus');floorStage.dataset.focusKind=kind;floorStage.dataset.focusId=id;qsa('[data-staff-floor-room]',floorStage).forEach(x=>{const active=kind==='display'&&x.dataset.staffFloorRoom===id;const room=state.rooms.find(r=>r.id===x.dataset.staffFloorRoom);const linkedSpace=room?roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct):null;const context=(kind==='space'&&linkedSpace?.id===id)||(kind==='display'&&contextSpaceId&&linkedSpace?.id===contextSpaceId);x.classList.toggle('is-selected',active);x.classList.toggle('is-focus-context',!!context);});qsa('[data-floor-space]',floorStage).forEach(x=>{const active=kind==='space'&&x.dataset.floorSpace===id;const context=kind==='display'&&contextSpaceId&&x.dataset.floorSpace===contextSpaceId;x.classList.toggle('is-selected-space',active);x.classList.toggle('is-focus-context',!!context);});};
     // Open exactly one editor from the TV card; retain unsaved-change guard.
+    // TV card removal is an editor shortcut, not an immediate DB or R2 deletion.
+    // The user must explicitly save the draft in the single playlist editor.
+    qsa('[data-tv-remove-video]').forEach(button=>button.addEventListener('click',async event=>{
+      event.preventDefault();event.stopPropagation();
+      const roomId=button.dataset.room,videoId=String(button.dataset.tvRemoveVideo||'');
+      const kind=button.dataset.removeKind||'other';
+      const room=roomById(roomId),video=state.videos.find(v=>String(v.id)===videoId);
+      if(!room||!video)return toast('영상 또는 TV 정보를 찾을 수 없습니다. 화면을 새로고침하세요.','error');
+      if(kind==='override'){
+        toast('이 영상은 전체·층별·예약 우선 송출에서 제공됩니다. 해당 송출 설정에서 변경해야 합니다.','error');
+        return;
+      }
+      if(kind==='other'){
+        if(!syncMediaTargetFromMap(roomId))return;
+        qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+        toast('현재 TV의 기본 재생목록에 없는 영상입니다. 환자 맞춤 또는 TV별 설정을 확인하세요.','error');
+        return;
+      }
+      if(kind==='manual'){
+        // Manual additions belong only to this TV, not the shared base playlist.
+        if(!Array.isArray(room.manual_video_ids)||!room.manual_video_ids.map(String).includes(videoId))return toast('TV 개별 송출 목록이 변경됐습니다. 다시 조회하세요.','error');
+        if(!confirm(`「${video.title}」을(를) ${room.name} TV의 개별 송출 목록에서 제거할까요?\n\n다른 TV의 재생목록과 R2 원본은 유지됩니다. 마지막 영상이면 TV 기본 재생목록으로 복귀합니다.`))return;
+        button.disabled=true;
+        try{
+          const ok=await staffControl(roomId,()=>db.rpc('hospital_remove_room_manual_video',{p_site:targetSiteId,p_room:roomId,p_video:videoId}),'이 TV의 개별 송출 목록에서 영상을 제거했습니다. 다른 TV와 원본 영상은 유지됩니다.');
+          if(!ok&&button.isConnected)button.disabled=false;
+        }catch(error){if(button.isConnected)button.disabled=false;toast(error.message||String(error),'error');}
+        return;
+      }
+      if(!syncMediaTargetFromMap(roomId))return;
+      if(!mediaPlaylistId||!mediaDraft.includes(videoId)){
+        toast('이 영상은 현재 기본 재생목록에 없습니다. 최신 송출 상태를 확인하세요.','error');
+        return;
+      }
+      if(mediaGlobalReadonly(mediaPlaylistId)){
+        toast('공용 재생목록은 슈퍼어드민만 수정할 수 있습니다. 병원별 수정은 공용 목록을 복사하세요.','error');
+        qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+        return;
+      }
+      if(mediaDraft.length===1){
+        toast('마지막 영상은 제거 후 저장할 수 없습니다. 재생목록 자체를 삭제하거나 다른 영상을 먼저 추가하세요.','error');
+        qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+        return;
+      }
+      mediaDraft=mediaDraft.filter(id=>id!==videoId);
+      mediaDirty=true;
+      refreshMediaWorkspace();
+      qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+      toast('편집 목록에서 영상을 제거했습니다. 변경 저장을 눌러 적용하세요. 원본 파일은 유지됩니다.');
+    }));
     qsa('[data-tv-edit-playlist]').forEach(button=>button.addEventListener('click',event=>{
       event.preventDefault();event.stopPropagation();
       const roomId=button.dataset.tvEditPlaylist;

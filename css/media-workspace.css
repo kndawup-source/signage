@@ -442,3 +442,11 @@ body.hospital-page #mediaBulkPlaylistResult{font-size:12px}
   .media-work-foot { align-items:stretch; }
   .media-work-foot > div { display:flex; flex-wrap:wrap; gap:8px; }
 }
+
+/* TV output cards: explicit playlist-only removal shortcut. */
+.staff-output-readonly .staff-output-remove{flex:0 0 auto;min-height:34px;padding:6px 11px;white-space:nowrap;color:#a73e42;border:1px solid #ead6d8;background:#fff;font-size:12px;font-weight:600;border-radius:9px}
+.staff-output-readonly .staff-output-remove:hover{background:#fff3f3;border-color:#d99da0}
+@media(max-width:560px){.staff-output-readonly .staff-output-item{flex-wrap:wrap}.staff-output-readonly .staff-output-remove{margin-left:auto}}
+
+/* TV per-video actions are always rendered for all output sources. */
+.staff-output-readonly .staff-output-item > .staff-output-remove {display:inline-flex !important;visibility:visible !important;opacity:1 !important;align-items:center;justify-content:center;margin-left:auto;max-width:160px;flex-shrink:0;}
