@@ -240,3 +240,20 @@ body.hospital-page .nav-btn{display:none!important}
 .signage-playlist-management-head p{font-size:13px;color:#66758b;line-height:1.65;margin:0}
 #mediaWorkLibrary,#unifiedFloorplanPrimary,#unifiedTvOperations{scroll-margin-top:85px}
 @media(max-width:700px){.signage-playlist-management{padding:12px}.signage-section-nav a{flex:1 1 42%;padding:10px 6px}}
+
+/* Batch playlist deletion: below floor/TV layout, collapsed until requested. */
+.media-bulk-playlists{border:1px solid #dce3ee;border-radius:12px;background:#fbfcff;margin:14px 0;padding:12px 15px}
+.media-bulk-playlists>summary{cursor:pointer;font-weight:700;color:#263456;padding:5px 0}
+.media-bulk-playlists>p,.media-bulk-global>p{font-size:12px;color:#66758b;line-height:1.6;margin:10px 0}
+.media-bulk-playlist-controls,.media-bulk-playlist-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+.media-bulk-playlist-controls label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer}
+.media-bulk-playlist-list{max-height:250px;overflow:auto;background:white;border:1px solid #e0e6ef;border-radius:10px}
+.media-bulk-playlist-row{display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid #eef1f6;cursor:pointer}
+.media-bulk-playlist-row:last-child{border-bottom:none}
+.media-bulk-playlist-row input{width:16px;height:16px;flex:none}
+.media-bulk-playlist-row span{display:grid;gap:3px;min-width:0}
+.media-bulk-playlist-row strong{font-size:13px;overflow-wrap:anywhere}
+.media-bulk-playlist-row small{color:#728096;font-size:11px}
+.media-bulk-global{margin-top:14px;padding:10px;background:#fff7f5;border:1px solid #f2cfca;border-radius:10px}
+.media-bulk-global>summary{cursor:pointer;font-size:13px;font-weight:700}
+#mediaBulkPlaylistResult{font-size:12px;line-height:1.5;color:#66758b;overflow-wrap:anywhere}
