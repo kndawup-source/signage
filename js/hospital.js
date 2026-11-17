@@ -1366,7 +1366,7 @@
     const bulkOwn=own.filter(p=>p.site_id!=null&&String(p.site_id)===String(targetSiteId));
     const bulkShared=isSuperadmin?own.filter(p=>p.site_id==null):[];
     const bulkRows=(items)=>items.map(p=>`<label class="media-bulk-playlist-row"><input type="checkbox" data-bulk-playlist-id="${esc(p.id)}"><span><strong>${esc(p.name)}</strong><small>${p.site_id==null?'공용 · 전체 병원 영향':'병원 전용'} · TV 연결 ${mediaPlaylistSharingCount(p.id)}대</small></span></label>`).join('');
-    const bulkManager=`<details class="media-bulk-playlists" id="mediaBulkPlaylists"><summary>재생목록 여러 개 삭제</summary><p>삭제할 목록을 체크하세요. TV에 연결되어 있거나 다른 송출에서 사용 중이면 서버에서 삭제를 차단합니다. 영상 원본과 R2 파일은 삭제되지 않습니다.</p><div class="media-bulk-playlist-controls"><label><input type="checkbox" id="mediaBulkSelectOwn"> 병원 전용 전체 선택</label><span id="mediaBulkSelectedCount">선택 0개</span></div><div class="media-bulk-playlist-list">${bulkRows(bulkOwn)||'<p class="muted">병원 전용 재생목록이 없습니다.</p>'}</div>${isSuperadmin?`<details class="media-bulk-global"><summary>공용 재생목록 (슈퍼어드민 전용 · 별도 선택)</summary><p>공용 목록 삭제는 모든 병원에 영향을 줄 수 있습니다.</p><div class="media-bulk-playlist-list">${bulkRows(bulkShared)}</div></details>`:''}<div class="media-bulk-playlist-actions"><button type="button" class="btn danger-outline" id="mediaBulkDeletePlaylists" disabled>선택한 재생목록 삭제</button><span id="mediaBulkPlaylistResult" role="status"></span></div></details>`;
+    const bulkManager=`<details class="media-bulk-playlists" id="mediaBulkPlaylists"><summary>재생목록 여러 개 삭제</summary><p>삭제할 목록을 선택하세요. 삭제 전에 영향받는 병원·TV 수를 확인합니다. 삭제를 확인하면 TV·층의 연결을 해제합니다. 영상 원본과 R2 파일은 삭제하지 않습니다.</p><div class="media-bulk-playlist-controls"><label><input type="checkbox" id="mediaBulkSelectOwn"> 병원 전용 전체 선택</label><span id="mediaBulkSelectedCount">선택 0개</span></div><div class="media-bulk-playlist-list">${bulkRows(bulkOwn)||'<p class="muted">병원 전용 재생목록이 없습니다.</p>'}</div>${isSuperadmin?`<details class="media-bulk-global"><summary>공용 재생목록 (슈퍼어드민 전용 · 별도 선택)</summary><p>공용 목록은 모든 병원에 영향을 줄 수 있습니다. 삭제는 슈퍼어드민만 가능합니다.</p><div class="media-bulk-playlist-list">${bulkRows(bulkShared)}</div></details>`:''}<div class="media-bulk-playlist-actions"><button type="button" class="btn danger-outline" id="mediaBulkDeletePlaylists" disabled>선택한 재생목록 삭제</button><span id="mediaBulkPlaylistResult" role="status"></span></div></details>`;
     return `<section class="media-workspace">${targetSelector}${bulkManager}<div class="media-work-toolbar"><div><h2>영상관리</h2><p>영상 선택, 재생 순서, TV 적용을 이 화면에서 관리합니다.</p></div><div class="media-work-controls"><select id="staffPlaylistSelect" aria-label="재생목록 선택"><option value="">새 재생목록</option>${own.map(p=>`<option value="${esc(p.id)}" ${String(p.id)===mediaPlaylistId?'selected':''}>${esc(p.name)}${p.site_id==null?' · 공용':''}</option>`).join('')}</select><button type="button" class="btn" data-new-playlist>+ 재생목록</button><button type="button" class="btn primary" id="mediaOpenUpload">+ 영상 업로드</button></div></div><button type="button" id="mediaQuickUpload" class="media-quick-upload"><span>⇧ &nbsp; MP4를 여기에 끌어놓거나 눌러서 업로드</span><small>여러 파일 선택 가능 · 원본 1080p 유지 · 업로드 완료 후 목록에 표시</small></button>
     <div class="media-work-columns"><section class="media-work-panel"><div class="media-work-section-head"><div><h3>영상 보관함</h3><small>${videos.length}개 영상 · 클릭하여 추가</small></div></div><label class="media-work-search"><span>⌕</span><input id="mediaWorkSearch" type="search" placeholder="영상 검색" value="${esc(mediaFilter)}" autocomplete="off" aria-label="영상 검색"></label><div id="mediaWorkLibrary" class="media-work-scroll">${filtered.map(v=>mediaVideoRow(v,queueSet.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>'}</div><p class="media-work-help">영상을 클릭해 추가하거나 오른쪽으로 드래그하세요.</p></section>
     <section class="media-work-panel"><div class="media-work-section-head"><div><h3>재생 순서</h3><small>카드를 드래그하면 순서가 바뀝니다.</small></div><span class="media-work-count" id="mediaWorkCount">${mediaDraft.length}개</span></div><label class="field media-work-name-field"><span>재생목록 이름</span><input id="staffPlaylistName" maxlength="60" value="${esc(playlist?.name||'')}" ${globalSelected&&!isSuperadmin?'readonly':''} placeholder="예: 9층 대기실" autocomplete="off"></label>${globalSelected?`<p class="media-shared-warning">${isSuperadmin?'슈퍼어드민: 공용 재생목록을 수정하면 사용하는 모든 병원에 영향을 줍니다.':'공용 재생목록입니다. 원본은 수정할 수 없습니다.'} <button type="button" class="btn small" id="mediaCopyGlobal">이 병원에 복사해서 수정</button></p>`:''}${sharedNotice}<div id="mediaWorkQueue" class="media-work-scroll media-work-queue" aria-label="재생 순서">${mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>'}</div><div class="media-work-foot"><span id="mediaWorkSaveStatus" role="status">${mediaDirty?'저장되지 않은 변경 사항':'현재 재생목록'}</span><div><button type="button" class="btn" id="mediaApplyCurrent" ${target&&mediaPlaylistId&&!mediaDirty?"":"disabled"}>이 TV에 적용</button><button id="staffDeletePlaylist" class="btn danger-outline" type="button" ${playlist&&(!globalSelected||isSuperadmin)?'':'disabled'}>삭제</button><button id="staffSavePlaylist" class="btn primary" type="button" ${globalSelected&&!isSuperadmin?'disabled':''}>${mediaDirty?'변경 저장':'저장'}</button></div></div></section></div>
@@ -1433,39 +1433,54 @@
     }catch(e){toast(e.message||'영상 삭제에 실패했습니다.','error');}
     finally{deletingHospitalVideo=false;}
   }
-  async function deleteHospitalPlaylist(){const id=mediaPlaylistId;if(!id)return;const isGlobal=mediaIsGlobalPlaylist(id);if(isGlobal&&!isSuperadmin)return toast('공용 재생목록은 삭제할 수 없습니다.','error');if(mediaPlaylistSharingCount(id)>0&&!isGlobal)return toast('TV에서 사용 중인 재생목록은 삭제할 수 없습니다. 먼저 TV 연결을 변경하세요.','error');if(!confirm(isGlobal?'공용 재생목록을 전체 병원에서 삭제할까요? 사용 중이면 서버가 삭제를 차단합니다.':'이 병원 플레이리스트를 삭제할까요?'))return;const {error}=isGlobal?await db.rpc('superadmin_delete_global_playlist',{p_id:id}):await db.rpc('hospital_delete_site_playlist',{p_site:targetSiteId,p_id:id});if(error)return toast(error.message,'error');mediaPlaylistId='';mediaDraft=[];mediaDirty=false;toast('병원 플레이리스트를 삭제했습니다.');await load();}
+  // 서버 미리보기 결과를 경고창에 표시하고, 동일한 상태 지문으로 원자적 삭제한다.
+  async function requestPlaylistDelete(ids){
+    const unique=[...new Set(ids.map(String).filter(Boolean))];
+    if(!unique.length)return;
+    const selected=unique.map(id=>playlistById(id));
+    if(selected.some(p=>!p))return toast('삭제할 재생목록을 다시 선택해 주세요.','error');
+    if(selected.some(p=>p.site_id==null)&&!isSuperadmin)return toast('공용 재생목록은 슈퍼어드민만 삭제할 수 있습니다.','error');
+    if(selected.some(p=>p.site_id!=null&&String(p.site_id)!==String(targetSiteId)))return toast('다른 병원의 재생목록은 삭제할 수 없습니다.','error');
+    const args={p_site:targetSiteId,p_ids:unique,p_dry_run:true,p_expected_signature:null};
+    const preview=await db.rpc('hospital_bulk_delete_playlists',args);
+    if(preview.error){
+      if(preview.error.code==='PGRST202')return toast('재생목록 일괄 삭제 SQL이 아직 적용되지 않았습니다.','error');
+      return toast('삭제 영향 확인 실패: '+preview.error.message,'error');
+    }
+    const impact=preview.data||{};
+    if(impact.playlist_count!==unique.length)return toast('선택한 재생목록 수가 변경되었습니다. 새로고침 후 다시 시도해 주세요.','error');
+    const label=selected.map(p=>p.name).slice(0,5).join(', ')+(selected.length>5?` 외 ${selected.length-5}개`:'');
+    const warning=`재생목록 ${impact.playlist_count}개를 삭제하시겠습니까?\n\n${label}\n\n연결 해제 대상\n- 병원 ${impact.site_count||0}곳\n- TV ${impact.tv_count||0}대\n- 층 기본 연결 ${impact.group_count||0}개\n\n삭제하면 연결된 TV·층의 기본 재생목록 지정이 해제됩니다. 남은 기본 목록 또는 다른 송출 설정에 따라 재생될 수 있으며, 영상이 없으면 송출이 중단될 수 있습니다.\n공용 목록은 직접 연결되지 않은 병원에도 영향을 줄 수 있습니다.\n영상 원본과 R2 파일은 삭제되지 않습니다.\n\n이 작업은 되돌릴 수 없습니다.`;
+    if(!window.confirm(warning))return;
+    const result=await db.rpc('hospital_bulk_delete_playlists',{
+      ...args,p_dry_run:false,p_expected_signature:impact.signature
+    });
+    if(result.error){
+      const stale=String(result.error.message||'').includes('목록 연결 상태가 변경');
+      return toast(stale?'TV 연결 상태가 변경되었습니다. 다시 시도하면 최신 영향 범위를 보여줍니다.':'삭제 실패: '+result.error.message,'error');
+    }
+    if(unique.includes(String(mediaPlaylistId))){mediaPlaylistId='';mediaDraft=[];mediaDirty=false;}
+    clearTimeout(mediaSaveTimer);
+    toast(`${result.data?.deleted_count||unique.length}개 재생목록을 삭제하고 TV 연결을 해제했습니다.`);
+    await load();
+    const details=qs('#mediaBulkPlaylists');if(details)details.open=true;
+    const summary=qs('#mediaBulkPlaylistResult');if(summary)summary.textContent=`${result.data?.deleted_count||unique.length}개 삭제 완료 · TV ${result.data?.tv_count||0}대 연결 해제`;
+  }
+  async function deleteHospitalPlaylist(){
+    if(!mediaPlaylistId||bulkPlaylistDeleting)return;
+    if(mediaDirty)return toast('편집 중인 재생목록을 먼저 저장하거나 취소하세요.','error');
+    bulkPlaylistDeleting=true;
+    try{await requestPlaylistDelete([mediaPlaylistId]);}
+    finally{bulkPlaylistDeleting=false;}
+  }
   async function deleteSelectedPlaylists(){
     if(bulkPlaylistDeleting||mediaSaving)return;
     if(mediaDirty)return toast('편집 중인 재생목록을 먼저 저장하거나 취소하세요.','error');
-    const boxes=qsa('[data-bulk-playlist-id]:checked');
-    const ids=[...new Set(boxes.map(el=>String(el.dataset.bulkPlaylistId||'')))];
-    const selected=ids.map(id=>playlistById(id)).filter(Boolean);
-    if(!selected.length)return toast('삭제할 재생목록을 선택하세요.','error');
-    const own=selected.filter(p=>String(p.site_id)===String(targetSiteId));
-    const global=selected.filter(p=>p.site_id==null);
-    if(own.length+global.length!==ids.length||global.length&&!isSuperadmin)return toast('삭제 권한이 없는 재생목록이 선택되었습니다.','error');
-    if(!confirm(`${selected.length}개 재생목록 삭제를 요청합니다.\n병원 전용 ${own.length}개 / 공용 ${global.length}개\n\nTV 등에서 사용 중인 목록은 삭제되지 않으며, 이 작업은 되돌릴 수 없습니다.\n영상 원본은 삭제되지 않습니다. 계속할까요?`))return;
-    if(global.length&&!confirm(`공용 재생목록 ${global.length}개는 다른 병원에도 영향을 줄 수 있습니다. 정말 삭제하시겠습니까?`))return;
-    clearTimeout(mediaSaveTimer);
+    const ids=[...new Set(qsa('[data-bulk-playlist-id]:checked').map(el=>String(el.dataset.bulkPlaylistId||'')))];
+    if(!ids.length)return toast('삭제할 재생목록을 선택하세요.','error');
     bulkPlaylistDeleting=true;
-    const action=qs('#mediaBulkDeletePlaylists'),report=qs('#mediaBulkPlaylistResult');
-    if(action)action.disabled=true;
-    const failed=[];let deleted=0;
-    try{
-      for(const p of selected){
-        if(report)report.textContent=`삭제 중 ${deleted+failed.length+1}/${selected.length}`;
-        const {error}=p.site_id==null
-          ?await db.rpc('superadmin_delete_global_playlist',{p_id:p.id})
-          :await db.rpc('hospital_delete_site_playlist',{p_site:targetSiteId,p_id:p.id});
-        if(error)failed.push(`${p.name}: ${error.message||'삭제 실패'}`);
-        else{deleted++;if(mediaPlaylistId===String(p.id)){mediaPlaylistId='';mediaDraft=[];mediaDirty=false;}}
-      }
-      toast(`${deleted}개 삭제 완료${failed.length?` · ${failed.length}개 실패`:''}`,failed.length?'error':undefined);
-      if(failed.length)console.warn('[Signage] Playlist delete rejected:',failed);
-      await load();
-      const next=qs('#mediaBulkPlaylists');if(next)next.open=true;
-      const summary=qs('#mediaBulkPlaylistResult');if(summary)summary.textContent=failed.length?`${deleted}개 삭제 · ${failed.length}개 실패 (사용 중 또는 권한 확인 필요): ${failed.slice(0,2).join(' / ')}`:`${deleted}개 삭제 완료`;
-    }catch(e){toast('재생목록 일괄 삭제가 중단됐습니다: '+(e.message||String(e)),'error');}
+    const action=qs('#mediaBulkDeletePlaylists');if(action)action.disabled=true;
+    try{await requestPlaylistDelete(ids);}
     finally{bulkPlaylistDeleting=false;if(action)action.disabled=false;}
   }
   function bindBulkPlaylistDelete(){
