@@ -1,4 +1,0 @@
-admin-product-switcher.js
-camera-admin.html
-hospital-admin.html
-survey-admin.html
