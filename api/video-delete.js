@@ -6,6 +6,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_PART = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
 const FILE_PART = '[a-zA-Z0-9가-힣._-]+';
 const SAFE_KEYS = [
+  new RegExp(`^sites/(${UUID_PART})/videos/${UUID_PART}\\.mp4$`, 'i'),
   new RegExp(`^sites/(${UUID_PART})/videos/[0-9]{4}/[0-9]{2}/${FILE_PART}$`, 'i'),
   new RegExp(`^videos/sites/(${UUID_PART})/${UUID_PART}-${FILE_PART}$`, 'i'),
   new RegExp(`^videos/[0-9]{4}/[0-9]{2}/${FILE_PART}$`, 'i')

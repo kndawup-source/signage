@@ -1,6 +1,7 @@
  'use strict';
 const { requireMember, resolveSite, json, parseBody } = require('./_lib/auth');
-const { config, presignPut, makeObjectKey } = require('./_lib/r2');
+const crypto = require('node:crypto');
+const { config, presignPut } = require('./_lib/r2');
 module.exports=async(req,res)=>{
   if(req.method!=='POST')return json(res,405,{error:'METHOD_NOT_ALLOWED'});
   try{
@@ -12,7 +13,7 @@ module.exports=async(req,res)=>{
     if(!Number.isFinite(size)||size<=0||size>2*1024*1024*1024)return json(res,400,{error:'INVALID_FILE_SIZE'});
     if(!config().ready)return json(res,503,{error:'R2_NOT_CONFIGURED'});
     // Scoped key makes multi-tenant media ownership explicit. Site authorization uses the PIN session.
-    const key=`videos/sites/${siteId}/${makeObjectKey(filename).split('/').pop()}`;
+    const key=`sites/${siteId}/videos/${crypto.randomUUID()}.mp4`;
     const signed=presignPut(key,900,'video/mp4');
     return json(res,200,{key,uploadUrl:signed.uploadUrl,publicUrl:signed.publicUrl,siteId});
   }catch(e){return json(res,e.statusCode||500,{error:e.message||'VIDEO_UPLOAD_SIGN_FAILED'});}

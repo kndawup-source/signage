@@ -1,5 +1,6 @@
 const { requireMember, getSite, json, parseBody } = require('./_lib/auth');
-const { config, presignPut, makeObjectKey } = require('./_lib/r2');
+const crypto = require('node:crypto');
+const { config, presignPut } = require('./_lib/r2');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -18,7 +19,7 @@ module.exports = async (req, res) => {
     if (!filename || contentType !== 'video/mp4' || !filename.toLowerCase().endsWith('.mp4')) return json(res, 400, { error: 'MP4_ONLY' });
     const maxSize = member.role === 'admin' ? 2 * 1024 * 1024 * 1024 : 350 * 1024 * 1024;
     if (!Number.isFinite(size) || size <= 0 || size > maxSize) return json(res, 400, { error: 'INVALID_FILE_SIZE' });
-    const key = `sites/${siteId}/${makeObjectKey(filename)}`;
+    const key = `sites/${siteId}/videos/${crypto.randomUUID()}.mp4`;
     const signed = presignPut(key, 900, contentType);
     return json(res, 200, { key, ...signed });
   } catch (e) {
