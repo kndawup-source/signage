@@ -527,3 +527,37 @@ body.hospital-page .media-work-queue-actions [data-media-remove]:hover{backgroun
 .hospital-page .tv-diagnostics-more-body .tv-diagnostics-item{font-size:12px;gap:12px}
 @media(max-width:900px){.hospital-page .tv-diagnostics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.hospital-page .tv-diagnostics-compact{padding:12px}.hospital-page .tv-diagnostics-grid{gap:7px}.hospital-page .tv-diagnostics-stat{padding:11px}.hospital-page .tv-diagnostics-stat>strong{font-size:12px}.hospital-page .tv-diagnostics-advice{flex-direction:column;gap:4px}}
+
+/* TV detail diagnostics — concise status, actions only when needed. */
+.hospital-page .tv-diagnostics-simple{border:1px solid #e4e8ee;border-radius:13px;padding:18px 20px;background:#f8fafc;color:#1d2939}
+.hospital-page .tv-diag-top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
+.hospital-page .tv-diag-heading{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;min-width:0}
+.hospital-page .tv-diag-eyebrow{font-size:12px;color:#66758a;font-weight:600}
+.hospital-page .tv-diag-heading strong{font-size:17px;font-weight:750;color:#1a2940}
+.hospital-page .tv-diag-indicator{white-space:nowrap;font-size:12px;font-weight:700;padding:5px 10px;border-radius:7px;background:#eaf0f8;color:#43546b}
+.hospital-page .tv-diag-indicator.tv-diag-ok{background:#e9f6ef;color:#187552}
+.hospital-page .tv-diag-indicator.tv-diag-problem{background:#fff0e9;color:#a94c27}
+.hospital-page .tv-diag-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.hospital-page .tv-diag-step{min-width:0;background:#fff;border:1px solid #e4e8ee;border-radius:9px;padding:13px 14px;display:grid;grid-template-columns:9px 1fr;column-gap:8px;row-gap:4px;align-items:center}
+.hospital-page .tv-diag-step-label{font-size:12px;color:#66758a}
+.hospital-page .tv-diag-step strong{grid-column:2;font-size:14px;font-weight:750;overflow-wrap:anywhere}
+.hospital-page .tv-diag-dot{width:8px;height:8px;border-radius:50%;background:#9aa6b7}
+.hospital-page .tv-diag-dot.tone-good{background:#248c67}
+.hospital-page .tv-diag-dot.tone-warn{background:#e2a043}
+.hospital-page .tv-diag-dot.tone-bad{background:#cf625d}
+.hospital-page .tv-diag-help{display:flex;align-items:flex-start;gap:10px;margin-top:12px;border:1px solid #f0ded0;background:#fffaf4;border-radius:10px;padding:12px 14px}
+.hospital-page .tv-diag-help-icon{display:flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;border-radius:50%;background:#f5e6d3;color:#9b591d;font-weight:800}
+.hospital-page .tv-diag-help b{font-size:13px}.hospital-page .tv-diag-help p{margin:4px 0 0;font-size:13px;line-height:1.55;color:#535d6c}
+.hospital-page .tv-diag-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#65758b}
+.hospital-page .tv-diagnostics-simple .tv-diagnostics-more{max-width:100%}
+.hospital-page .tv-diagnostics-simple .tv-diagnostics-more[open]{flex-basis:100%}
+.hospital-page .tv-diagnostics-simple .tv-diagnostics-more>summary{font-size:12px;color:#3f5476;cursor:pointer;font-weight:700}
+.hospital-page .tv-diagnostics-simple .tv-diagnostics-more-body{border-top:1px solid #e3e7ef;margin-top:10px;padding-top:12px;display:grid;gap:10px}
+.hospital-page .tv-diag-limitation{font-size:12px;color:#6c7584;line-height:1.5;margin:0}
+@media(max-width:700px){.hospital-page .tv-diag-steps{grid-template-columns:1fr}.hospital-page .tv-diag-step{padding:10px 12px}.hospital-page .tv-diagnostics-simple{padding:14px}}
+
+/* TV/space explanation: one question, three scannable answers. */
+.floor-room-why .journey-operating-purpose { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line, #e5e7eb); }
+.floor-room-why .journey-operating-purpose small { display: block; margin-bottom: 5px; color: var(--muted, #64748b); font-size: 12px; font-weight: 600; }
+.floor-room-why .journey-operating-purpose p { margin: 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.floor-room-why .journey-summary { row-gap: 12px; }
