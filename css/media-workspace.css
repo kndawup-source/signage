@@ -499,3 +499,31 @@ body.hospital-page .media-work-queue-actions [data-media-remove]{border-color:#e
 body.hospital-page .media-work-queue-actions [data-media-remove]:hover{background:#fff1f2!important;border-color:#fecdd3!important;color:#b91c1c!important}
 @media(max-width:950px){body.hospital-page .media-work-toolbar{align-items:stretch}body.hospital-page .media-work-controls{width:100%}body.hospital-page .media-playlist-select-label{flex:1;min-width:180px}}
 @media(max-width:600px){body.hospital-page .media-work-toolbar{padding:12px}body.hospital-page .media-work-controls{display:grid;grid-template-columns:1fr 1fr}body.hospital-page .media-playlist-select-label{grid-column:1/-1}body.hospital-page .media-work-controls>.btn{width:100%}body.hospital-page .media-work-flow-note{padding:12px}body.hospital-page .media-work-apply .media-work-section-head{align-items:flex-start}}
+
+/* Compact TV diagnostics: summary first, evidence on demand. */
+.hospital-page .tv-diagnostics-compact{display:block;padding:16px 18px;border:1px solid #e4e8ef;border-radius:14px;background:#f8fafc;color:#202c40;font-size:13px}
+.hospital-page .tv-diagnostics-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.hospital-page .tv-diagnostics-compact .tv-diagnostics-title{font-size:15px;font-weight:750}
+.hospital-page .tv-diagnostics-summary{font-size:12px;color:#596779;font-weight:650}
+.hospital-page .tv-diagnostics-summary.tone-warn{color:#9d5520}
+.hospital-page .tv-diagnostics-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.hospital-page .tv-diagnostics-stat{min-width:0;background:#fff;border:1px solid #e4e8ef;border-radius:10px;padding:13px 14px;display:flex;flex-direction:column;gap:7px}
+.hospital-page .tv-diagnostics-stat>span{color:#65758b;font-size:12px;font-weight:500}
+.hospital-page .tv-diagnostics-stat>strong{font-size:14px;font-weight:750;text-align:left;overflow-wrap:anywhere}
+.hospital-page .tv-diagnostics-stat.tone-good>strong{color:#187552}
+.hospital-page .tv-diagnostics-stat.tone-bad>strong{color:#b83d38}
+.hospital-page .tv-diagnostics-stat.tone-warn>strong{color:#a66121}
+.hospital-page .tv-diagnostics-advice{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #e4e8ef;border-radius:10px;padding:12px 14px;margin-top:10px;line-height:1.5}
+.hospital-page .tv-diagnostics-advice b{flex:0 0 auto;font-size:12px}
+.hospital-page .tv-diagnostics-advice span{color:#48576b;overflow-wrap:anywhere}
+.hospital-page .tv-diagnostics-bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px;color:#65758b;font-size:12px}
+.hospital-page .tv-diagnostics-more{position:relative}
+.hospital-page .tv-diagnostics-more>summary{cursor:pointer;list-style:none;color:#334f7d;font-weight:700;padding:5px 2px}
+.hospital-page .tv-diagnostics-more>summary::-webkit-details-marker{display:none}
+.hospital-page .tv-diagnostics-more>summary::after{content:' ▾'}
+.hospital-page .tv-diagnostics-more[open]>summary::after{content:' ▴'}
+.hospital-page .tv-diagnostics-more[open]{width:100%}
+.hospital-page .tv-diagnostics-more-body{border-top:1px solid #e4e8ef;padding-top:11px;margin-top:6px;display:grid;gap:9px}
+.hospital-page .tv-diagnostics-more-body .tv-diagnostics-item{font-size:12px;gap:12px}
+@media(max-width:900px){.hospital-page .tv-diagnostics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.hospital-page .tv-diagnostics-compact{padding:12px}.hospital-page .tv-diagnostics-grid{gap:7px}.hospital-page .tv-diagnostics-stat{padding:11px}.hospital-page .tv-diagnostics-stat>strong{font-size:12px}.hospital-page .tv-diagnostics-advice{flex-direction:column;gap:4px}}

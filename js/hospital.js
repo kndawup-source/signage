@@ -413,11 +413,58 @@
     if(s.update_pending_version)items.push({label:'업데이트 대기',value:String(s.update_pending_version).slice(0,24)});
     return items;
   }
-  function playerDiagnosticsHtml(r){return `<div class="tv-diagnostics" data-player-diagnostics="${esc(r.id)}"><b class="tv-diagnostics-title">플레이어 진단</b>${playerDiagnostics(r).map(x=>`<div class="tv-diagnostics-item"><span>${esc(x.label)}</span><strong>${esc(x.value)}</strong></div>`).join('')}</div>`;}
+  // A short, evidence-based summary. Never imply that monitor output is remotely verified.
+  function playerDiagnosticsHtml(r){
+    const manual=displayControlMode(r)==='manual', s=r?.player_status||{}, cause=playerCause(r);
+    const seen=r?.last_seen_at?new Date(r.last_seen_at).getTime():NaN;
+    const fresh=Number.isFinite(seen)&&monitor.serverNow()-seen<=12*60*1000;
+    const play=String(s.playback_state||'').toLowerCase();
+    const cacheTotal=Number(s.offline_cache_total)||0,cacheDone=Number(s.offline_cache_count)||0;
+    const pendingTotal=Number(s.pending_total)||0,pendingDone=Number(s.pending_count)||0;
+    let conn={value:'응답 없음',tone:'bad'};
+    if(manual)conn={value:'수동 운영',tone:'neutral'};
+    else if(fresh&&s.online===false)conn={value:'인터넷 끊김 보고',tone:'bad'};
+    else if(fresh)conn={value:'최근 보고 수신',tone:'good'};
+    let playback={value:'확인 불가',tone:'neutral'};
+    if(manual)playback={value:'현장 확인',tone:'neutral'};
+    else if(fresh){
+      if(s.visibility_state==='hidden')playback={value:'탭 숨김',tone:'warn'};
+      else if(s.visibility_state==='visible'&&s.window_focused===false)playback={value:'포커스 없음',tone:'warn'};
+      else if(s.error||play==='error'||Number(s.failed_video_count||0)>0)playback={value:'재생 오류',tone:'bad'};
+      else if(s.mode==='closed'||play==='closed')playback={value:'운영시간 외',tone:'neutral'};
+      else if(r.paused||play==='paused')playback={value:'일시정지',tone:'warn'};
+      else if(['playing','emergency'].includes(play))playback={value:'재생 중 보고',tone:'good'};
+      else if(play==='loading')playback={value:'준비 중',tone:'neutral'};
+      else if(play==='stopped')playback={value:'재생 중단',tone:'bad'};
+      else playback={value:'대기',tone:'neutral'};
+    }
+    let cache={value:'확인 불가',tone:'neutral'};
+    if(manual)cache={value:'자동 확인 제외',tone:'neutral'};
+    else if(fresh){
+      if(s.offline_cache_error)cache={value:'준비 오류',tone:'bad'};
+      else if(pendingTotal>0&&s.pending_hash&&s.pending_hash!==s.active_hash)cache={value:`새 목록 ${Math.min(pendingDone,pendingTotal)}/${pendingTotal}`,tone:'warn'};
+      else if(s.offline_cache_ready===true)cache={value:cacheTotal>0?`${Math.min(cacheDone,cacheTotal)}/${cacheTotal} 완료`:'준비 완료',tone:'good'};
+      else if(cacheTotal>0)cache={value:`${Math.min(cacheDone,cacheTotal)}/${cacheTotal} 준비 중`,tone:'warn'};
+      else if(s.active_hash)cache={value:'목록 적용됨',tone:'good'};
+    }
+    const cards=[['플레이어 연결',conn],['영상 재생',playback],['영상 준비',cache],['화면 출력',{value:'확인 불가',tone:'neutral'}]];
+    const issue=!manual&&(!fresh||['bad','warn'].includes(conn.tone)||['bad','warn'].includes(playback.tone)||cache.tone==='bad');
+    const action=issue?cause.action:playback.tone==='good'?'실제 화면이 보이지 않으면 모니터 입력과 창 가림 여부를 확인하세요.':'';
+    const detailItems=playerDiagnostics(r);
+    const seenLabel=Number.isFinite(seen)?new Date(seen).toLocaleString('ko-KR'):'보고 없음';
+    return `<section class="tv-diagnostics tv-diagnostics-compact" data-player-diagnostics="${esc(r.id)}" aria-label="플레이어 진단">
+      <div class="tv-diagnostics-heading"><b class="tv-diagnostics-title">플레이어 진단</b><span class="tv-diagnostics-summary tone-${esc(issue?'warn':'neutral')}">${esc(manual?'수동 운영':!fresh?'응답 없음':cause.label)}</span></div>
+      <div class="tv-diagnostics-grid">${cards.map(([label,item])=>`<div class="tv-diagnostics-stat tone-${item.tone}"><span>${esc(label)}</span><strong>${esc(item.value)}</strong></div>`).join('')}</div>
+      ${action?`<div class="tv-diagnostics-advice"><b>${issue?'확인할 사항':'참고'}</b><span>${esc(action)}</span></div>`:''}
+      <div class="tv-diagnostics-bottom"><span>마지막 보고 · ${esc(seenLabel)}</span><details class="tv-diagnostics-more"><summary>상세 진단</summary><div class="tv-diagnostics-more-body">${detailItems.map(x=>`<div class="tv-diagnostics-item"><span>${esc(x.label)}</span><strong>${esc(x.value)}</strong></div>`).join('')}</div></details></div>
+    </section>`;
+  }
   function repaintPlayerDiagnostics(r){
     qsa('[data-player-diagnostics]').filter(el=>el.dataset.playerDiagnostics===String(r.id)).forEach(el=>{
+      const wasOpen=!!el.querySelector('.tv-diagnostics-more[open]');
       const holder=document.createElement('div');holder.innerHTML=playerDiagnosticsHtml(r);
-      const next=holder.firstElementChild;if(next)el.replaceWith(next);
+      const next=holder.firstElementChild;
+      if(next){if(wasOpen){const more=next.querySelector('.tv-diagnostics-more');if(more)more.open=true;}el.replaceWith(next);}
     });
   }
   function lastReportLabel(r){
