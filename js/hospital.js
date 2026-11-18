@@ -345,6 +345,8 @@
     if(mode==='manual')return r.manual_check_status==='checked'?{key:'manual',label:'수동 운영'}:{key:'manual-warn',label:'수동 확인 필요'};
     const h=roomHealth(r),st=r.player_status||{},play=String(st.playback_state||'').toLowerCase(),ack=ackState.get(r.id);
     if(h==='offline'||play==='stopped')return {key:'offline',label:mode==='hybrid'?'원격 연결 끊김':'오프라인'};
+    if(st.online===false)return {key:'delayed',label:'네트워크 확인'};
+    if(st.visibility_state==='hidden')return {key:'delayed',label:'탭 숨김'};
     if(st.update_error||st.update_pending_version)return {key:'update',label:'업데이트 필요'};
     if(ack?.status==='error'||ack?.status==='unconfirmed'||h==='error'||h==='recovering'||st.error||st.offline_cache_error||Number(st.failed_video_count||0)>0)return {key:'error',label:'오류'};
     // A delayed heartbeat must not be reported as verified playback (or ordinary idle).
@@ -355,6 +357,27 @@
     return {key:'idle',label:'대기'};
   }
 
+  // Classification uses only fresh player telemetry; a missing heartbeat cannot prove an internet fault.
+  function playerCause(r){
+    const s=r?.player_status||{};
+    if(displayControlMode(r)==='manual')return {label:'현장 수동 운영',detail:'자동 진단 대상이 아닙니다.',action:'현장 담당자에게 확인하세요.'};
+    const seen=r?.last_seen_at?new Date(r.last_seen_at).getTime():NaN;
+    const age=Number.isFinite(seen)?monitor.serverNow()-seen:Infinity;
+    if(age>12*60*1000)return {label:'연결 확인 불가',detail:'최근 상태 보고가 없습니다. 인터넷 장애·PC 종료·브라우저 종료 등을 구분할 수 없습니다.',action:'PC 전원, Edge 실행 여부, 네트워크를 현장에서 확인하세요.'};
+    const play=String(s.playback_state||'').toLowerCase();
+    if(s.online===false)return {label:'PC 네트워크 연결 없음',detail:'마지막 플레이어 보고에서 브라우저가 오프라인 상태였습니다.',action:'PC의 인터넷 연결과 네트워크 장비를 확인하세요.'};
+    if(s.visibility_state==='hidden')return {label:'플레이어 탭 숨김',detail:'브라우저가 탭 숨김 또는 최소화 상태를 보고했습니다. 다른 창의 실제 가림 여부는 확인할 수 없습니다.',action:'플레이어 창을 전면에 표시하고 전체화면 상태를 확인하세요.'};
+    if(s.visibility_state==='visible'&&s.window_focused===false)return {label:'플레이어 포커스 없음',detail:'다른 창이 활성화됐을 가능성이 있지만 실제 가림 여부는 확인되지 않았습니다.',action:'PC에서 다른 창이 플레이어를 가리는지 확인하세요.'};
+    if(s.mode==='closed'||play==='closed'||s.operating_active===false)return {label:'운영시간 외',detail:'운영시간 설정에 따라 재생하지 않는 상태입니다.',action:'병원 운영시간과 예외 휴무 설정을 확인하세요.'};
+    if(r.paused||play==='paused')return {label:'일시정지',detail:'TV가 일시정지 상태입니다.',action:'TV 일시정지 설정을 확인하세요.'};
+    if(s.error||play==='error'||Number(s.failed_video_count||0)>0)return {label:'영상 재생 오류',detail:String(s.error||'일부 영상이 재생되지 않았습니다.').slice(0,140),action:'영상 파일·재생목록·코덱을 확인하세요.'};
+    if(s.offline_cache_error)return {label:'영상 다운로드·캐시 문제',detail:String(s.offline_cache_error).slice(0,140),action:'영상 주소, 디스크 여유 공간, 인터넷 속도를 확인하세요.'};
+    if(s.update_error)return {label:'업데이트 오류',detail:String(s.update_error).slice(0,140),action:'플레이어 업데이트 및 네트워크 상태를 확인하세요.'};
+    if(play==='loading')return {label:'영상 준비 중',detail:'플레이어가 영상을 준비하는 중입니다.',action:'오래 지속되면 캐시와 파일 접근을 확인하세요.'};
+    if(play==='stopped')return {label:'플레이어 중지 보고',detail:'플레이어가 종료 상태를 보고했습니다.',action:'브라우저와 자동 실행 프로그램을 확인하세요.'};
+    if(['playing','emergency'].includes(play))return {label:'재생 중 보고',detail:'플레이어는 재생 중으로 보고했습니다. 실제 화면 출력 여부는 원격으로 확정할 수 없습니다.',action:'화면이 보이지 않으면 모니터 입력·창 겹침을 확인하세요.'};
+    return {label:'원인 추가 확인 필요',detail:'최근 보고만으로 원인을 특정할 수 없습니다.',action:'PC의 플레이어와 TV 입력 상태를 확인하세요.'};
+  }
   // Read-only diagnostics. These are reported by the player; no control RPCs are sent.
   function playerDiagnostics(r){
     const s=r?.player_status||{}, manual=String(r?.display_control_mode||'remote')==='manual';
@@ -380,7 +403,8 @@
     const seen=last&&Number.isFinite(last.getTime())?last.toLocaleString('ko-KR'):'보고 없음';
     const stale=!last||!Number.isFinite(last.getTime())||Date.now()-last.getTime()>12*60*1000;
     if(stale)sync='최근 보고 없음 · 이전 상태는 확인 불가';
-    const items=[{label:'영상 준비·동기화',value:sync},{label:'마지막 상태 보고',value:seen}];
+    const cause=playerCause(r);
+    const items=[{label:'원인 진단',value:cause.label},{label:'판단 근거',value:cause.detail},{label:'권장 조치',value:cause.action},{label:'영상 준비·동기화',value:sync},{label:'마지막 상태 보고',value:seen}];
     if(s.failed_video_count>0)items.push({label:'실패한 영상',value:`${n(s.failed_video_count)}개`});
     for(const failure of (Array.isArray(s.failed_videos)?s.failed_videos:[]).slice(0,5)){
       items.push({label:'제외된 영상',value:`${String(failure.title||failure.id||'영상').slice(0,60)} · ${String(failure.code||'오류').slice(0,40)}`});
@@ -407,7 +431,10 @@
     const mode=displayControlMode(r);
     if(mode==='manual')return r.manual_check_status==='checked'?(r.manual_checked_at?`수동 확인 · ${new Date(r.manual_checked_at).toLocaleDateString('ko-KR')}`:'수동 확인 완료'):'현장 수동 확인 필요';
     const h=roomHealth(r),st=r.player_status||{},ack=ackState.get(r.id);
-    if(h==='offline'||String(st.playback_state||'').toLowerCase()==='stopped')return `플레이어 연결 종료 · ${lastReportLabel(r)}`;
+    const diagnosis=playerCause(r);
+    if(h==='offline')return `${diagnosis.label} · ${lastReportLabel(r)}`;
+    if(st.online===false||st.visibility_state==='hidden'||(st.visibility_state==='visible'&&st.window_focused===false))return diagnosis.label;
+    if(String(st.playback_state||'').toLowerCase()==='stopped')return `플레이어 연결 종료 · ${lastReportLabel(r)}`;
     if(st.update_error||st.update_pending_version)return '업데이트 필요';
     if(st.offline_cache_error)return '캐시 오류';
     if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}개 건너뜀`;
