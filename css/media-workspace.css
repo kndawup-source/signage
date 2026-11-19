@@ -561,3 +561,28 @@ body.hospital-page .media-work-queue-actions [data-media-remove]:hover{backgroun
 .floor-room-why .journey-operating-purpose small { display: block; margin-bottom: 5px; color: var(--muted, #64748b); font-size: 12px; font-weight: 600; }
 .floor-room-why .journey-operating-purpose p { margin: 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
 .floor-room-why .journey-summary { row-gap: 12px; }
+
+/* Space detail: place TV settings beside the space title; remove the empty bottom band. */
+body.hospital-page .hospital-floor-detail .floor-room-focus.floor-space-focus.floor-map-unified-inspector {
+  grid-template-areas:"head current" "next next" "why why"!important;
+}
+body.hospital-page .hospital-floor-detail .floor-space-focus>.floor-room-focus-head {
+  display:flex!important;align-items:flex-start!important;justify-content:space-between!important;
+  gap:12px!important;
+}
+body.hospital-page .floor-space-head-actions {
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;
+}
+body.hospital-page .floor-space-tv-settings-btn {
+  min-height:36px;padding:7px 12px!important;white-space:nowrap;
+  font-size:13px!important;font-weight:650!important;
+}
+@media(max-width:700px) {
+  body.hospital-page .hospital-floor-detail .floor-room-focus.floor-space-focus.floor-map-unified-inspector {
+    grid-template-areas:"head" "current" "next" "why"!important;
+  }
+  body.hospital-page .hospital-floor-detail .floor-space-focus>.floor-room-focus-head {
+    flex-wrap:wrap;
+  }
+  body.hospital-page .floor-space-head-actions {justify-content:flex-start;width:100%}
+}

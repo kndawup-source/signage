@@ -296,13 +296,14 @@
       const next=state.videos.find(v=>String(v.id)===String(nextId));
       return `<div class="floor-space-next-row"><b>${esc(r.name)}</b><span>${next?esc(next.title):'다음 영상이 없습니다'}</span></div>`;
     }).join('');
-    const controls=rooms.map(r=>`<button type="button" class="btn small" data-staff-space-room-focus="${esc(r.id)}">${esc(r.name)} 관리</button>`).join('');
+    // Keep the main TV action beside the space name: no separate, mostly empty settings row.
+    // Reuse the existing direct TV-detail handler so a space with one TV needs only one click.
+    const controls=rooms.map(r=>`<button type="button" class="btn small floor-space-tv-settings-btn" data-staff-open-room-detail="${esc(r.id)}" aria-label="${esc(r.name)} TV 설정 열기">${rooms.length===1?'TV 설정':`${esc(r.name)} 설정`}</button>`).join('');
     return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector">
-      <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')} · TV ${rooms.length}대</span></div><em class="status-${broadcast.key}">${esc(broadcast.label)}</em></div>
+      <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')} · TV ${rooms.length}대</span></div><div class="floor-space-head-actions"><em class="status-${broadcast.key}">${esc(broadcast.label)}</em>${controls||'<span class="muted">연결된 TV 없음</span>'}</div></div>
       <div class="floor-room-current floor-space-current-list"><small>현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 TV가 없습니다.</p>'}</div>
       <div class="floor-room-next floor-space-next-list"><small>다음 영상</small>${nextRows||'<p class="muted">TV가 연결되면 다음 영상이 표시됩니다.</p>'}</div>
       <div class="floor-room-why floor-space-why"><small>왜 이 영상이 나오나요?</small>${journeyReasonPanel(journey,spaceOperationalPurpose(sp))}</div>
-      <div class="floor-room-controls floor-space-controls"><small>TV 설정 변경</small><div class="floor-room-subactions">${controls||'<span class="muted">연결된 TV 없음</span>'}</div></div>
     </div>`;
   }
   function staffFloorRoomPreviewHtml(r){
