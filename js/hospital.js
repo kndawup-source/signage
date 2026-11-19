@@ -22,7 +22,7 @@
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
   const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
-  const CONTROL_MODES=[['remote','원격 제어'],['manual','수동 운영'],['hybrid','하이브리드']];
+  const CONTROL_MODES=[['remote','원격 관리'],['manual','수동 운영'],['hybrid','원격·현장 관리']];
   const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
   let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,combinedCreateMode='both',combinedPlacementQueue=[],combinedSourceSpaceId=null,tab='videos',statusViewFilter='',tvOperationsExpanded=true;
   // Preview stays click-to-load. Parked elements are capped and evicted LRU.
@@ -107,7 +107,7 @@
   // roomId -> {status:'pending'|'unconfirmed'|'error', at:issuedAtServerMs}
   const ackState=new Map();
   const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res),roomIds:()=>state.rooms.map(r=>r.id)});
-  async function signalRoom(room){try{const {error}=await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});if(error)throw error;return true;}catch(e){console.warn('Clinic Signage signal failed:',e);toast('송출 변경 신호 전달 실패 · 플레이어가 다음 자동 동기화에서 반영할 수 있습니다.','error');return false;}}
+  async function signalRoom(room){try{const {error}=await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});if(error)throw error;return true;}catch(e){console.warn('Clinic Signage signal failed:',e);toast('영상 변경 알림을 TV에 보내지 못했습니다. TV가 다시 연결되면 변경될 수 있습니다.','error');return false;}}
 
   const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
@@ -154,7 +154,7 @@
         try{ta.focus();ta.select();if(!document.execCommand('copy'))throw new Error('copy failed');}
         finally{ta.remove();}
       }
-      toast('원본 영상 주소를 복사했습니다. 이 주소로 재생해도 TV 송출 현황에는 반영되지 않습니다.');
+      toast('영상 주소를 복사했습니다. 이 주소를 따로 열어도 TV 재생 상태에는 표시되지 않습니다.');
     }catch(e){toast('링크 복사에 실패했습니다. 브라우저 권한을 확인하세요.','error');}
   }
   async function copyRoomPlayer(roomId){
@@ -164,7 +164,7 @@
   const playlistById=(id)=>state.playlists.find(p=>p.id===id)||null;
   const roomTypeLabel=(v)=>({treatment:'진료실',consultation:'상담실',waiting:'대기실',lounge:'라운지',reception:'접수/안내',lobby:'로비',public:'공용 모니터',staff:'스탭 공간',vip:'VIP',other:'기타'})[v]||'공간';
   const isPatientRoom=(r)=>['treatment','consultation'].includes(r.room_mode);
-  const playlistOptions=(selected='')=>`<option value="">플레이리스트 선택</option>${state.playlists.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}${p.kind==='patient'?' · 맞춤':''}</option>`).join('')}`;
+  const playlistOptions=(selected='')=>`<option value="">재생목록 선택</option>${state.playlists.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}${p.kind==='patient'?' · 맞춤':''}</option>`).join('')}`;
   const videoOptions=()=>`<option value="">영상 선택</option>${state.videos.filter(v=>v.active!==false).map(v=>`<option value="${v.id}">${esc(v.title)}</option>`).join('')}`;
   const roomRules=(room)=>state.roomRules.filter(x=>x.room_id===room);
   function staffPatientPlaylist(r){const matches=state.playlists.filter(p=>p.active!==false&&p.kind==='patient'&&(!(p.target_treatment||[]).length||(r.session_treatment&&(p.target_treatment||[]).includes(r.session_treatment)))&&(!(p.target_age||[]).length||(r.session_age_group&&(p.target_age||[]).includes(r.session_age_group)))&&(!(p.target_gender||[]).length||(r.session_gender&&(p.target_gender||[]).includes(r.session_gender))));return matches.sort((a,b)=>(((b.target_treatment||[]).length?100:0)+((b.target_age||[]).length?10:0)+((b.target_gender||[]).length?5:0))-(((a.target_treatment||[]).length?100:0)+((a.target_age||[]).length?10:0)+((a.target_gender||[]).length?5:0))||(a.sort_order||0)-(b.sort_order||0))[0]||null;}
@@ -182,10 +182,10 @@
   function roomPlaylistLabel(r){
     const mode=String(r.player_status?.mode||'');
     if(mode==='emergency')return '비상 영상';
-    if(['broadcast','broadcast_schedule'].includes(mode))return '전체 송출';
-    if(['group','group_schedule'].includes(mode))return '층/그룹 송출';
+    if(['broadcast','broadcast_schedule'].includes(mode))return '병원 전체 영상';
+    if(['group','group_schedule'].includes(mode))return '층 전체 영상';
     if(r.manual_active&&r.manual_video_ids?.length)return '개별 영상';
-    if(mode==='patient')return staffPatientPlaylist(r)?.name||'맞춤 송출';
+    if(mode==='patient')return staffPatientPlaylist(r)?.name||'환자 맞춤 영상';
     return playlistById(r.default_playlist_id)?.name||playlistById(state.groups.find(g=>g.id===r.group_id)?.default_playlist_id)?.name||'기본 재생목록';
   }
   function staffRoomVideoStripHtml(r){
@@ -210,14 +210,14 @@
     const note=String(r?.display_note||'').trim();
     if(note)return note;
     const sp=roomSpace(r),type=sp?.space_type||r?.room_mode;
-    const fallback={reception:'접수·안내 공간에서 필요한 정보를 보여주는 디스플레이',waiting:'대기 중인 고객에게 안내·브랜드 콘텐츠를 보여주는 디스플레이',lounge:'라운지 이용 고객에게 병원 콘텐츠를 보여주는 디스플레이',consultation:'상담 전후 고객에게 관련 콘텐츠를 보여주는 디스플레이',treatment:'진료 공간에서 필요한 콘텐츠를 보여주는 디스플레이',lobby:'이동 고객에게 병원 안내 콘텐츠를 보여주는 디스플레이',public:'공용 공간 안내용 디스플레이',staff:'직원 운영용 디스플레이',support:'지원 공간 디스플레이',other:'이 공간의 콘텐츠 송출 디스플레이'};
+    const fallback={reception:'접수하는 곳에서 안내 영상을 보여주는 TV입니다.',waiting:'기다리는 고객에게 안내 영상을 보여주는 TV입니다.',lounge:'라운지에서 병원 안내 영상을 보여주는 TV입니다.',consultation:'상담에 도움이 되는 영상을 보여주는 TV입니다.',treatment:'진료 중 필요한 안내 영상을 보여주는 TV입니다.',lobby:'길 안내와 병원 소식을 보여주는 TV입니다.',public:'여러 사람이 함께 보는 안내 TV입니다.',staff:'직원이 필요한 정보를 확인하는 TV입니다.',support:'직원 업무에 필요한 정보를 보여주는 TV입니다.',other:'이곳에서 안내 영상을 보여주는 TV입니다.'};
     return fallback[type]||fallback.other;
   }
   function spaceOperationalPurpose(sp){
     const g=state.groups.find(x=>x.id===sp?.group_id)||null;
     const groupPurpose=String(g?.signage_purpose||g?.content_intro||'').trim();
     if(groupPurpose)return groupPurpose;
-    const fallback={reception:'접수와 첫 안내를 담당하는 공간',waiting:'대기 고객이 머무르며 안내·브랜드 콘텐츠를 접하는 공간',lounge:'고객이 머무르며 병원 콘텐츠를 접하는 공간',consultation:'상담 전후 설명과 안내가 이루어지는 공간',treatment:'진료와 치료가 이루어지는 공간',lobby:'이동과 방향 안내가 필요한 공용 공간',public:'고객이 공용으로 이용하는 공간',staff:'직원 운영 공간',support:'진료 지원 공간',other:'병원 운영 공간'};
+    const fallback={reception:'고객이 접수하고 안내를 받는 곳입니다.',waiting:'고객이 차례를 기다리는 곳입니다.',lounge:'고객이 잠시 쉬는 곳입니다.',consultation:'고객이 상담받는 곳입니다.',treatment:'고객이 진료받는 곳입니다.',lobby:'고객이 이동하며 안내를 확인하는 곳입니다.',public:'여러 사람이 함께 쓰는 곳입니다.',staff:'직원이 일하는 곳입니다.',support:'직원 업무를 돕는 곳입니다.',other:'병원 안의 공간입니다.'};
     return fallback[String(sp?.space_type||'other')]||fallback.other;
   }
 
@@ -264,7 +264,7 @@
     });
   }
   function journeyReasonPanel(meta, purpose){
-    return `<div class="journey-summary"><div><small>지금 이 공간은</small><b>${esc(meta.stage)}</b><span>${esc(meta.need)}</span></div><div><small>이 영상이 선택된 이유</small><b>${esc(meta.content)}</b><span>${esc(meta.why)}</span></div></div><div class="journey-operating-purpose"><small>영상을 보여주는 목적</small><p>${esc(purpose||'이 공간에 필요한 정보를 안내하기 위해서입니다.')}</p></div>`;
+    return `<div class="journey-summary"><div><small>어떤 곳인가요?</small><b>${esc(meta.stage)}</b><span>${esc(meta.need)}</span></div><div><small>무슨 내용을 보여주나요?</small><b>${esc(meta.content)}</b><span>${esc(meta.why)}</span></div></div><div class="journey-operating-purpose"><small>왜 보여주나요?</small><p>${esc(purpose||'이곳에서 필요한 정보를 알려주기 위해서입니다.')}</p></div>`;
   }
   function roomsForFloorSpace(sp){
     if(!sp)return [];
@@ -280,7 +280,7 @@
     if(!rooms.length)return {key:'empty',label:'TV 없음'};
     // Only fresh, confirmed playback gets the blue state.
     if(rooms.some(r=>roomDisplayStatus(r).key==='live'))return {key:'live',label:'영상 재생 중'};
-    return {key:'offline',label:'송출 안 됨'};
+    return {key:'offline',label:'영상 재생 안 됨'};
   }
   // Both map targets use the same inspector sections and reading order.
   // A space is a group of TVs, so controls act on a selected TV, never silently on all of them.
@@ -294,7 +294,7 @@
       const currentId=String(r.player_status?.video_id||'');
       const nextId=staffBaseIds(r).find(id=>String(id)!==currentId);
       const next=state.videos.find(v=>String(v.id)===String(nextId));
-      return `<div class="floor-space-next-row"><b>${esc(r.name)}</b><span>${next?esc(next.title):'다음 영상 없음'}</span></div>`;
+      return `<div class="floor-space-next-row"><b>${esc(r.name)}</b><span>${next?esc(next.title):'다음 영상이 없습니다'}</span></div>`;
     }).join('');
     const controls=rooms.map(r=>`<button type="button" class="btn small" data-staff-space-room-focus="${esc(r.id)}">${esc(r.name)} 관리</button>`).join('');
     return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector">
@@ -309,13 +309,13 @@
     const status=roomDisplayStatus(r),current=currentVideoForRoom(r),isManual=displayControlMode(r)==='manual',st=r.player_status||{},journey=journeyMetaForRoom(r);
     const title=isManual?'현장 수동 운영':(currentVideoTitle(r));
     const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
-    const playback=isManual?'원격 재생 상태 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'오프라인 · 플레이어 연결 끊김');
+    const playback=isManual?'TV에서 재생 중인지 알 수 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'플레이어 응답 없음');
     return `<div class="floor-room-focus floor-map-unified-inspector">
       <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
       <div class="floor-room-current">${staffFloorInlineThumb(current,'floor-room-current-thumb','현재 영상 보기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span>${videoCopyButton(current,'floor-current-copy-btn')}</div></div>
       <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
       <div class="floor-room-why"><small>왜 이 영상이 나오나요?</small>${journeyReasonPanel(journey,roomOperationalPurpose(r))}</div>
-      <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">실제 화면 보기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button>`}<button type="button" class="text-btn dark" data-map-open-playlist="${r.id}">재생목록 편집</button><button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">수동 디스플레이는 설정만 저장되며 원격 재생 명령은 보내지 않습니다.</small>':''}</div>
+      <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">플레이어 화면 열기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button>`}<button type="button" class="text-btn dark" data-map-open-playlist="${r.id}">재생목록 편집</button><button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">현장에서 관리하는 TV입니다. 여기서 설정을 저장해도 TV가 바로 바뀌지는 않습니다.</small>':''}</div>
     </div>`;
   }
   // Every visible output has an action. Its source determines what can safely be changed.
@@ -330,12 +330,12 @@
       const id=String(x.id);
       const kind=overridden?'override':manualIds.has(id)?'manual':baseIds.has(id)?'playlist':'other';
       const label=kind==='override'?'송출 설정 확인':kind==='other'?'편집 위치 확인':'목록에서 제거';
-      return `<div class="staff-output-item">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<span class="staff-output-item-name"><b>${esc(x.video.title)}</b><small>${x.rule?.enabled===false?'TV에서 제외됨':`${i+1}번 영상`}${kind==='manual'?' · TV 개별 송출':kind==='override'?' · 우선 송출':''}</small></span><button type="button" class="btn small staff-output-remove" data-tv-remove-video="${esc(id)}" data-room="${esc(r.id)}" data-remove-kind="${kind}" aria-label="${esc(x.video.title)} · ${label}">${label}</button></div>`;
+      return `<div class="staff-output-item">${staffThumbLink(x.video,'staff-output-thumb','영상 열기')}<span class="staff-output-item-name"><b>${esc(x.video.title)}</b><small>${x.rule?.enabled===false?'TV에서 제외됨':`${i+1}번 영상`}${kind==='manual'?' · TV에 따로 지정한 영상':kind==='override'?' · 우선 재생':''}</small></span><button type="button" class="btn small staff-output-remove" data-tv-remove-video="${esc(id)}" data-room="${esc(r.id)}" data-remove-kind="${kind}" aria-label="${esc(x.video.title)} · ${label}">${label}</button></div>`;
     }).join('')||'<span class="muted">재생 가능한 영상이 없습니다.</span>'}</div>`;
   }
 
   const displayControlMode=(r)=>String(r?.display_control_mode||'remote');
-  const displayControlLabel=(r)=>CONTROL_MODES.find(([v])=>v===displayControlMode(r))?.[1]||'원격 제어';
+  const displayControlLabel=(r)=>CONTROL_MODES.find(([v])=>v===displayControlMode(r))?.[1]||'원격 관리';
   const roomHealth=(r)=>Signage.roomHealth(r,monitor.serverNow());
   const staffIsOnline=(r)=>{if(displayControlMode(r)==='manual'||!r?.last_seen_at)return false;const h=roomHealth(r),st=r.player_status||{};return st.online!==false&&['normal','error','recovering'].includes(h);};
   function roomDisplayStatus(r){
@@ -402,7 +402,7 @@
     const stale=!last||!Number.isFinite(last.getTime())||Date.now()-last.getTime()>12*60*1000;
     if(stale)sync='최근 보고 없음 · 이전 상태는 확인 불가';
     const cause=playerCause(r);
-    const items=[{label:'원인 진단',value:cause.label},{label:'판단 근거',value:cause.detail},{label:'권장 조치',value:cause.action},{label:'영상 준비·동기화',value:sync},{label:'마지막 상태 보고',value:seen}];
+    const items=[{label:'무슨 문제인가요?',value:cause.label},{label:'왜 이렇게 표시되나요?',value:cause.detail},{label:'어떻게 해결하나요?',value:cause.action},{label:'영상 다운로드',value:sync},{label:'마지막 연결 시간',value:seen}];
     if(s.failed_video_count>0)items.push({label:'실패한 영상',value:`${n(s.failed_video_count)}개`});
     for(const failure of (Array.isArray(s.failed_videos)?s.failed_videos:[]).slice(0,5)){
       items.push({label:'제외된 영상',value:`${String(failure.title||failure.id||'영상').slice(0,60)} · ${String(failure.code||'오류').slice(0,40)}`});
@@ -643,7 +643,7 @@
     if(!list.length)return '<span class="floor-dot floor-dot-empty" aria-hidden="true"></span><span class="sr-only">TV 등록 없음</span>';
     return list.map(r=>{
       const kind=floorStatusDotKind(r),status=roomDisplayStatus(r);
-      const description=kind==='unverified'?`송출 확인 안 됨 · ${status.label}`:status.label;
+      const description=kind==='unverified'?`재생 상태를 알 수 없음 · ${status.label}`:status.label;
       const label=`${r.name} · ${description}`;
       return `<span class="floor-dot floor-dot-${kind}" title="${esc(label)}" aria-label="${esc(label)}" data-floor-dot-room="${esc(r.id)}"></span>`;
     }).join('');
@@ -668,7 +668,7 @@
       <span class="hospital-area-card-meta"><strong>${groups.length}</strong><small>개 층</small><i aria-hidden="true">→</i></span>
     </button>`;
     return `<div class="hospital-area-select">
-      <div class="hospital-area-select-head"><span>콘텐츠 운영</span><h2>어느 진료 영역을 관리할까요?</h2><p>진료 성격을 먼저 선택하면 해당 층만 보여드립니다.</p></div>
+      <div class="hospital-area-select-head"><span>영상 안내</span><h2>어느 진료 영역을 관리할까요?</h2><p>진료 구역을 선택하면 해당 층을 볼 수 있습니다.</p></div>
       <div class="hospital-area-select-grid">
         ${card('general','일반진료층','일반 진료 · 예방 · 기초 · 공용 공간',general)}
         ${card('minish','미니쉬층','미니쉬 진료 · 상담 · 라운지',minish)}
@@ -686,15 +686,15 @@
     </button>`;
   }
   const groupContentTopics=(g)=>Array.isArray(g?.content_topics)?g.content_topics.map(x=>String(x||'').trim()).filter(Boolean):[];
-  const groupContentTopicsMarkup=(g)=>{const items=groupContentTopics(g);return items.length?`<div class="floor-content-topics compact"><small>주요 콘텐츠</small><ul>${items.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'';};
+  const groupContentTopicsMarkup=(g)=>{const items=groupContentTopics(g);return items.length?`<div class="floor-content-topics compact"><small>주로 보여주는 영상</small><ul>${items.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'';};
   function staffFloorPanelMarkup(g){
-    if(!g)return `<section class="hospital-floor-detail hospital-floor-detail-empty"><div><b>층을 선택하세요.</b><p>확인할 층을 누르면 도면과 디스플레이 위치가 열립니다.</p></div></section>`;
+    if(!g)return `<section class="hospital-floor-detail hospital-floor-detail-empty"><div><b>층을 선택하세요.</b><p>층을 누르면 도면과 TV 위치가 나옵니다.</p></div></section>`;
     const rooms=g.rooms||state.rooms.filter(r=>r.group_id===g.id),sum=groupStatusSummary(rooms),asset=floorAsset(g),unplaced=rooms.filter(r=>!roomMapPlaced(r));
     const n=floorNumber(g),online=rooms.filter(staffIsOnline).length;
     return `<section class="hospital-floor-detail">
       <div class="hospital-floor-detail-head">
-        <div class="hospital-floor-detail-intro"><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면에서 디스플레이나 공간을 누르면 이 공간의 영상과 이유를 확인할 수 있습니다.')}</span></div>
-        <div class="hospital-floor-detail-actions"><div class="hospital-floor-detail-stats"><span>디스플레이 <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${groupIssueParts(sum).map(([label,count])=>`<span class="is-alert">${esc(label)} <b>${count}</b></span>`).join('')}</div></div>
+        <div class="hospital-floor-detail-intro"><b>${n}층 · ${esc(g.name||`${n}층`)}</b><span>${esc(g.content_intro||'도면에서 TV나 공간을 누르면 지금 영상과 설명을 볼 수 있습니다.')}</span></div>
+        <div class="hospital-floor-detail-actions"><div class="hospital-floor-detail-stats"><span>TV <b>${rooms.length}</b></span><span>연결 <b>${online}</b></span>${groupIssueParts(sum).map(([label,count])=>`<span class="is-alert">${esc(label)} <b>${count}</b></span>`).join('')}</div></div>
         ${(g.role_label||groupContentTopics(g).length)?`<div class="hospital-floor-detail-context">${g.role_label?`<span class="floor-role-chip">${esc(g.role_label)}</span>`:''}${groupContentTopicsMarkup(g)}</div>`:''}
       </div>
       ${asset?`<div class="building-floorplan-wrap floor-activation-shell">
@@ -704,9 +704,9 @@
           ${rooms.map(staffFloorMarker).join('')}
         </div>
         <div class="floor-zone-inspector building-zone-inspector" data-staff-floor-zone-inspector>
-          <div class="floor-zone-inspector-empty"><div><b>디스플레이 또는 공간을 선택하세요.</b></div><p>이 공간의 영상과 이유를 확인할 수 있습니다.</p></div>
+          <div class="floor-zone-inspector-empty"><div><b>도면에서 TV나 공간을 눌러주세요.</b></div><p>어떤 영상이 나오는지, 왜 나오는지 볼 수 있습니다.</p></div>
         </div>
-      </div>`:`<div class="floor-plan-empty floor-plan-empty-action hospital-floor-empty"><b>등록된 도면이 없습니다.</b><p>송출 관리에서 이 층의 도면을 등록하세요.</p><button type="button" class="btn small" data-ops-layout-open>도면 등록</button></div>`}
+      </div>`:`<div class="floor-plan-empty floor-plan-empty-action hospital-floor-empty"><b>등록된 도면이 없습니다.</b><p>도면 편집에서 이 층의 도면을 추가하세요.</p><button type="button" class="btn small" data-ops-layout-open>도면 등록</button></div>`}
       ${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}
     </section>`;
   }
@@ -1132,10 +1132,10 @@
     const targets=floors.filter(g=>g.id!==current.id);
     if(!targets.length)return `<div class="floor-layout-copy-panel"><span class="muted">적용할 다른 층이 없습니다.</span></div>`;
     return `<div class="floor-layout-copy-panel">
-      <div class="floor-layout-copy-head"><div><b>${esc(floorSettingsLabel(current))} 배치 복사</b><small>같은 구조의 도면을 사용하는 층만 선택하세요. 공간과 디스플레이 위치만 복사합니다. 디스플레이는 층 표기를 제외한 위치 코드로 매칭합니다. (예: 10F_01 ↔ 9층 01)</small></div><button type="button" class="text-action" id="staffLayoutCopyClose">닫기</button></div>
-      <div class="floor-layout-copy-targets">${targets.map(g=>{const targetRooms=state.rooms.filter(r=>r.group_id===g.id),fp=floorAssetFingerprint(g),sameSize=!!sourceFingerprint&&fp===sourceFingerprint,countOk=targetRooms.length===sourceRooms.length;return `<label class="floor-layout-copy-target"><input type="checkbox" value="${g.id}" data-layout-copy-target><span><b>${esc(floorSettingsLabel(g))}</b><small>${targetRooms.length}개 디스플레이${sameSize?' · 도면 크기 일치':''} · 이름 기준 매칭</small></span></label>`;}).join('')}</div>
-      <div class="floor-layout-copy-options"><label><input type="checkbox" id="staffCopySpaces" checked> 공간</label><label><input type="checkbox" id="staffCopyDisplays" checked> 디스플레이 위치</label></div>
-      <div class="floor-layout-copy-actions"><span>공간과 디스플레이 위치를 함께 적용할 수 있습니다. 예: 10F_01 → 9F_01. 같은 위치 코드가 없을 때만 자동 생성합니다.</span><button type="button" class="btn" id="staffApplyLayoutCopy">선택한 층에 적용</button></div>
+      <div class="floor-layout-copy-head"><div><b>${esc(floorSettingsLabel(current))} 배치 복사</b><small>같은 구조의 도면을 사용하는 층만 선택하세요. 공간과 TV 위치만 복사합니다. TV는 층 이름을 뺀 번호가 같을 때 같은 위치로 봅니다. (예: 10F_01 ↔ 9층 01)</small></div><button type="button" class="text-action" id="staffLayoutCopyClose">닫기</button></div>
+      <div class="floor-layout-copy-targets">${targets.map(g=>{const targetRooms=state.rooms.filter(r=>r.group_id===g.id),fp=floorAssetFingerprint(g),sameSize=!!sourceFingerprint&&fp===sourceFingerprint,countOk=targetRooms.length===sourceRooms.length;return `<label class="floor-layout-copy-target"><input type="checkbox" value="${g.id}" data-layout-copy-target><span><b>${esc(floorSettingsLabel(g))}</b><small>${targetRooms.length}대의 TV${sameSize?' · 도면 크기 일치':''} · 이름 기준 매칭</small></span></label>`;}).join('')}</div>
+      <div class="floor-layout-copy-options"><label><input type="checkbox" id="staffCopySpaces" checked> 공간</label><label><input type="checkbox" id="staffCopyDisplays" checked> TV 위치</label></div>
+      <div class="floor-layout-copy-actions"><span>공간과 TV 위치를 함께 적용할 수 있습니다. 예: 10F_01 → 9F_01. 같은 위치 코드가 없을 때만 자동 생성합니다.</span><button type="button" class="btn" id="staffApplyLayoutCopy">선택한 층에 적용</button></div>
     </div>`;
   }
   const layoutRoomSort=(a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||String(a.name||'').localeCompare(String(b.name||''),'ko',{numeric:true});
@@ -1192,7 +1192,7 @@
     const topics=groupContentTopics(g).join('\n');
     const playlists=state.playlists.filter(p=>p.active).map(p=>`<option value="${p.id}" ${g.default_playlist_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('');
     return `<details class="floor-meta-editor" open>
-      <summary><span><b>${esc(floorSettingsLabel(g))} 층 정보</b><small>이름·역할·설명·콘텐츠를 여기서 한 번에 수정합니다.</small></span><em>수정</em></summary>
+      <summary><span><b>${esc(floorSettingsLabel(g))} 층 정보</b><small>층 이름과 안내 문구를 여기서 바꿀 수 있습니다.</small></span><em>수정</em></summary>
       <div class="floor-meta-editor-body">
         <div class="floor-meta-grid">
           <label class="field"><span>층 이름</span><input data-floor-meta-name="${g.id}" maxlength="60" value="${esc(g.name||'')}"></label>
@@ -1200,11 +1200,11 @@
           <label class="field"><span>역할</span><input data-floor-meta-role="${g.id}" maxlength="60" value="${esc(g.role_label||'')}" placeholder="예: 전문성"></label>
           <label class="field"><span>주요 대상</span><input data-floor-meta-audience="${g.id}" maxlength="120" value="${esc(g.target_audience||'')}" placeholder="예: 진료 고객"></label>
           <label class="field floor-meta-wide"><span>층 설명</span><textarea data-floor-meta-intro="${g.id}" rows="2" placeholder="이 층의 목적을 짧게 입력">${esc(g.content_intro||'')}</textarea></label>
-          <label class="field floor-meta-wide"><span>주요 콘텐츠 · 한 줄에 하나</span><textarea data-floor-meta-topics="${g.id}" rows="4" placeholder="치료 안내&#10;전후 사례">${esc(topics)}</textarea></label>
-          <label class="field floor-meta-wide"><span>송출 목적</span><input data-floor-meta-purpose="${g.id}" maxlength="160" value="${esc(g.signage_purpose||'')}"></label>
-          <label class="field floor-meta-wide"><span>송출 이유</span><textarea data-floor-meta-reason="${g.id}" rows="2">${esc(g.signage_reason||'')}</textarea></label>
+          <label class="field floor-meta-wide"><span>주로 보여주는 영상 · 한 줄에 하나</span><textarea data-floor-meta-topics="${g.id}" rows="4" placeholder="치료 안내&#10;전후 사례">${esc(topics)}</textarea></label>
+          <label class="field floor-meta-wide"><span>영상을 보여주는 이유</span><input data-floor-meta-purpose="${g.id}" maxlength="160" value="${esc(g.signage_purpose||'')}"></label>
+          <label class="field floor-meta-wide"><span>왜 이 영상을 보여주나요?</span><textarea data-floor-meta-reason="${g.id}" rows="2">${esc(g.signage_reason||'')}</textarea></label>
           <label class="field floor-meta-wide"><span>대기공간 메모</span><input data-floor-meta-waiting="${g.id}" maxlength="160" value="${esc(g.waiting_area_note||'')}"></label>
-          <label class="field floor-meta-wide"><span>층 기본 플레이리스트</span><select data-floor-meta-playlist="${g.id}"><option value="">공간별 기본값 사용</option>${playlists}</select></label>
+          <label class="field floor-meta-wide"><span>이 층의 기본 재생목록</span><select data-floor-meta-playlist="${g.id}"><option value="">각 TV의 기존 설정 사용</option>${playlists}</select></label>
         </div>
         <div class="floor-meta-actions"><span>층 번호 ${Number(g.floor_number)||'-'}F는 물리 층 식별값으로 유지됩니다.</span><button type="button" class="btn primary" data-save-floor-meta="${g.id}">층 정보 저장</button></div>
       </div>
@@ -1247,18 +1247,18 @@
         <div class="floor-layout-space-instruction"><b>${editing?'도면 빈 곳에서 새 영역을 드래그하세요':'공간 이름을 입력하고 도면에서 영역을 그리세요'}</b><span>${editing?'기존 TV 위치는 유지됩니다.':'공간을 만든 뒤 TV를 함께 선택했다면 도면을 클릭해 위치를 차례대로 지정합니다. 이름은 공간명 + TV 번호로 자동 생성됩니다.'}</span></div>
         <button class="btn small" id="staffCancelSpaceRedraw" type="button">취소</button>
       </div>`:`<div class="floor-layout-display-pick">
-        <div class="floor-layout-display-pick-head"><span><b>미배치 디스플레이</b><small>${unplaced.length?`${unplaced.length}개 · 이름을 누른 뒤 도면을 클릭하세요.`:'모든 디스플레이가 배치되었습니다.'}</small></span>${pending?`<em>${esc(pending.name)} 위치를 찍어주세요</em>`:''}</div>
-        <div class="floor-layout-quick-create"><label><span>새 디스플레이 이름</span><input type="text" id="staffQuickDisplayName" maxlength="40" placeholder="예: 대기실 TV 1"></label><label><span>운영 방식</span><select id="staffQuickDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button type="button" class="btn primary" id="staffQuickCreateDisplay">+ 등록하고 위치 지정</button></div>
-        <div class="floor-layout-display-chips">${unplaced.map(r=>`<div class="floor-layout-display-manage ${pending?.id===r.id?'is-active':''}"><button type="button" class="floor-layout-display-chip" data-place-display="${r.id}">${esc(r.name)}</button><div class="floor-layout-display-manage-actions"><button type="button" class="text-action" data-rename-display="${r.id}">이름 수정</button><button type="button" class="text-action danger-text" data-delete-display="${r.id}">삭제</button></div></div>`).join('')||'<span class="muted">미배치 디스플레이 없음</span>'}</div>
+        <div class="floor-layout-display-pick-head"><span><b>위치를 정하지 않은 TV</b><small>${unplaced.length?`${unplaced.length}개 · 이름을 누른 뒤 도면을 클릭하세요.`:'모든 TV의 위치가 정해졌습니다.'}</small></span>${pending?`<em>${esc(pending.name)} 위치를 찍어주세요</em>`:''}</div>
+        <div class="floor-layout-quick-create"><label><span>새 TV 이름</span><input type="text" id="staffQuickDisplayName" maxlength="40" placeholder="예: 대기실 TV 1"></label><label><span>운영 방식</span><select id="staffQuickDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button type="button" class="btn primary" id="staffQuickCreateDisplay">+ 등록하고 위치 지정</button></div>
+        <div class="floor-layout-display-chips">${unplaced.map(r=>`<div class="floor-layout-display-manage ${pending?.id===r.id?'is-active':''}"><button type="button" class="floor-layout-display-chip" data-place-display="${r.id}">${esc(r.name)}</button><div class="floor-layout-display-manage-actions"><button type="button" class="text-action" data-rename-display="${r.id}">이름 수정</button><button type="button" class="text-action danger-text" data-delete-display="${r.id}">삭제</button></div></div>`).join('')||'<span class="muted">위치를 정하지 않은 TV 없음</span>'}</div>
       </div>`}
       ${asset?`<div class="settings-map-stage floor-layout-stage ${layoutEditMode==='space'?'mode-space':'mode-display'} ${editing?'is-redrawing':''} ${pending?'is-awaiting-placement':''}" data-staff-map-stage="${current.id}" data-staff-space-stage="${current.id}"><div class="floorplan-svg-host" data-floorplan-svg="${asset}"></div>${spaces.map(x=>floorSpaceOverlay(x,true)).join('')}${rooms.map(r=>displayMarker(r,true)).join('')}</div>`:'<div class="floor-plan-empty">도면을 먼저 업로드하세요.</div>'}
       <div class="floor-layout-summary">
         <div><b>공간 ${spaces.length}</b><span>${spaces.length?'지정됨':'아직 없음'}</span></div>
         <div><b>디스플레이 ${placed.length}/${rooms.length}</b><span>${unplaced.length?`미배치 ${unplaced.length}`:'배치 완료'}</span></div>
       </div>
-      ${placed.length?`<div class="floor-layout-placed"><div class="floor-layout-placed-head"><b>배치된 디스플레이</b><small>도면의 점을 끌어서 바로 이동할 수 있습니다.</small></div>${placed.map(r=>`<div class="floor-layout-placed-row"><span><b>${esc(r.name)}</b><small>${esc(spaceName(r.floor_space_id))}</small></span><label class="display-purpose-field"><span>영상을 보여주는 목적</span><input maxlength="120" data-display-purpose="${r.id}" value="${esc(r.display_note||'')}" placeholder="예: 상담 대기 고객에게 브랜드·사례 영상 노출"><button type="button" class="text-action" data-save-display-purpose="${r.id}">저장</button></label><button type="button" class="text-action danger-text" data-unplace-display="${r.id}">위치 해제</button></div>`).join('')}</div>`:''}
+      ${placed.length?`<div class="floor-layout-placed"><div class="floor-layout-placed-head"><b>도면에 배치된 TV</b><small>도면의 점을 끌어서 바로 이동할 수 있습니다.</small></div>${placed.map(r=>`<div class="floor-layout-placed-row"><span><b>${esc(r.name)}</b><small>${esc(spaceName(r.floor_space_id))}</small></span><label class="display-purpose-field"><span>영상을 보여주는 이유</span><input maxlength="120" data-display-purpose="${r.id}" value="${esc(r.display_note||'')}" placeholder="예: 상담 대기 고객에게 브랜드·사례 영상 노출"><button type="button" class="text-action" data-save-display-purpose="${r.id}">저장</button></label><button type="button" class="text-action danger-text" data-unplace-display="${r.id}">위치 해제</button></div>`).join('')}</div>`:''}
       <div class="floor-space-list-head"><div><b>공간 목록</b><small>도면의 공간을 누르면 이름·유형을 수정하고 영역을 다시 그릴 수 있습니다.</small></div></div>
-      <div class="floor-space-list">${state.floorSpaces.filter(x=>x.group_id===current.id).sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||(Number(a.x_pct||0)-Number(b.x_pct||0))).map(x=>{const linked=rooms.filter(r=>r.floor_space_id===x.id);return `<div class="floor-space-manage-row ${x.id===spaceRedrawId?'is-editing':''}"><div class="floor-space-manage-head"><span><b>${esc(x.name)}</b><small>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===x.space_type)?.[1]||'기타')} · 디스플레이 ${linked.length}개${linked.length?` · ${linked.map(r=>esc(r.name)).join(', ')}`:''}</small></span><div class="floor-space-list-actions"><button class="text-action" type="button" data-staff-redraw-space="${x.id}">다시 그리기</button><button class="text-action danger-text" type="button" data-staff-delete-space="${x.id}">삭제</button></div></div><div class="floor-space-content-fields"><label><span>지금 이 공간은</span><input maxlength="160" data-space-patient-context="${x.id}" value="${esc(x.patient_context_note||'')}" placeholder="예: 접수 직후, 문진과 이동 안내가 필요한 고객"></label><label><span>왜 이 영상이 나오나요?</span><input maxlength="240" data-space-content-reason="${x.id}" value="${esc(x.content_reason||'')}" placeholder="예: 첫 방문 고객이 다음 행동을 바로 이해하도록 안내"></label><button type="button" class="text-action" data-save-space-content="${x.id}">문구 저장</button></div></div>`;}).join('')||'<span class="muted">지정한 공간이 없습니다.</span>'}</div>
+      <div class="floor-space-list">${state.floorSpaces.filter(x=>x.group_id===current.id).sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||(Number(a.x_pct||0)-Number(b.x_pct||0))).map(x=>{const linked=rooms.filter(r=>r.floor_space_id===x.id);return `<div class="floor-space-manage-row ${x.id===spaceRedrawId?'is-editing':''}"><div class="floor-space-manage-head"><span><b>${esc(x.name)}</b><small>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===x.space_type)?.[1]||'기타')} · TV ${linked.length}개${linked.length?` · ${linked.map(r=>esc(r.name)).join(', ')}`:''}</small></span><div class="floor-space-list-actions"><button class="text-action" type="button" data-staff-redraw-space="${x.id}">다시 그리기</button><button class="text-action danger-text" type="button" data-staff-delete-space="${x.id}">삭제</button></div></div><div class="floor-space-content-fields"><label><span>지금 이 공간은</span><input maxlength="160" data-space-patient-context="${x.id}" value="${esc(x.patient_context_note||'')}" placeholder="예: 접수 직후, 문진과 이동 안내가 필요한 고객"></label><label><span>왜 이 영상이 나오나요?</span><input maxlength="240" data-space-content-reason="${x.id}" value="${esc(x.content_reason||'')}" placeholder="예: 첫 방문 고객이 다음 행동을 바로 이해하도록 안내"></label><button type="button" class="text-action" data-save-space-content="${x.id}">문구 저장</button></div></div>`;}).join('')||'<span class="muted">지정한 공간이 없습니다.</span>'}</div>
     </div>`;
   }
   function operationsLayoutEditorMarkup(){
@@ -1267,13 +1267,13 @@
     const floor=selected?floorNumber(selected):0;
     const meta=floor?floorplanMeta(floor):null;
     return `<section class="hospital-layout-workspace" id="hospitalLayoutWorkspace" aria-label="도면 공간 TV 배치 편집">
-      <div class="hospital-layout-workspace-head"><div><small>배치 편집 모드</small><h3>${floor?`${floor}층 도면 · 공간 · TV 배치`:'도면 · 공간 · TV 배치'}</h3><p>송출 상태는 그대로 유지됩니다. 도면을 교체하거나, 공간을 드래그해 그리거나, TV 점을 끌어서 위치를 바꾸세요. 변경하면 바로 저장됩니다.</p></div><button type="button" class="btn small" data-ops-layout-toggle>완료 · 보기로</button></div>
+      <div class="hospital-layout-workspace-head"><div><small>배치 편집 모드</small><h3>${floor?`${floor}층 도면 · 공간 · TV 배치`:'도면 · 공간 · TV 배치'}</h3><p>현재 재생 설정은 그대로 유지됩니다. 도면을 교체하거나, 공간을 드래그해 그리거나, TV 점을 끌어서 위치를 바꾸세요. 변경하면 바로 저장됩니다.</p></div><button type="button" class="btn small" data-ops-layout-toggle>완료 · 보기로</button></div>
       ${floor?`<div class="hospital-layout-floorplan-actions"><div><b>이 층의 도면</b><small>${meta?esc(meta.filename||'도면 등록됨'):'등록된 도면 없음'}</small></div><label class="btn small"><input type="file" accept="image/png,image/jpeg,image/webp" data-staff-floorplan-upload="${floor}"><span>${meta?'도면 교체':'도면 업로드'}</span></label>${meta?`<button type="button" class="btn small" data-staff-floorplan-reset="${floor}">도면 삭제</button>`:''}</div>`:''}
       ${floorLayoutEditorMarkup()}
       <details class="hospital-layout-add-tools"><summary>층 추가 · TV 등록</summary>${structureSetupMarkup()}</details>
     </section>`;
   }
-  function structureSetupMarkup(){const floors=[...state.groups].filter(g=>Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층 · 디스플레이 만들기</b><small>처음 설치할 때 필요한 기본 구조만 추가합니다.</small></div></div><div class="grid-2"><div class="settings-card"><h3>층 추가</h3><label class="field"><span>층 번호</span><input id="staffNewFloorNumber" type="number" min="1" max="99" placeholder="예: 8"></label><label class="field"><span>표시 이름</span><input id="staffNewFloorName" maxlength="30" placeholder="비우면 8F"></label><button id="staffCreateFloor" class="btn" type="button">층 추가</button></div><div class="settings-card"><h3>디스플레이 추가</h3><label class="field"><span>층</span><select id="staffNewDisplayGroup"><option value="">층 선택</option>${floors.map(g=>`<option value="${g.id}">${esc(floorSettingsLabel(g))}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffNewDisplayName" maxlength="40" placeholder="예: 진료실 1"></label><label class="field"><span>운영 방식</span><select id="staffNewDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button id="staffCreateDisplay" class="btn" type="button">디스플레이 추가</button></div><div class="settings-card" style="grid-column:1/-1"><h3>등록된 층 관리</h3><p class="muted">TV, 공간 또는 방송 설정이 연결된 층은 삭제할 수 없습니다. 다른 층의 데이터는 변경하지 않습니다.</p><div class="floor-delete-list">${floors.map(g=>{const tvCount=state.rooms.filter(r=>r.group_id===g.id).length,spaceCount=state.floorSpaces.filter(sp=>sp.group_id===g.id).length;return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line,#ddd)"><div><b>${esc(floorSettingsLabel(g))}</b> <small class="muted">${g.kind!=='floor'?' · 이전 층 그룹':''} · TV ${tvCount}대 · 공간 ${spaceCount}개</small></div><button type="button" class="btn small" data-staff-delete-floor="${g.id}" ${tvCount||spaceCount?'disabled title="TV나 공간이 있는 층은 삭제할 수 없습니다"':''}>층 삭제</button></div>`;}).join('')||'<p class="muted">등록된 층 없음</p>'}</div></div></div></div></div>`;}
+  function structureSetupMarkup(){const floors=[...state.groups].filter(g=>Number(g.floor_number)>0).sort((a,b)=>Number(b.floor_number)-Number(a.floor_number));return `<div class="hospital-admin-block"><div class="hospital-admin-block-head"><div><b>층 · TV 추가</b><small>처음 설치할 때 필요한 기본 구조만 추가합니다.</small></div></div><div class="grid-2"><div class="settings-card"><h3>층 추가</h3><label class="field"><span>층 번호</span><input id="staffNewFloorNumber" type="number" min="1" max="99" placeholder="예: 8"></label><label class="field"><span>표시 이름</span><input id="staffNewFloorName" maxlength="30" placeholder="비우면 8F"></label><button id="staffCreateFloor" class="btn" type="button">층 추가</button></div><div class="settings-card"><h3>TV 추가</h3><label class="field"><span>층</span><select id="staffNewDisplayGroup"><option value="">층 선택</option>${floors.map(g=>`<option value="${g.id}">${esc(floorSettingsLabel(g))}</option>`).join('')}</select></label><label class="field"><span>이름</span><input id="staffNewDisplayName" maxlength="40" placeholder="예: 진료실 1"></label><label class="field"><span>운영 방식</span><select id="staffNewDisplayMode">${CONTROL_MODES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><button id="staffCreateDisplay" class="btn" type="button">TV 추가</button></div><div class="settings-card" style="grid-column:1/-1"><h3>등록된 층 관리</h3><p class="muted">TV, 공간 또는 방송 설정이 연결된 층은 삭제할 수 없습니다. 다른 층의 데이터는 변경하지 않습니다.</p><div class="floor-delete-list">${floors.map(g=>{const tvCount=state.rooms.filter(r=>r.group_id===g.id).length,spaceCount=state.floorSpaces.filter(sp=>sp.group_id===g.id).length;return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line,#ddd)"><div><b>${esc(floorSettingsLabel(g))}</b> <small class="muted">${g.kind!=='floor'?' · 이전 층 그룹':''} · TV ${tvCount}대 · 공간 ${spaceCount}개</small></div><button type="button" class="btn small" data-staff-delete-floor="${g.id}" ${tvCount||spaceCount?'disabled title="TV나 공간이 있는 층은 삭제할 수 없습니다"':''}>층 삭제</button></div>`;}).join('')||'<p class="muted">등록된 층 없음</p>'}</div></div></div></div></div>`;}
   async function createHospitalFloor(){const n=Number(qs('#staffNewFloorNumber')?.value),name=(qs('#staffNewFloorName')?.value||'').trim();if(!Number.isInteger(n)||n<1||n>99)return toast('층 번호는 1~99 사이로 입력하세요.','error');const {error}=await db.rpc('hospital_create_floor',{p_site:targetSiteId,p_floor:n,p_name:name||null});if(error)return toast(error.message,'error');toast(`${n}층을 추가했습니다.`);await load();}
   async function deleteHospitalFloor(groupId){
     const floor=state.groups.find(g=>g.id===groupId&&Number(g.floor_number)>0);
@@ -1361,7 +1361,7 @@
     const msg=String(error?.message||error||'').toLowerCase();
     if(msg.includes('display name required'))return '디스플레이 이름을 입력하세요.';
     if(msg.includes('same display name already exists on this floor'))return '같은 층에 동일한 디스플레이 이름이 이미 있습니다.';
-    if(msg.includes('unplace display before deleting'))return '배치된 디스플레이는 위치를 먼저 해제하세요.';
+    if(msg.includes('unplace display before deleting'))return '도면에 배치된 TV는 위치를 먼저 해제하세요.';
     if(msg.includes('assigned patient exists')||msg.includes('active patient'))return '현재 환자가 배정된 디스플레이는 삭제할 수 없습니다. 환자 배정을 먼저 해제하세요.';
     if(msg.includes('display not found'))return '디스플레이를 찾을 수 없습니다.';
     if(msg.includes('not allowed'))return '이 병원의 디스플레이를 수정할 권한이 없습니다.';
@@ -1377,7 +1377,7 @@
   }
   async function deleteHospitalDisplay(roomId){
     const room=roomById(roomId);if(!room)return;
-    if(roomMapPlaced(room))return toast('배치된 디스플레이는 위치를 먼저 해제하세요.','error');
+    if(roomMapPlaced(room))return toast('도면에 배치된 TV는 위치를 먼저 해제하세요.','error');
     if(!window.confirm(`'${room.name}' 디스플레이를 삭제할까요?\n\n삭제하면 이 디스플레이의 화면 링크가 더 이상 동작하지 않으며, 누적 송출 통계와 재생 로그도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`))return;
     const {error}=await db.rpc('hospital_delete_display',{p_site:targetSiteId,p_room:roomId});if(error)return toast(displayManageErrorMessage(error),'error');
     if(layoutPlacementRoomId===roomId)layoutPlacementRoomId=null;
@@ -1775,10 +1775,10 @@
     const live=state.rooms.filter(r=>roomDisplayStatus(r).key==='live').length;
     return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
       <header class="unified-page-heading"><div><h1>Clinic Signage</h1><p>${esc(state.site?.name||'병원')} · TV 영상과 설정을 한 페이지에서 관리합니다.</p></div><div class="unified-quick-stats"><span>전체 TV <b>${state.rooms.length}</b></span><span>송출 확인 <b>${live}</b></span></div></header>
-      <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>TV 전체 송출 상태</b><small>전체 TV의 송출 상태와 확인 필요 기기</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content"><div class="hospital-status-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line,#e5e7eb)"><span style="font-size:13px;color:var(--muted,#64748b)">TV 상태 확인 및 원격 제어</span><div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" id="staffStatusRefresh" class="btn small">상태 새로고침</button><button type="button" id="staffReloadAllPlayers" class="btn small danger-outline">전체 플레이어 새로고침</button></div></div>${hospitalOperationsSummary()}</div></details>
+      <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>TV 병원 전체 영상 상태</b><small>전체 TV의 송출 상태와 확인 필요 기기</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content"><div class="hospital-status-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line,#e5e7eb)"><span style="font-size:13px;color:var(--muted,#64748b)">TV 상태 확인 및 원격 관리</span><div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" id="staffStatusRefresh" class="btn small">상태 새로고침</button><button type="button" id="staffReloadAllPlayers" class="btn small danger-outline">전체 플레이어 새로고침</button></div></div>${hospitalOperationsSummary()}</div></details>
       <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       <section id="signagePlaylistManagement" class="signage-playlist-management" aria-label="재생목록 관리">
-        <header class="signage-playlist-management-head"><div><h2>재생목록 관리</h2><p>영상 제거·재생 순서 변경·저장은 아래에서 진행하세요. 송출 중인 TV의 연결도 확인해야 합니다.</p></div></header>
+        <header class="signage-playlist-management-head"><div><h2>재생목록 관리</h2><p>영상 제거·재생 순서 변경·저장은 아래에서 진행하세요. 영상 재생 중인 TV의 연결도 확인해야 합니다.</p></div></header>
         ${hospitalPlaylistManagerMarkup()}
       </section>
       <details class="unified-secondary-panel" id="unifiedHospitalSettings"><summary><span><b>병원 설정</b><small>운영시간, 병원 정보, 기본 송출 설정</small></span><span aria-hidden="true">펼치기 ▾</span></summary><div class="unified-secondary-content">${hospitalSettingsPageMarkup()}</div></details>
@@ -1790,13 +1790,13 @@
     const r=roomById(roomId);if(!r)return;
     const input=qs(`[data-display-purpose="${roomId}"]`),note=String(input?.value||'').trim();
     const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:displayControlMode(r),p_x:r.map_x_pct??null,p_y:r.map_y_pct??null,p_note:note||null,p_space:r.floor_space_id||null,p_group:canonicalFloorGroupIdForRoom(r)||r.group_id});
-    if(error)return toast(error.message,'error');r.display_note=note||null;toast('영상을 보여주는 목적을 저장했습니다.');renderPreservingUi(true);
+    if(error)return toast(error.message,'error');r.display_note=note||null;toast('영상을 보여주는 이유을 저장했습니다.');renderPreservingUi(true);
   }
   async function saveDisplaySetup(roomId,x,y,mode,spaceId){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const prev={x:r.map_x_pct,y:r.map_y_pct,mode:r.display_control_mode,space:r.floor_space_id,check:r.manual_check_status};const useMode=mode||displayControlMode(r),gid=canonicalFloorGroupIdForRoom(r)||r.group_id;let resolvedSpace=spaceId===undefined?r.floor_space_id||null:spaceId||null;if(spaceId===null||spaceId==='auto')resolvedSpace=(x===null||x===undefined||y===null||y===undefined)?null:spaceContainingPoint(gid,x,y)?.id||null;
     r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;r.floor_space_id=resolvedSpace;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';renderPreservingUi(true);
     let {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null,p_space:resolvedSpace,p_group:gid}),legacy=false;if(error&&displaySetupRpcMissing(error)){const retry=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});error=retry.error;legacy=!error;}
     if(error){r.map_x_pct=prev.x;r.map_y_pct=prev.y;r.display_control_mode=prev.mode;r.floor_space_id=prev.space;r.manual_check_status=prev.check;renderPreservingUi(true);return toast(error.message,'error');}
-    if(legacy)r.floor_space_id=prev.space;if(legacy)toast('디스플레이 위치를 저장했습니다. 공간 연결은 DB 업데이트 후 함께 저장됩니다.');renderPreservingUi(true);}
+    if(legacy)r.floor_space_id=prev.space;if(legacy)toast('TV 위치를 저장했습니다. 공간 연결은 DB 업데이트 후 함께 저장됩니다.');renderPreservingUi(true);}
   const DISPLAY_GRID_STEP=1,DISPLAY_ALIGN_THRESHOLD=1;
   const clampPct=v=>Math.max(0,Math.min(100,Number(v)||0));
   function snapLayoutPoint(raw,targets=[]){
@@ -1837,8 +1837,8 @@
     qs('#staffApplyLayoutCopy')?.addEventListener('click',async()=>{
       const targets=qsa('[data-layout-copy-target]:checked').map(x=>x.value),copySpaces=!!qs('#staffCopySpaces')?.checked,copyDisplays=!!qs('#staffCopyDisplays')?.checked;
       if(!targets.length)return toast('적용할 층을 선택하세요.','error');if(!copySpaces&&!copyDisplays)return toast('복사할 항목을 하나 이상 선택하세요.','error');
-      if(!confirm(`선택한 ${targets.length}개 층의 ${copySpaces&&copyDisplays?'공간과 디스플레이 위치':copySpaces?'공간':'디스플레이 위치'}를 현재 층 기준으로 덮어쓸까요?`))return;
-      const btn=qs('#staffApplyLayoutCopy');if(btn)btn.disabled=true;try{const result=await applyFloorLayoutCopy(spaceEditorGroupId,targets,{copySpaces,copyDisplays});const applied=result.applied.map(x=>{const parts=[];if(x.spaces_copied)parts.push('공간');if(x.displays_copied)parts.push(`디스플레이 위치 ${Number(x.displays_updated||0)+Number(x.displays_created||0)}개`);return `${x.name||'대상층'} · ${parts.join(' + ')||'적용'} 완료`;});const skipped=result.skipped.map(x=>`${x.name||'대상층'} · ${x.reason==='DISPLAY_COUNT_MISMATCH'?(x.spaces_copied?'공간은 복사됨 · 디스플레이 위치만 제외':'디스플레이 위치 제외 · 수 불일치'):x.reason||'조건 불일치'}`);toast([...applied,...skipped].join(' · ')||'변경 사항이 없습니다.');layoutCopyOpen=false;await load();}catch(e){toast(e.message||String(e),'error');if(btn)btn.disabled=false;}
+      if(!confirm(`선택한 ${targets.length}개 층의 ${copySpaces&&copyDisplays?'공간과 TV 위치':copySpaces?'공간':'TV 위치'}를 현재 층 기준으로 덮어쓸까요?`))return;
+      const btn=qs('#staffApplyLayoutCopy');if(btn)btn.disabled=true;try{const result=await applyFloorLayoutCopy(spaceEditorGroupId,targets,{copySpaces,copyDisplays});const applied=result.applied.map(x=>{const parts=[];if(x.spaces_copied)parts.push('공간');if(x.displays_copied)parts.push(`TV 위치 ${Number(x.displays_updated||0)+Number(x.displays_created||0)}개`);return `${x.name||'대상층'} · ${parts.join(' + ')||'적용'} 완료`;});const skipped=result.skipped.map(x=>`${x.name||'대상층'} · ${x.reason==='DISPLAY_COUNT_MISMATCH'?(x.spaces_copied?'공간은 복사됨 · TV 위치만 제외':'TV 위치 제외 · 수 불일치'):x.reason||'조건 불일치'}`);toast([...applied,...skipped].join(' · ')||'변경 사항이 없습니다.');layoutCopyOpen=false;await load();}catch(e){toast(e.message||String(e),'error');if(btn)btn.disabled=false;}
     });
     qsa('[data-save-floor-meta]').forEach(b=>b.addEventListener('click',()=>saveHospitalFloorMeta(b.dataset.saveFloorMeta)));
     qs('#staffQuickCreateDisplay')?.addEventListener('click',()=>void createQuickDisplay());
@@ -1913,8 +1913,8 @@
 
 
   function broadcastPlaylistId(){const ids=(state.broadcast?.video_ids||[]).map(String);if(!ids.length)return '';return state.playlists.filter(p=>p.active!==false&&p.site_id===targetSiteId).find(p=>{const pids=state.playlistItems.filter(x=>x.playlist_id===p.id).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>String(x.video_id));return pids.length===ids.length&&pids.every((id,i)=>id===ids[i]);})?.id||'';}
-  function hospitalBroadcastCard(){const active=!!state.broadcast?.active,selected=broadcastPlaylistId(),own=state.playlists.filter(p=>p.active!==false&&p.site_id===targetSiteId);return `<section class="hospital-broadcast-card ${active?'is-active':''}"><div><small>병원 전체 송출</small><b>${active?'전체 디스플레이에 송출 중':'필요할 때만 전체 송출'}</b><p>선택한 병원 플레이리스트를 모든 원격 디스플레이에 우선 송출합니다.</p></div><div class="hospital-broadcast-actions"><select id="hospitalBroadcastPlaylist" ${active?'disabled':''}><option value="">${active&&selected?'송출 중인 플레이리스트':'플레이리스트 선택'}</option>${own.map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}</option>`).join('')}</select>${active?'<button class="btn danger" id="hospitalBroadcastStop">전체 송출 종료</button>':'<button class="btn primary" id="hospitalBroadcastStart">전체 송출 시작</button>'}</div></section>`;}
-  async function setHospitalBroadcast(active){const playlist=qs('#hospitalBroadcastPlaylist')?.value||null;if(active&&!playlist)return toast('전체 송출할 플레이리스트를 선택하세요.','error');if(!confirm(active?'이 병원의 모든 원격 디스플레이에 전체 송출할까요?':'병원 전체 송출을 종료할까요?'))return;const {error}=await db.rpc('hospital_set_broadcast',{p_site:targetSiteId,p_active:active,p_playlist:playlist,p_notice:null});if(error)return toast(error.message||'전체 송출을 변경하지 못했습니다.','error');toast(active?'병원 전체 송출을 시작했습니다.':'병원 전체 송출을 종료했습니다.');await load();}
+  function hospitalBroadcastCard(){const active=!!state.broadcast?.active,selected=broadcastPlaylistId(),own=state.playlists.filter(p=>p.active!==false&&p.site_id===targetSiteId);return `<section class="hospital-broadcast-card ${active?'is-active':''}"><div><small>병원 병원 전체 영상</small><b>${active?'병원 전체 TV에서 영상 재생 중':'필요할 때 전체 TV에 영상 재생'}</b><p>선택한 영상 목록을 병원의 원격으로 관리하는 TV에 먼저 보여줍니다.</p></div><div class="hospital-broadcast-actions"><select id="hospitalBroadcastPlaylist" ${active?'disabled':''}><option value="">${active&&selected?'현재 재생 중인 목록':'재생목록 선택'}</option>${own.map(p=>`<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}</option>`).join('')}</select>${active?'<button class="btn danger" id="hospitalBroadcastStop">병원 전체 영상 종료</button>':'<button class="btn primary" id="hospitalBroadcastStart">병원 전체 영상 시작</button>'}</div></section>`;}
+  async function setHospitalBroadcast(active){const playlist=qs('#hospitalBroadcastPlaylist')?.value||null;if(active&&!playlist)return toast('병원 전체 영상할 플레이리스트를 선택하세요.','error');if(!confirm(active?'이 병원의 모든 원격 디스플레이에 병원 전체 영상할까요?':'병원 병원 전체 영상을 종료할까요?'))return;const {error}=await db.rpc('hospital_set_broadcast',{p_site:targetSiteId,p_active:active,p_playlist:playlist,p_notice:null});if(error)return toast(error.message||'병원 전체 영상을 변경하지 못했습니다.','error');toast(active?'병원 병원 전체 영상을 시작했습니다.':'병원 병원 전체 영상을 종료했습니다.');await load();}
 
   function render(){
     const statuses=state.rooms.map(roomDisplayStatus),live=statuses.filter(x=>x.key==='live').length,offline=statuses.filter(x=>x.key==='offline').length;
@@ -1925,29 +1925,29 @@
     tab='videos';
     const head=tab==='videos'?'':tab==='output'
       ? `<div class="hospital-output-hero"><div class="hospital-output-copy"><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>TV 상태</h1><p>우리 병원의 TV가 잘 나오고 있는지 확인하세요.</p></div><div class="hospital-output-side hospital-output-side-simple"><span class="hospital-display-total">전체 TV <b>${state.rooms.length}</b>대</span><button id="staffStatusRefresh" class="btn hospital-refresh-btn">새로고침</button></div></div>`
-      : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상관리':'병원 설정'}</h1><p>${tab==='videos'?'이 병원에서 송출할 플레이리스트와 재생 영상을 정리합니다.':'운영시간과 병원 정보는 위에서, 도면·공간·디스플레이 설정은 필요할 때만 아래에서 관리합니다.'}</p></div></div>`;
+      : `<div class="reception-head reception-head-board hospital-simple-head"><div><span class="eyebrow">${esc(state.site?.name||'병원')}</span><h1>${tab==='videos'?'영상관리':'병원 설정'}</h1><p>${tab==='videos'?'병원에서 보여줄 영상을 추가하고 재생 순서를 바꿀 수 있습니다.':'운영시간과 병원 정보, 도면과 TV 위치를 변경할 수 있습니다.'}</p></div></div>`;
     let content='';
     if(tab==='output')content=`${hospitalOperationsSummary()}${staffBuildingOverview(groups)}`;
     else if(tab==='videos')content=hospitalVideosPageMarkup();
     else content=hospitalSettingsPageMarkup();
-    qs('#hospitalRoot').innerHTML=`${state.broadcast?.active&&tab==='output'?'<div class="broadcast-strip">전체 송출 중입니다.</div>':''}${head}${content}`;
+    qs('#hospitalRoot').innerHTML=`${state.broadcast?.active&&tab==='output'?'<div class="broadcast-strip">병원 전체 영상 중입니다.</div>':''}${head}${content}`;
     bind();
     loadFloorplanSvgs(qs('#hospitalRoot')).catch(()=>{});
   }
 
   function groupCard(group){
     const summary=groupStatusSummary(group.rooms),nowText=summary.key==='live'?`${summary.live}곳 영상 재생 중`:summary.key==='issue'?`문제 공간 ${summary.issues}곳`:summary.key==='offline'?'모든 공간 연결 끊김':summary.key==='idle'?'현재 재생 대기':'현재 상태 확인';
-    return `<details class="monitor-group staff-monitor-group group-state-${summary.key}" data-staff-group="${esc(group.id)}"><summary class="monitor-group-summary"><div class="monitor-group-overview"><div class="monitor-group-title-row"><h2>${esc(groupDisplayName(group.name))}</h2>${group.role_label?`<span class="floor-type-label">${esc(group.role_label)}</span>`:`<span class="floor-type-label">${esc(careTypeLabel(group.care_type))}</span>`}<span class="group-status-badge status-${summary.key}" data-staff-group-status>${esc(summary.label)}</span></div><p class="floor-purpose-summary">${esc(group.content_intro||group.signage_purpose||'송출 목적 미설정')}</p><div class="group-metric-row"><span>공간 <b data-staff-group-total>${summary.total}</b></span><span>송출 <b data-staff-group-live>${summary.live}</b></span><span>원격 정상 <b data-staff-group-online>${summary.online}</b></span><span>수동 <b>${summary.manual+summary.manualNeedsCheck}</b></span><span>문제 <b data-staff-group-issues>${summary.issues}</b></span></div><p data-staff-group-summary>${esc(nowText)}${group.target_audience?` · 대상 ${esc(group.target_audience)}`:''}</p></div><span class="group-detail-link">상세보기</span></summary><div class="monitor-group-body">${groupContentTopicsMarkup(group)}${group.waiting_area_note?`<div class="floor-reason-note"><b>고객 대기공간</b><span>${esc(group.waiting_area_note)}</span></div>`:''}${group.signage_reason?`<div class="floor-reason-note"><b>왜 송출하나요?</b><span>${esc(group.signage_reason)}</span></div>`:''}<div class="monitor-room-grid staff-monitor-room-grid">${[...group.rooms].sort((a,b)=>roomProblemRank(a)-roomProblemRank(b)||(a.sort_order||0)-(b.sort_order||0)).map(roomCard).join('')}</div></div></details>`;
+    return `<details class="monitor-group staff-monitor-group group-state-${summary.key}" data-staff-group="${esc(group.id)}"><summary class="monitor-group-summary"><div class="monitor-group-overview"><div class="monitor-group-title-row"><h2>${esc(groupDisplayName(group.name))}</h2>${group.role_label?`<span class="floor-type-label">${esc(group.role_label)}</span>`:`<span class="floor-type-label">${esc(careTypeLabel(group.care_type))}</span>`}<span class="group-status-badge status-${summary.key}" data-staff-group-status>${esc(summary.label)}</span></div><p class="floor-purpose-summary">${esc(group.content_intro||group.signage_purpose||'영상을 보여주는 이유가 등록되지 않았습니다')}</p><div class="group-metric-row"><span>공간 <b data-staff-group-total>${summary.total}</b></span><span>재생 중 <b data-staff-group-live>${summary.live}</b></span><span>연결됨 <b data-staff-group-online>${summary.online}</b></span><span>수동 <b>${summary.manual+summary.manualNeedsCheck}</b></span><span>문제 <b data-staff-group-issues>${summary.issues}</b></span></div><p data-staff-group-summary>${esc(nowText)}${group.target_audience?` · 대상 ${esc(group.target_audience)}`:''}</p></div><span class="group-detail-link">상세보기</span></summary><div class="monitor-group-body">${groupContentTopicsMarkup(group)}${group.waiting_area_note?`<div class="floor-reason-note"><b>고객 대기공간</b><span>${esc(group.waiting_area_note)}</span></div>`:''}${group.signage_reason?`<div class="floor-reason-note"><b>왜 이 영상을 보여주나요?</b><span>${esc(group.signage_reason)}</span></div>`:''}<div class="monitor-room-grid staff-monitor-room-grid">${[...group.rooms].sort((a,b)=>roomProblemRank(a)-roomProblemRank(b)||(a.sort_order||0)-(b.sort_order||0)).map(roomCard).join('')}</div></div></details>`;
   }
 
   function roomCard(r){
     const p=patientForRoom(r.id),quick=isQuickSession(r),st=r.player_status||{},display=roomDisplayStatus(r),health=roomHealth(r),current=currentVideoTitle(r),next=nextVideoTitle(r)==='—'?'':nextVideoTitle(r),activeTreatment=p?.treatment||r.session_treatment||'';
     const audience=[p?.age_group||r.session_age_group,p?.gender||r.session_gender].filter(Boolean).map((v,i)=>i===0?ageLabel(v):genderLabel(v)).filter(x=>x!=='전체').join(' · '),manual=!!r.manual_active&&Array.isArray(r.manual_video_ids)&&r.manual_video_ids.length>0,defaultPlaylist=playlistById(r.default_playlist_id),currentVideo=currentVideoForRoom(r),on=staffIsOnline(r);
     const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
-    return `<details class="monitor-room staff-monitor-room health-${health}" data-room-card="${r.id}" data-health="${health}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><span data-staff-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="room-status-badge status-${display.key}" data-staff-room-status>${esc(display.label)}</span></div><div class="monitor-current-thumb" data-staff-live-thumb>${staffThumbLink(currentVideo,'monitor-current-thumb-link','현재 영상 열기')}</div><div class="monitor-now"><span>우선순위 · ${esc(priorityLabel(st.priority||st.mode))}</span><b data-staff-live-title>${esc(current)}</b><small data-staff-live-detail>${displayControlMode(r)==='manual'?esc(roomIssueReason(r)):(on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}`:'오프라인 · 플레이어 연결 끊김')}</small></div><div class="monitor-next"><span>다음</span><b data-staff-live-next>${esc(next||'—')}</b></div><div class="monitor-card-foot"><span>${esc(roomTypeLabel(r.room_mode))}${manual?' · 개별 영상':activeTreatment?` · ${esc(treatmentLabel(activeTreatment))}`:defaultPlaylist?` · ${esc(defaultPlaylist.name)}`:''}</span><b>관리</b></div></summary><div class="monitor-room-controls staff-room-control-body">
+    return `<details class="monitor-room staff-monitor-room health-${health}" data-room-card="${r.id}" data-health="${health}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><span data-staff-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="room-status-badge status-${display.key}" data-staff-room-status>${esc(display.label)}</span></div><div class="monitor-current-thumb" data-staff-live-thumb>${staffThumbLink(currentVideo,'monitor-current-thumb-link','현재 영상 열기')}</div><div class="monitor-now"><span>적용 중인 설정 · ${esc(priorityLabel(st.priority||st.mode))}</span><b data-staff-live-title>${esc(current)}</b><small data-staff-live-detail>${displayControlMode(r)==='manual'?esc(roomIssueReason(r)):(on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}`:'플레이어 응답 없음')}</small></div><div class="monitor-next"><span>다음</span><b data-staff-live-next>${esc(next||'—')}</b></div><div class="monitor-card-foot"><span>${esc(roomTypeLabel(r.room_mode))}${manual?' · 개별 영상':activeTreatment?` · ${esc(treatmentLabel(activeTreatment))}`:defaultPlaylist?` · ${esc(defaultPlaylist.name)}`:''}</span><b>관리</b></div></summary><div class="monitor-room-controls staff-room-control-body">
       ${playerDiagnosticsHtml(r)}
       ${audience?`<div class="room-output-note">맞춤 대상 · ${esc(audience)}</div>`:''}
-      ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>수동 디스플레이</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 플레이리스트</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>원격 연결이 없어도 설정은 저장할 수 있습니다. 플레이어로 즉시 전송되지는 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'미확인으로 변경':'오늘 확인 완료'}</button></div>`:`<details class="staff-output-details"><summary>현재 송출 영상 목록 · 영상 관리</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV 기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집 · 영상 추가/제거</button><small>목록 편집 내용은 저장 후 이 목록을 사용하는 TV에 적용됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 송출 복귀</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">실제 화면 보기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div>`}
+      ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>현장 관리 TV</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>설정은 저장되지만, 현장 TV에는 바로 적용되지 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'확인 취소':'오늘 확인함'}</button></div>`:`<details class="staff-output-details"><summary>지금 보여주는 영상 · 변경하기</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV에서 보여줄 영상 목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">영상 추가·제거</button><small>저장하면 이 목록을 사용하는 TV에도 변경됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 영상으로 돌아가기</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">플레이어 화면 열기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div>`}
       ${p?`<div class="room-patient compact"><b>${esc(p.label||`대기 ${p.queue_no}`)}</b><span>${esc(waitText(p))}</span></div>`:''}
       ${displayControlMode(r)!=='manual'&&isPatientRoom(r)?`<div class="room-card-actions">${!p?`<button class="btn" data-open-quick="${r.id}">${quick?'맞춤 변경':'환자 맞춤'}</button>${quick?`<button class="btn" data-quick-clear="${r.id}">맞춤 해제</button>`:''}`:'<span class="room-managed-note">환자 관리에서 변경</span>'}</div>${!p?quickPanel(r):''}`:''}
     </div></details>`;
@@ -1962,7 +1962,7 @@
   }
 
 
-  async function markManualChecked(roomId){const r=roomById(roomId);if(!r)return;const checked=r.manual_check_status!=='checked';const {error}=await db.rpc('staff_mark_manual_display_checked',{p_room:roomId,p_checked:checked});if(error)return toast(error.message,'error');toast(checked?'수동 디스플레이 확인 완료':'미확인 상태로 변경했습니다.');await load();}
+  async function markManualChecked(roomId){const r=roomById(roomId);if(!r)return;const checked=r.manual_check_status!=='checked';const {error}=await db.rpc('staff_mark_manual_display_checked',{p_room:roomId,p_checked:checked});if(error)return toast(error.message,'error');toast(checked?'현장 관리 TV 확인 완료':'미확인 상태로 변경했습니다.');await load();}
 
   function bind(){
     bindHospitalAdminSettings();
@@ -2030,7 +2030,7 @@
       const room=roomById(roomId),video=state.videos.find(v=>String(v.id)===videoId);
       if(!room||!video)return toast('영상 또는 TV 정보를 찾을 수 없습니다. 화면을 새로고침하세요.','error');
       if(kind==='override'){
-        toast('이 영상은 전체·층별·예약 우선 송출에서 제공됩니다. 해당 송출 설정에서 변경해야 합니다.','error');
+        toast('이 영상은 병원 전체·층 전체·예약 영상에서 제공됩니다. 해당 송출 설정에서 변경해야 합니다.','error');
         return;
       }
       if(kind==='other'){
@@ -2041,11 +2041,11 @@
       }
       if(kind==='manual'){
         // Manual additions belong only to this TV, not the shared base playlist.
-        if(!Array.isArray(room.manual_video_ids)||!room.manual_video_ids.map(String).includes(videoId))return toast('TV 개별 송출 목록이 변경됐습니다. 다시 조회하세요.','error');
-        if(!confirm(`「${video.title}」을(를) ${room.name} TV의 개별 송출 목록에서 제거할까요?\n\n다른 TV의 재생목록과 R2 원본은 유지됩니다. 마지막 영상이면 TV 기본 재생목록으로 복귀합니다.`))return;
+        if(!Array.isArray(room.manual_video_ids)||!room.manual_video_ids.map(String).includes(videoId))return toast('TV에 따로 지정한 영상 목록이 변경됐습니다. 다시 조회하세요.','error');
+        if(!confirm(`「${video.title}」을(를) ${room.name} TV의 개별 송출 목록에서 제거할까요?\n\n다른 TV의 재생목록과 R2 원본은 유지됩니다. 마지막 영상이면 TV에서 보여줄 영상 목록으로 복귀합니다.`))return;
         button.disabled=true;
         try{
-          const ok=await staffControl(roomId,()=>db.rpc('hospital_remove_room_manual_video',{p_site:targetSiteId,p_room:roomId,p_video:videoId}),'이 TV의 개별 송출 목록에서 영상을 제거했습니다. 다른 TV와 원본 영상은 유지됩니다.');
+          const ok=await staffControl(roomId,()=>db.rpc('hospital_remove_room_manual_video',{p_site:targetSiteId,p_room:roomId,p_video:videoId}),'이 TV에 따로 지정한 영상 목록에서 영상을 제거했습니다. 다른 TV와 원본 영상은 유지됩니다.');
           if(!ok&&button.isConnected)button.disabled=false;
         }catch(error){if(button.isConnected)button.disabled=false;toast(error.message||String(error),'error');}
         return;
@@ -2122,7 +2122,7 @@
       
     });
     qsa('.building-floor-plan-stage [data-floor-space]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const id=b.dataset.floorSpace,sp=state.floorSpaces.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(!sp||!inspector)return;setFloorFocus('space',id);inspector.innerHTML=staffFloorSpacePreviewHtml(sp);}));
-    floorStage?.addEventListener('click',e=>{if(e.target.closest('[data-staff-floor-room],[data-floor-space]'))return;floorStage.classList.remove('has-map-focus');delete floorStage.dataset.focusKind;delete floorStage.dataset.focusId;qsa('.is-selected,.is-selected-space,.is-focus-context',floorStage).forEach(x=>x.classList.remove('is-selected','is-selected-space','is-focus-context'));const inspector=qs('[data-staff-floor-zone-inspector]');if(inspector)inspector.innerHTML='<div class="floor-zone-inspector-empty"><div><b>디스플레이 또는 공간을 선택하세요.</b></div><p>이 공간의 영상과 이유를 확인할 수 있습니다.</p></div>';});
+    floorStage?.addEventListener('click',e=>{if(e.target.closest('[data-staff-floor-room],[data-floor-space]'))return;floorStage.classList.remove('has-map-focus');delete floorStage.dataset.focusKind;delete floorStage.dataset.focusId;qsa('.is-selected,.is-selected-space,.is-focus-context',floorStage).forEach(x=>x.classList.remove('is-selected','is-selected-space','is-focus-context'));const inspector=qs('[data-staff-floor-zone-inspector]');if(inspector)inspector.innerHTML='<div class="floor-zone-inspector-empty"><div><b>도면에서 TV나 공간을 눌러주세요.</b></div><p>어떤 영상이 나오는지, 왜 나오는지 볼 수 있습니다.</p></div>';});
 
     qsa('#hospitalRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply,b)));
@@ -2151,7 +2151,7 @@
     const signalled=signal&&room?await signalRoom(room):false;
     /* TVs poll (no Realtime): say when the change will show instead of implying it is instant. */
     const syncNote=signal&&signalled&&Signage.cfg?.enablePlayerRealtime !== true?` · TV 반영까지 최대 약 ${Math.ceil(Math.max(30000,Number(Signage.cfg.pollMs)||120000)*1.15/60000)}분`:'';
-    if(okMessage)toast(signalled||!signal?`${okMessage}${syncNote}`:'설정은 저장됐지만 화면에 변경 신호를 전달하지 못했습니다. 플레이어 자동 동기화를 확인하세요.',signalled||!signal?undefined:'error');
+    if(okMessage)toast(signalled||!signal?`${okMessage}${syncNote}`:'설정은 저장됐지만 화면에 변경 신호를 전달하지 못했습니다. 플레이어가 다시 연결되어 변경을 받는지 확인하세요.',signalled||!signal?undefined:'error');
     await load().catch(e=>toast(e.message||String(e),'error'));
     if(room&&signal&&signalled)void confirmDelivery(room,issuedAt);
     return true;
@@ -2181,7 +2181,7 @@
   async function setRoomPlaylist(room,source){
     const container=source?.closest('.floor-ops-tv,.floor-room-focus,.staff-room-control-body');
     const playlist=(container?.querySelector(`[data-staff-playlist="${room}"]`)||qs(`[data-staff-playlist="${room}"]`))?.value; if(!playlist)return toast('플레이리스트를 선택하세요.','error');
-    await staffControl(room,()=>db.rpc('staff_set_room_playlist',{p_room:room,p_playlist:playlist}),displayControlMode(roomById(room))==='manual'?'수동 디스플레이 설정을 저장했습니다.':'공간 플레이리스트를 변경했습니다.',{signal:displayControlMode(roomById(room))!=='manual'});
+    await staffControl(room,()=>db.rpc('staff_set_room_playlist',{p_room:room,p_playlist:playlist}),displayControlMode(roomById(room))==='manual'?'현장 관리 TV 설정을 저장했습니다.':'TV에서 사용할 영상 목록을 변경했습니다.',{signal:displayControlMode(roomById(room))!=='manual'});
   }
   async function addRoomVideo(room,source){
     const container=source?.closest('.floor-ops-tv,.staff-room-control-body');
@@ -2189,14 +2189,14 @@
     await staffControl(room,()=>db.rpc('staff_add_room_video',{p_room:room,p_video:video}),'이 공간에 영상 1개를 추가했습니다.');
   }
   async function clearRoomManual(room){
-    await staffControl(room,()=>db.rpc('staff_clear_room_manual',{p_room:room}),'선택한 기본 플레이리스트로 돌아갑니다.');
+    await staffControl(room,()=>db.rpc('staff_clear_room_manual',{p_room:room}),'선택한 기본 재생목록로 돌아갑니다.');
   }
   async function staffToggleVideo(room,video,enabled){
-    if(isOverridden(room))return toast('전체/그룹 송출 중에는 개별 영상을 변경할 수 없습니다.','error');
+    if(isOverridden(room))return toast('병원 또는 층 전체 영상이 재생 중이라 이 TV의 영상은 따로 바꿀 수 없습니다.','error');
     await staffControl(room,()=>db.rpc('staff_set_room_video_rule',{p_room:room,p_video:video,p_enabled:enabled}));
   }
   async function staffMoveVideo(room,video,dir){
-    if(isOverridden(room))return toast('전체/그룹 송출 중에는 순서를 바꿀 수 없습니다.','error');
+    if(isOverridden(room))return toast('병원 또는 층 전체 영상이 재생 중이라 이 TV의 영상 순서를 바꿀 수 없습니다.','error');
     const items=staffRoomOutputItems(roomById(room)||{}),from=items.findIndex(x=>x.id===video),to=from+dir;if(from<0||to<0||to>=items.length)return;
     [items[from],items[to]]=[items[to],items[from]];
     await staffControl(room,()=>db.rpc('staff_set_room_video_order',{p_room:room,p_video_ids:items.map(x=>x.id)}));
@@ -2264,7 +2264,7 @@
     if(siteReloadInFlight)return;
     const targets=state.rooms.filter(r=>['remote','hybrid'].includes(displayControlMode(r)));
     if(!targets.length)return toast('원격으로 새로고침할 TV가 없습니다.','error');
-    if(!window.confirm(`이 병원의 원격 관리 TV ${targets.length}대에 플레이어 새로고침 명령을 보낼까요?\n\n재생 중인 영상이 잠시 중단됩니다. 수동 운영 TV는 제외하며, 연결이 끊긴 TV는 즉시 반영되지 않을 수 있습니다.`))return;
+    if(!window.confirm(`이 병원의 원격으로 관리하는 TV ${targets.length}대에 플레이어 새로고침 명령을 보낼까요?\n\n재생 중인 영상이 잠시 중단됩니다. 현장에서 관리하는 TV는 제외하며, 연결이 끊긴 TV는 즉시 반영되지 않을 수 있습니다.`))return;
     siteReloadInFlight=true;
     if(button){button.disabled=true;button.textContent='명령 전송 중…';}
     try{
