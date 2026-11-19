@@ -286,24 +286,26 @@
   // A space is a group of TVs, so controls act on a selected TV, never silently on all of them.
   function staffFloorSpacePreviewHtml(sp){
     const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp),broadcast=floorSpaceBroadcastStatus(sp);
+    const floor=state.groups.find(g=>g.id===sp.group_id);
+    const location=[floor?.name||'',sp.name].filter(Boolean).join(' · ');
     const currentRows=rooms.map(r=>{
-      const st=roomDisplayStatus(r),current=currentVideoForRoom(r),title=currentVideoTitle(r);
-      return `<div class="floor-space-display-row"><span>${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</span><span><small>${esc(r.name)}</small><b>${esc(title)}</b><em>${esc(roomOperationalPurpose(r))}</em>${videoCopyButton(current,'floor-space-copy-btn')}</span><i class="status-${st.key}">${esc(st.label)}</i></div>`;
+      const status=roomDisplayStatus(r),current=currentVideoForRoom(r),title=currentVideoTitle(r);
+      const setting=`<button type="button" class="btn small" data-staff-open-room-detail="${esc(r.id)}" aria-label="${esc(r.name)} TV 설정 열기">TV 설정</button>`;
+      return `<div class="space-simple-tv-row"><div class="space-simple-tv-thumb">${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</div><div class="space-simple-tv-info"><small>${esc(r.name)}</small><strong>${esc(title)}</strong><span>${esc(status.label)}</span></div>${setting}</div>`;
     }).join('');
-    const nextRows=rooms.map(r=>{
-      const currentId=String(r.player_status?.video_id||'');
-      const nextId=staffBaseIds(r).find(id=>String(id)!==currentId);
-      const next=state.videos.find(v=>String(v.id)===String(nextId));
-      return `<div class="floor-space-next-row"><b>${esc(r.name)}</b><span>${next?esc(next.title):'다음 영상이 없습니다'}</span></div>`;
-    }).join('');
-    // Keep the main TV action beside the space name: no separate, mostly empty settings row.
-    // Reuse the existing direct TV-detail handler so a space with one TV needs only one click.
-    const controls=rooms.map(r=>`<button type="button" class="btn small floor-space-tv-settings-btn" data-staff-open-room-detail="${esc(r.id)}" aria-label="${esc(r.name)} TV 설정 열기">${rooms.length===1?'TV 설정':`${esc(r.name)} 설정`}</button>`).join('');
-    return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector">
-      <div class="floor-room-focus-head"><div><small>공간</small><b>${esc(sp.name)}</b><span>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===sp.space_type)?.[1]||'기타')} · TV ${rooms.length}대</span></div><div class="floor-space-head-actions"><em class="status-${broadcast.key}">${esc(broadcast.label)}</em>${controls||'<span class="muted">연결된 TV 없음</span>'}</div></div>
-      <div class="floor-room-current floor-space-current-list"><small>현재 영상</small>${currentRows||'<p class="muted">이 공간에 연결된 TV가 없습니다.</p>'}</div>
-      <div class="floor-room-next floor-space-next-list"><small>다음 영상</small>${nextRows||'<p class="muted">TV가 연결되면 다음 영상이 표시됩니다.</p>'}</div>
-      <div class="floor-room-why floor-space-why"><small>왜 이 영상이 나오나요?</small>${journeyReasonPanel(journey,spaceOperationalPurpose(sp))}</div>
+    // This is a description of the space's planned content, not a claim about
+    // the runtime rule that selected the currently playing video.
+    const purpose=spaceOperationalPurpose(sp);
+    const context=String(journey.stage||'').trim();
+    const contextDetail=String(journey.need||'').trim();
+    const content=String(journey.content||'').trim();
+    const contentDetail=String(journey.why||'').trim();
+    const reason=String(purpose||'').trim() || '이 공간을 이용하는 분들에게 필요한 정보를 안내합니다.';
+    const controls=rooms.length>1?`<span class="space-simple-tv-count">TV ${rooms.length}대 · 아래에서 TV를 선택하세요</span>`:'';
+    return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector space-simple-inspector">
+      <div class="space-simple-header"><div class="space-simple-heading"><small>${esc(floor?.name||'선택한 층')} · 공간</small><h3>${esc(sp.name)}</h3></div><div class="space-simple-header-end"><span class="space-simple-status status-${broadcast.key}">${esc(broadcast.label)}</span>${controls}</div></div>
+      <div class="space-simple-main"><div class="space-simple-section-title">이곳의 TV와 영상</div>${currentRows||'<div class="space-simple-empty">이 공간에 등록된 TV가 없습니다.</div>'}</div>
+      <div class="space-simple-reason"><div class="space-simple-section-title">왜 이 영상을 보여주나요?</div><p>${esc(reason)}</p><details class="space-simple-more"><summary>공간과 영상에 대한 설명 더 보기</summary><div class="space-simple-more-grid"><div><small>이곳은</small><b>${esc(context||'공간 정보 없음')}</b>${contextDetail?`<span>${esc(contextDetail)}</span>`:''}</div><div><small>보여주는 내용</small><b>${esc(content||'정보 없음')}</b>${contentDetail?`<span>${esc(contentDetail)}</span>`:''}</div></div></details></div>
     </div>`;
   }
   function staffFloorRoomPreviewHtml(r){

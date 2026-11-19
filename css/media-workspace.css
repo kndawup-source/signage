@@ -586,3 +586,38 @@ body.hospital-page .floor-space-tv-settings-btn {
   }
   body.hospital-page .floor-space-head-actions {justify-content:flex-start;width:100%}
 }
+
+/* Desktop-first space detail: one task-oriented card, no empty wide bands. */
+body.hospital-page .hospital-floor-detail .floor-room-focus.floor-space-focus.floor-map-unified-inspector.space-simple-inspector{
+ display:flex!important;flex-direction:column!important;gap:0!important;min-width:0!important;
+ padding:0!important;background:#fff!important;border:1px solid #e5e9ef!important;border-radius:14px!important;overflow:hidden;
+}
+body.hospital-page .space-simple-inspector .space-simple-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;border-bottom:1px solid #edf0f4;background:#fbfcfd}
+body.hospital-page .space-simple-heading{min-width:0;display:grid;gap:3px}
+body.hospital-page .space-simple-heading small{font-size:12px;color:#69768a;font-weight:600}
+body.hospital-page .space-simple-heading h3{font-size:20px!important;line-height:1.35!important;margin:0!important;font-weight:750!important;overflow-wrap:anywhere}
+body.hospital-page .space-simple-header-end{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+body.hospital-page .space-simple-status{font-style:normal;font-size:12px;font-weight:700;white-space:nowrap}
+body.hospital-page .space-simple-tv-count{font-size:12px;color:#6b7586}
+body.hospital-page .space-simple-main{padding:18px 22px 12px;min-width:0}
+body.hospital-page .space-simple-section-title{font-size:13px;font-weight:750;color:#536278;margin-bottom:11px}
+body.hospital-page .space-simple-tv-row{display:grid;grid-template-columns:88px minmax(0,1fr) auto;align-items:center;gap:16px;min-width:0;padding:10px 0}
+body.hospital-page .space-simple-tv-row+.space-simple-tv-row{border-top:1px solid #edf0f4}
+body.hospital-page .space-simple-tv-thumb{min-width:0}
+body.hospital-page .space-simple-tv-thumb .floor-space-current-thumb{width:88px!important;max-width:88px!important;aspect-ratio:16/9;object-fit:contain}
+body.hospital-page .space-simple-tv-info{min-width:0;display:flex;flex-direction:column;gap:3px}
+body.hospital-page .space-simple-tv-info small{font-size:12px;color:#68778b}
+body.hospital-page .space-simple-tv-info strong{font-size:16px;line-height:1.45;overflow-wrap:anywhere;color:#263449}
+body.hospital-page .space-simple-tv-info span{font-size:12px;color:#566b7f}
+body.hospital-page .space-simple-tv-row .btn{white-space:nowrap;min-height:36px}
+body.hospital-page .space-simple-empty{padding:15px 0;color:#66758a;font-size:13px}
+body.hospital-page .space-simple-reason{border-top:1px solid #edf0f4;padding:17px 22px 20px;min-width:0}
+body.hospital-page .space-simple-reason>p{font-size:14px;line-height:1.65;color:#28374a;margin:0;overflow-wrap:anywhere}
+body.hospital-page .space-simple-more{margin-top:10px}
+body.hospital-page .space-simple-more summary{font-size:12px;font-weight:650;cursor:pointer;color:#586b85;width:max-content;max-width:100%;list-style:revert}
+body.hospital-page .space-simple-more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:14px;padding:13px;background:#f7f9fb;border:1px solid #e7ebf2;border-radius:9px}
+body.hospital-page .space-simple-more-grid>div{min-width:0;display:flex;flex-direction:column;gap:5px}
+body.hospital-page .space-simple-more-grid small{font-size:11px;color:#718094}
+body.hospital-page .space-simple-more-grid b{font-size:13px;color:#263449;overflow-wrap:anywhere}
+body.hospital-page .space-simple-more-grid span{font-size:12px;line-height:1.5;color:#526175;overflow-wrap:anywhere}
+@media(max-width:650px){body.hospital-page .space-simple-inspector .space-simple-header{padding:15px;align-items:flex-start}body.hospital-page .space-simple-heading h3{font-size:18px!important}body.hospital-page .space-simple-main,body.hospital-page .space-simple-reason{padding:15px}body.hospital-page .space-simple-tv-row{grid-template-columns:72px minmax(0,1fr);gap:10px}body.hospital-page .space-simple-tv-row .btn{grid-column:2;justify-self:start}body.hospital-page .space-simple-tv-thumb .floor-space-current-thumb{width:72px!important}body.hospital-page .space-simple-more-grid{grid-template-columns:1fr}}
