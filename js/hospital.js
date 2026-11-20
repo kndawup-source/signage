@@ -284,32 +284,42 @@
   }
   // One shared inspector for both map selection targets. A space selects its TVs,
   // while a display selects one TV. All controls operate on a specific display.
+  // Space marker and TV marker share the same layout, explanation, and controls.
+  // A TV marker only highlights that TV; it never switches to an unrelated detail card.
   function mapSelectionInspector({space=null,room=null}={}){
     const linkedSpace=space||(room?(roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct)):null);
-    const rooms=room?[room]:roomsForFloorSpace(linkedSpace);
-    const group=state.groups.find(g=>g.id===(room?.group_id||linkedSpace?.group_id))||null;
-    const heading=room?room.name:(linkedSpace?.name||'선택한 공간');
-    const location=[group?.name||'',room?(linkedSpace?.name||roomTypeLabel(room.room_mode)):'공간'].filter(Boolean).join(' · ');
-    const overall=room?roomDisplayStatus(room):floorSpaceBroadcastStatus(linkedSpace);
+    const rooms=linkedSpace?roomsForFloorSpace(linkedSpace):(room?[room]:[]);
+    // An unplaced or legacy display may not be assigned to an explicit space.
+    if(room&&!rooms.some(r=>String(r.id)===String(room.id)))rooms.push(room);
+    const group=state.groups.find(g=>g.id===(linkedSpace?.group_id||room?.group_id))||null;
+    const heading=linkedSpace?.name||room?.name||'선택한 위치';
+    const location=[group?.name||'',linkedSpace?'공간':'TV'].filter(Boolean).join(' · ');
+    const overall=linkedSpace?floorSpaceBroadcastStatus(linkedSpace):room?roomDisplayStatus(room):{key:'empty',label:'TV 없음'};
     const rows=rooms.map(r=>{
       const current=currentVideoForRoom(r),status=roomDisplayStatus(r),isManual=displayControlMode(r)==='manual';
       const videoTitle=isManual?'현장에서 관리하는 TV':currentVideoTitle(r);
-      const currentMode=roomPlaylistLabel(r);
-      const technicalReason=isManual?'현장에서 영상을 선택하는 TV입니다.':`현재 설정: ${currentMode}`;
-      return `<div class="space-simple-tv-row floor-space-display-row" data-map-tv-row="${esc(r.id)}">
+      const configured=String(r.default_playlist_id||group?.default_playlist_id||'');
+      const opts=state.playlists.filter(p=>p.active!==false&&(p.site_id===targetSiteId||p.site_id==null)).map(p=>`<option value="${esc(p.id)}" ${String(p.id)===configured?'selected':''}>${esc(p.name)}${p.site_id==null?' · 공용':''}</option>`).join('');
+      const selected=room&&String(r.id)===String(room.id);
+      return `<div class="space-simple-tv-row floor-space-display-row ${selected?'is-map-selected-tv':''}" data-map-tv-row="${esc(r.id)}">
         <div class="space-simple-tv-thumb">${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</div>
-        <div class="space-simple-tv-info"><strong>${esc(r.name)}</strong><span class="space-simple-video-title">${esc(videoTitle)}</span><small>${esc(status.label)} · ${esc(technicalReason)}</small></div>
-        <div class="space-simple-tv-actions"><button type="button" class="btn small" data-map-open-playlist="${esc(r.id)}">영상 바꾸기</button><button type="button" class="btn small" data-staff-open-room-detail="${esc(r.id)}">TV 설정</button></div>
+        <div class="space-simple-tv-info"><strong>${esc(r.name)}${selected?' <span class="map-tv-current-label">선택한 TV</span>':''}</strong><span class="space-simple-video-title">${esc(videoTitle)}</span><small>${esc(status.label)} · ${esc(playlistById(configured)?.name||'지정된 재생목록 없음')}</small></div>
+        <details class="map-tv-manage" data-map-tv-manage="${esc(r.id)}"><summary class="btn small">TV 관리 <span aria-hidden="true">▾</span></summary>
+          <div class="map-tv-manage-body"><label for="mapPlaylist-${esc(r.id)}">이 TV에서 보여줄 재생목록</label>
+            <div class="map-tv-manage-picker"><select id="mapPlaylist-${esc(r.id)}" data-staff-playlist="${esc(r.id)}"><option value="">재생목록 선택</option>${opts}</select><button type="button" class="btn primary small" data-staff-playlist-apply="${esc(r.id)}">적용</button></div>
+            <p>기존 영상은 지워지지 않습니다. 이 TV에서 보여줄 목록만 바뀝니다.</p>
+            <button type="button" class="btn small" data-staff-open-room-detail="${esc(r.id)}">이름·문구 등 자세한 설정</button>
+          </div>
+        </details>
       </div>`;
     }).join('');
-    // Explain the space's intended content separately from the actual runtime selection rule.
-    const journey=room?journeyMetaForRoom(room):journeyMetaForSpace(linkedSpace);
-    const purpose=room?roomBroadcastReason(room):String(linkedSpace?.content_reason||group?.signage_reason||'').trim();
-    const reason=purpose||'이 공간을 이용하는 분들에게 필요한 안내 영상을 보여주기 위해서입니다.';
+    const journey=linkedSpace?journeyMetaForSpace(linkedSpace):room?journeyMetaForRoom(room):journeyCopyForType('other');
+    const groupReason=String(linkedSpace?.content_reason||group?.signage_reason||'').trim();
+    const reason=groupReason||(room?roomBroadcastReason(room):'이 공간을 이용하는 분들에게 필요한 안내 영상을 보여주기 위해서입니다.');
     const details=`<details class="space-simple-more"><summary>설명 더 보기</summary><div class="space-simple-more-grid"><div><small>이곳은</small><b>${esc(journey.stage||'공간 이용 중')}</b><span>${esc(journey.need||'')}</span></div><div><small>주로 보여주는 내용</small><b>${esc(journey.content||'안내 영상')}</b><span>${esc(journey.why||'')}</span></div></div></details>`;
     return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector space-simple-inspector" data-map-inspector-kind="${room?'display':'space'}">
-      <div class="space-simple-header"><div class="space-simple-heading"><small>${esc(location)}</small><h3>${esc(heading)}</h3><span class="space-simple-heading-sub">${room?'TV 1대':`TV ${rooms.length}대`}</span></div><div class="space-simple-header-end"><span class="space-simple-status status-${overall.key}">${esc(overall.label)}</span></div></div>
-      <div class="space-simple-main"><div class="space-simple-section-title">${room?'선택한 TV와 영상':'이곳의 TV와 영상'}</div>${rows||'<div class="space-simple-empty">이 공간에 등록된 TV가 없습니다. TV를 추가하면 여기에서 확인할 수 있습니다.</div>'}</div>
+      <div class="space-simple-header"><div class="space-simple-heading"><small>${esc(location)}</small><h3>${esc(heading)}</h3><span class="space-simple-heading-sub">TV ${rooms.length}대</span></div><div class="space-simple-header-end"><span class="space-simple-status status-${overall.key}">${esc(overall.label)}</span></div></div>
+      <div class="space-simple-main"><div class="space-simple-section-title">이곳의 TV와 영상</div>${rows||'<div class="space-simple-empty">아직 등록된 TV가 없습니다.</div>'}</div>
       <div class="space-simple-reason"><div class="space-simple-section-title">왜 이 영상을 보여주나요?</div><p>${esc(reason)}</p>${details}</div>
     </div>`;
   }
@@ -2095,31 +2105,16 @@
 
     qsa('[data-staff-floor-room]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const id=b.dataset.staffFloorRoom,r=state.rooms.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(r&&inspector){const linkedSpace=roomSpace(r)||spaceContainingPoint(r.group_id,r.map_x_pct,r.map_y_pct);setFloorFocus('display',id,linkedSpace?.id||null);syncMediaTargetFromMap(id);inspector.innerHTML=staffFloorRoomPreviewHtml(r);}}));
     qs('[data-staff-floor-zone-inspector]')?.addEventListener('click',event=>{
-      const editButton=event.target.closest('[data-map-open-playlist]');
-      if(editButton){
-        const targetId=editButton.dataset.mapOpenPlaylist;
-        syncMediaTargetFromMap(targetId);
-        // The same unified playlist editor is reused, not a second editor.
-        qs('.media-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
-        return;
-      }
-      const action=event.target.closest('[data-staff-playlist-apply],[data-staff-player-open],[data-staff-player-copy],[data-staff-open-room-detail]');
+      const action=event.target.closest('[data-staff-playlist-apply],[data-staff-open-room-detail]');
       if(action){
-        const id=action.dataset.staffPlaylistApply||action.dataset.staffPlayerOpen||action.dataset.staffPlayerCopy||action.dataset.staffOpenRoomDetail;
+        event.stopPropagation();
+        const id=action.dataset.staffPlaylistApply||action.dataset.staffOpenRoomDetail;
         if(action.hasAttribute('data-staff-playlist-apply'))void setRoomPlaylist(id,action);
-        else if(action.hasAttribute('data-staff-player-open'))void openRoomPlayer(id);
-        else if(action.hasAttribute('data-staff-player-copy'))void copyRoomPlayer(id);
-        else openInlineTvDetail(id);
+        else if(!openInlineTvDetail(id))toast('상세 TV 설정을 찾을 수 없습니다. 아래 TV 목록을 확인하세요.','error');
         return;
       }
-      const button=event.target.closest('[data-staff-space-room-focus]');
-      if(!button)return;
-      const id=button.dataset.staffSpaceRoomFocus,room=roomById(id),inspector=event.currentTarget;
-      if(!room)return;
-      const linkedSpace=roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct);
-      setFloorFocus('display',id,linkedSpace?.id||null);syncMediaTargetFromMap(id);
-      inspector.innerHTML=staffFloorRoomPreviewHtml(room);
-      
+      // A disclosure or select inside the inline manager never changes the selected space.
+      if(event.target.closest('[data-map-tv-manage]'))event.stopPropagation();
     });
     qsa('.building-floor-plan-stage [data-floor-space]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const id=b.dataset.floorSpace,sp=state.floorSpaces.find(x=>x.id===id),inspector=qs('[data-staff-floor-zone-inspector]');if(!sp||!inspector)return;setFloorFocus('space',id);inspector.innerHTML=staffFloorSpacePreviewHtml(sp);}));
     floorStage?.addEventListener('click',e=>{if(e.target.closest('[data-staff-floor-room],[data-floor-space]'))return;floorStage.classList.remove('has-map-focus');delete floorStage.dataset.focusKind;delete floorStage.dataset.focusId;qsa('.is-selected,.is-selected-space,.is-focus-context',floorStage).forEach(x=>x.classList.remove('is-selected','is-selected-space','is-focus-context'));const inspector=qs('[data-staff-floor-zone-inspector]');if(inspector)inspector.innerHTML='<div class="floor-zone-inspector-empty"><div><b>도면에서 TV나 공간을 눌러주세요.</b></div><p>어떤 영상이 나오는지, 왜 나오는지 볼 수 있습니다.</p></div>';});
