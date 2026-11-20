@@ -663,3 +663,43 @@ body.hospital-page .map-tv-manage-picker select{flex:1;min-width:0;border:1px so
 body.hospital-page .map-tv-manage-body p{font-size:12px;line-height:1.55;color:#687589;margin:0}
 body.hospital-page .map-tv-manage-body>.btn{justify-self:start}
 @media(max-width:760px){body.hospital-page .space-simple-inspector .space-simple-tv-row{grid-template-columns:70px minmax(0,1fr)}body.hospital-page .map-tv-manage{grid-column:1/-1;justify-self:stretch}body.hospital-page .map-tv-manage-body{width:100%;box-sizing:border-box}body.hospital-page .map-tv-manage-picker{flex-wrap:wrap}body.hospital-page .map-tv-manage-picker select{min-width:180px}}
+
+
+/* 2026-11-20: unified map selection and full-width inline TV management.
+   Place heading stays identical whether space or display marker is selected. */
+body.hospital-page .space-simple-inspector .space-simple-main{padding:18px 22px 12px}
+body.hospital-page .space-simple-inspector .space-simple-tv-list{display:grid;gap:10px}
+body.hospital-page .space-simple-inspector .space-simple-tv-card{display:block;min-width:0;background:#fff;border:1px solid #e4e9f0;border-radius:12px;overflow:hidden}
+body.hospital-page .space-simple-inspector .space-simple-tv-card.is-map-selected-tv{padding:0;background:#fff;border-color:#9aaed0;box-shadow:inset 3px 0 0 #667fb7}
+body.hospital-page .space-simple-inspector .space-simple-tv-card+.space-simple-tv-card{border-top:1px solid #e4e9f0}
+body.hospital-page .space-simple-inspector .space-simple-tv-row{display:grid;grid-template-columns:88px minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px 16px;min-width:0}
+body.hospital-page .space-simple-inspector .space-simple-tv-info strong{font-size:14px;color:#253247;overflow-wrap:anywhere}
+body.hospital-page .space-simple-inspector .map-tv-toggle{min-width:98px;justify-self:end;white-space:nowrap;min-height:40px}
+body.hospital-page .space-simple-inspector .map-tv-toggle[aria-expanded="true"]{background:#edf3fa;border-color:#a6bbd9}
+body.hospital-page .space-simple-inspector .map-tv-manage-body{display:grid;gap:12px;position:static;width:auto;max-width:none;margin:0;padding:18px 20px;border:0;border-top:1px solid #e4e9f0;border-radius:0;background:#f8fafc;box-shadow:none;box-sizing:border-box;min-width:0}
+body.hospital-page .space-simple-inspector .map-tv-manage-body[hidden]{display:none!important}
+body.hospital-page .space-simple-inspector .map-tv-manage-heading{display:grid;gap:3px}
+body.hospital-page .space-simple-inspector .map-tv-manage-heading strong{color:#263449;font-size:15px}
+body.hospital-page .space-simple-inspector .map-tv-manage-heading small,body.hospital-page .space-simple-inspector .map-tv-manage-help{color:#68778b;font-size:12px;line-height:1.5}
+body.hospital-page .space-simple-inspector .map-tv-manage-picker{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch}
+body.hospital-page .space-simple-inspector .map-tv-manage-picker select{width:100%;min-width:0;min-height:44px;padding:10px 12px;background:#fff;border:1px solid #d6deeb;border-radius:9px;font-size:14px}
+body.hospital-page .space-simple-inspector .map-tv-manage-picker .btn{min-height:44px;white-space:nowrap}
+body.hospital-page .space-simple-inspector .map-tv-extra{border-top:1px solid #e4e9f0;padding-top:10px;min-width:0}
+body.hospital-page .space-simple-inspector .map-tv-extra>summary{font-size:13px;font-weight:700;color:#576b83;cursor:pointer;padding:7px 0;max-width:max-content}
+body.hospital-page .space-simple-inspector .map-tv-extra-actions{display:flex;flex-wrap:wrap;gap:8px;padding-top:10px}
+body.hospital-page .space-simple-inspector .space-simple-reason{padding:15px 22px 18px;background:#fcfdfe}
+body.hospital-page .space-simple-inspector .space-simple-reason p{max-width:850px}
+@media(max-width:760px){
+ body.hospital-page .space-simple-inspector .space-simple-header{padding:14px 15px;flex-wrap:wrap}
+ body.hospital-page .space-simple-inspector .space-simple-main,body.hospital-page .space-simple-inspector .space-simple-reason{padding:14px}
+ body.hospital-page .space-simple-inspector .space-simple-tv-row{grid-template-columns:68px minmax(0,1fr);gap:10px;padding:12px}
+ body.hospital-page .space-simple-inspector .space-simple-tv-thumb .floor-space-current-thumb{width:68px!important;max-width:68px!important}
+ body.hospital-page .space-simple-inspector .map-tv-toggle{grid-column:1/-1;justify-self:stretch;width:100%;min-height:42px}
+ body.hospital-page .space-simple-inspector .map-tv-manage-body{padding:14px}
+ body.hospital-page .space-simple-inspector .map-tv-manage-picker{grid-template-columns:minmax(0,1fr)}
+ body.hospital-page .space-simple-inspector .map-tv-manage-picker select{min-width:0}
+ body.hospital-page .space-simple-inspector .map-tv-manage-picker .btn{width:100%}
+ body.hospital-page .space-simple-inspector .map-tv-extra-actions{display:grid;grid-template-columns:1fr}
+ body.hospital-page .space-simple-inspector .map-tv-extra-actions .btn{width:100%;white-space:normal}
+ body.hospital-page .space-simple-inspector .space-simple-heading h3{overflow-wrap:anywhere;word-break:keep-all}
+}
