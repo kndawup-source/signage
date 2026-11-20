@@ -296,8 +296,8 @@
     const location=group?.name||'병원';
     const overall=linkedSpace?floorSpaceBroadcastStatus(linkedSpace):room?roomDisplayStatus(room):{key:'empty',label:'TV 없음'};
     const rows=rooms.map(r=>{
-      const current=currentVideoForRoom(r),status=roomDisplayStatus(r),isManual=displayControlMode(r)==='manual';
-      const videoTitle=isManual?'현장에서 관리하는 TV':currentVideoTitle(r);
+      const summary=roomVideoSummary(r),current=summary.video,status=roomDisplayStatus(r),isManual=displayControlMode(r)==='manual';
+      const videoTitle=isManual?'현장에서 관리하는 TV':summary.title;
       const configured=String(r.default_playlist_id||group?.default_playlist_id||'');
       const opts=state.playlists.filter(p=>p.active!==false&&(p.site_id===targetSiteId||p.site_id==null)).map(p=>`<option value="${esc(p.id)}" ${String(p.id)===configured?'selected':''}>${esc(p.name)}${p.site_id==null?' · 공용':''}</option>`).join('');
       const selected=room&&String(r.id)===String(room.id);
@@ -305,7 +305,7 @@
       return `<article class="space-simple-tv-card ${selected?'is-map-selected-tv':''}" data-map-tv-row="${esc(r.id)}">
         <div class="space-simple-tv-row">
           <div class="space-simple-tv-thumb">${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</div>
-          <div class="space-simple-tv-info"><strong>${esc(r.name)}</strong><span class="space-simple-video-title">${esc(videoTitle)}</span><small>${esc(status.label)} · ${esc(playlistById(configured)?.name||'재생목록 미지정')}</small></div>
+          <div class="space-simple-tv-info"><strong>${esc(r.name)}</strong><span class="space-simple-video-title">${esc(videoTitle)}</span><small>${esc(isManual?'현장에서 관리하는 TV':summary.detail)} · ${esc(playlistById(configured)?.name||'재생목록 미지정')}</small><small>${esc(status.label)}</small></div>
           <button type="button" class="btn small map-tv-toggle" data-map-tv-toggle="${esc(r.id)}" aria-expanded="false" aria-controls="${esc(panelId)}">TV 관리 <span aria-hidden="true">▾</span></button>
         </div>
         <div class="map-tv-manage-body" id="${esc(panelId)}" data-map-tv-panel="${esc(r.id)}" hidden>
@@ -565,7 +565,22 @@
   const currentVideoForRoom=(r)=>{const id=r?.player_status?.video_id;if(!id)return null;if(lookupCache.videos!==state.videos){lookupCache.videos=state.videos;lookupCache.videoMap=new Map(state.videos.map(v=>[v.id,v]));}return lookupCache.videoMap.get(id)||null;};
   // Never display legacy title/next_title from player_status after a media reset.
   // Only catalog-backed media names may appear as current/next content.
-  const currentVideoTitle=(r)=>currentVideoForRoom(r)?.title||'등록된 재생 영상 없음';
+  // A TV going offline stops live reporting, NOT its configured playlist.
+  // Use persisted playlist membership when playback cannot be confirmed.
+  function configuredVideoForRoom(r){
+    const ids=staffBaseIds(r).map(String);
+    return ids.map(id=>state.videos.find(v=>String(v.id)===id)).find(Boolean)||null;
+  }
+  function roomVideoSummary(r){
+    const live=staffIsOnline(r);
+    const current=live?currentVideoForRoom(r):null;
+    const playing=live&&String(r.player_status?.playback_state||'').toLowerCase()==='playing';
+    if(current&&playing)return {video:current,title:current.title,detail:'현재 재생 중이라고 보고된 영상'};
+    const assigned=configuredVideoForRoom(r);
+    if(assigned)return {video:assigned,title:assigned.title,detail:live?'재생목록에 설정된 영상 · 현재 재생은 확인 중':'재생목록에 설정된 영상 · 오프라인으로 재생 확인 불가'};
+    return {video:null,title:'재생목록에 영상이 없습니다',detail:'이 TV에 사용할 재생목록과 영상 구성을 확인하세요.'};
+  }
+  const currentVideoTitle=(r)=>roomVideoSummary(r).title;
   function nextVideoTitle(r){
     const ids=staffBaseIds(r).map(String);
     const currentId=String(r?.player_status?.video_id||'');
@@ -689,7 +704,7 @@
   }
   function staffFloorMarker(r){
     if(!roomMapPlaced(r))return '';
-    const st=roomDisplayStatus(r),x=Number(r.map_x_pct),y=Number(r.map_y_pct),current=currentVideoForRoom(r);
+    const st=roomDisplayStatus(r),x=Number(r.map_x_pct),y=Number(r.map_y_pct),current=roomVideoSummary(r).video;
     const thumb=current?.thumbnail_data_url?`<img src="${esc(current.thumbnail_data_url)}" alt="">`:'<span class="display-screen-icon"></span>';
     const videoTitle=currentVideoTitle(r);
     return `<button class="floor-display-pin control-${displayControlMode(r)} status-${st.key}" style="left:${x}%;top:${y}%" data-staff-floor-room="${r.id}" aria-label="${esc(r.name)} · ${esc(st.label)}" aria-expanded="false">
