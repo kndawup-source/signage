@@ -575,9 +575,10 @@
   let lastLoadStartedAt=0;
   async function load({background=false}={}){
     lastLoadStartedAt=Date.now();
-    const [reception,building]=await Promise.all([db.rpc('hospital_reception_state',{p_site:targetSiteId}),db.rpc('hospital_building_asset',{p_site:targetSiteId})]);
+    const [reception,building,overlayLookup]=await Promise.all([db.rpc('hospital_reception_state',{p_site:targetSiteId}),db.rpc('hospital_building_asset',{p_site:targetSiteId}),db.rpc('hospital_get_room_overlays',{p_site:targetSiteId})]);
     if(reception.error)throw reception.error;if(building.error)throw building.error;
-    const data=reception.data||{},baseRooms=data.rooms||[];
+    const data=reception.data||{},overlayByRoom=new Map((Array.isArray(overlayLookup.data)?overlayLookup.data:[]).map(x=>[String(x.id),x.overlay_text])),baseRooms=(data.rooms||[]).map(r=>({...r,overlay_text:overlayByRoom.get(String(r.id))??null}));
+    if(overlayLookup.error)console.warn('TV 화면 문구 조회 실패:',overlayLookup.error.message);
     const liveStatuses=await monitor.fetchStatus({roomIds:baseRooms.map(r=>r.id)}).catch(()=>({rows:[]}));
     const liveByRoom=new Map((liveStatuses.rows||[]).map(x=>[x.room_id,x]));
     const rooms=baseRooms.map(r=>{const live=liveByRoom.get(r.id);return live?{...r,last_seen_at:live.last_seen_at||r.last_seen_at,player_status:live.player_status||r.player_status}:r;});
@@ -951,9 +952,10 @@
     // Choose the first problematic floor on the first visit, otherwise the highest floor.
     if(!selectedFloorId){const firstIssue=floors.find(g=>(g.rooms||state.rooms.filter(r=>r.group_id===g.id)).some(r=>['offline','error','update','manual-warn','delayed'].includes(roomDisplayStatus(r).key)));selectedFloorId=(firstIssue||floors[0]).id;}
     const selected=floors.find(g=>g.id===selectedFloorId)||floors[0];
-    return `<section class="hospital-building-dashboard hospital-unified-ops"><div class="hospital-building-console"><div class="hospital-floor-console-card">
-      <div class="hospital-floor-console-title"><div><small>층 선택</small><h2>층별 TV</h2><p>층을 누르면 TV 위치와 상태를 볼 수 있어요.</p><div class="floor-status-legend" aria-label="상태 점 범례"><span><i class="live"></i>영상 재생 중</span><span><i class="unverified"></i>미확인·오류</span><span><i class="manual"></i>수동</span><span><i class="empty"></i>TV 없음</span></div></div><div class="hospital-floor-fast-actions"><button type="button" class="btn small primary" data-ops-quick-add="space">+ 공간·TV</button><button type="button" class="btn small" data-ops-quick-add="display">+ TV</button><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'보기로 돌아가기':'도면에서 배치 수정'}</button></div></div>
-      <div class="hospital-floor-console-grid"><div class="hospital-floor-list" role="group" aria-label="층 선택">${floors.map(staffBuildingFloor).join('')}</div>
+    const floorLayout=floors.length===1?'single-floor':floors.length<=3?'few-floors':'many-floors';
+    return `<section class="hospital-building-dashboard hospital-unified-ops ${floorLayout}"><div class="hospital-building-console"><div class="hospital-floor-console-card">
+      <div class="hospital-floor-console-title"><div><small>${floors.length===1?'TV 위치와 상태':floors.length<=3?'층을 골라주세요':'층 선택'}</small><h2>${floors.length===1?'병원 TV 현황':'층별 TV'}</h2><p>${floors.length===1?'도면에서 TV를 누르면 영상과 상태를 확인할 수 있습니다.':'층을 누르면 TV 위치와 상태를 볼 수 있어요.'}</p><div class="floor-status-legend" aria-label="상태 점 범례"><span><i class="live"></i>영상 재생 중</span><span><i class="unverified"></i>미확인·오류</span><span><i class="manual"></i>수동</span><span><i class="empty"></i>TV 없음</span></div></div><div class="hospital-floor-fast-actions"><button type="button" class="btn small primary" data-ops-quick-add="space">+ 공간·TV</button><button type="button" class="btn small" data-ops-quick-add="display">+ TV</button><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'보기로 돌아가기':'도면에서 배치 수정'}</button></div></div>
+      <div class="hospital-floor-console-grid">${floors.length===1?'':`<div class="hospital-floor-list" role="group" aria-label="층 선택">${floors.map(staffBuildingFloor).join('')}</div>`}
       <div class="hospital-floor-ops-content">${layoutPanelOpen?operationsLayoutEditorMarkup():`${staffFloorPanelMarkup(selected)}${floorQuickTvList(selected.rooms||state.rooms.filter(r=>r.group_id===selected.id))}`}</div></div>
     </div></div></section>`;
   }
@@ -1949,6 +1951,7 @@
     const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
     return `<details class="monitor-room staff-monitor-room health-${health}" data-room-card="${r.id}" data-health="${health}"><summary><div class="monitor-room-top"><div class="monitor-room-name"><span data-staff-live-dot class="dot ${on?'on':''}"></span><b>${esc(r.name)}</b></div><span class="room-status-badge status-${display.key}" data-staff-room-status>${esc(display.label)}</span></div><div class="monitor-current-thumb" data-staff-live-thumb>${staffThumbLink(currentVideo,'monitor-current-thumb-link','현재 영상 열기')}</div><div class="monitor-now"><span>적용 중인 설정 · ${esc(priorityLabel(st.priority||st.mode))}</span><b data-staff-live-title>${esc(current)}</b><small data-staff-live-detail>${displayControlMode(r)==='manual'?esc(roomIssueReason(r)):(on?`${esc(playbackLabel(st.playback_state))}${progress?` · ${progress}`:''}${roomIssueReason(r)?` · ${esc(roomIssueReason(r))}`:''}`:'플레이어 응답 없음')}</small></div><div class="monitor-next"><span>다음</span><b data-staff-live-next>${esc(next||'—')}</b></div><div class="monitor-card-foot"><span>${esc(roomTypeLabel(r.room_mode))}${manual?' · 개별 영상':activeTreatment?` · ${esc(treatmentLabel(activeTreatment))}`:defaultPlaylist?` · ${esc(defaultPlaylist.name)}`:''}</span><b>관리</b></div></summary><div class="monitor-room-controls staff-room-control-body">
       ${playerDiagnosticsHtml(r)}
+      <div class="staff-tv-overlay-settings"><div class="staff-tv-overlay-heading"><b>영상 위에 문구 표시</b><small>이 TV에서 나오는 영상 아래쪽에 문구를 보여줍니다. 비워서 저장하면 문구가 사라집니다.</small></div><div class="staff-tv-overlay-row"><input type="text" maxlength="160" data-tv-overlay-input="${esc(r.id)}" value="${esc(r.overlay_text||'')}" placeholder="예: 진료 대기 고객 안내" aria-label="${esc(r.name)} TV 화면 문구"><button type="button" class="btn small" data-tv-overlay-save="${esc(r.id)}">문구 저장</button></div>${displayControlMode(r)==='manual'?'<small>현장 관리 TV는 원격 문구 표시를 확인할 수 없습니다.</small>':'<small>영상 자체는 수정되지 않습니다. 변경 후 플레이어에서 반영되는지 확인하세요.</small>'}</div>
       ${audience?`<div class="room-output-note">맞춤 대상 · ${esc(audience)}</div>`:''}
       ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>현장 관리 TV</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>설정은 저장되지만, 현장 TV에는 바로 적용되지 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'확인 취소':'오늘 확인함'}</button></div>`:`<details class="staff-output-details"><summary>지금 보여주는 영상 · 변경하기</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV에서 보여줄 영상 목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">영상 추가·제거</button><small>저장하면 이 목록을 사용하는 TV에도 변경됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 영상으로 돌아가기</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">플레이어 화면 열기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div>`}
       ${p?`<div class="room-patient compact"><b>${esc(p.label||`대기 ${p.queue_no}`)}</b><span>${esc(waitText(p))}</span></div>`:''}
@@ -2128,6 +2131,7 @@
     floorStage?.addEventListener('click',e=>{if(e.target.closest('[data-staff-floor-room],[data-floor-space]'))return;floorStage.classList.remove('has-map-focus');delete floorStage.dataset.focusKind;delete floorStage.dataset.focusId;qsa('.is-selected,.is-selected-space,.is-focus-context',floorStage).forEach(x=>x.classList.remove('is-selected','is-selected-space','is-focus-context'));const inspector=qs('[data-staff-floor-zone-inspector]');if(inspector)inspector.innerHTML='<div class="floor-zone-inspector-empty"><div><b>도면에서 TV나 공간을 눌러주세요.</b></div><p>어떤 영상이 나오는지, 왜 나오는지 볼 수 있습니다.</p></div>';});
 
     qsa('#hospitalRoot select').forEach(el=>el.addEventListener('change',()=>{el.dataset.dirty='1';}));
+    qsa('[data-tv-overlay-save]').forEach(b=>b.addEventListener('click',()=>saveTvOverlayText(b.dataset.tvOverlaySave)));
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply,b)));
     qsa('[data-staff-player-open]').forEach(b=>b.addEventListener('click',()=>openRoomPlayer(b.dataset.staffPlayerOpen)));
     qsa('[data-staff-player-copy]').forEach(b=>b.addEventListener('click',()=>copyRoomPlayer(b.dataset.staffPlayerCopy)));
@@ -2158,6 +2162,17 @@
     await load().catch(e=>toast(e.message||String(e),'error'));
     if(room&&signal&&signalled)void confirmDelivery(room,issuedAt);
     return true;
+  }
+  async function saveTvOverlayText(roomId){
+    const room=roomById(roomId);
+    if(!room)return toast('TV를 찾을 수 없습니다.','error');
+    const input=qs(`[data-tv-overlay-input="${roomId}"]`);
+    if(!input)return;
+    const text=String(input.value||'').trim();
+    if(text.length>160)return toast('문구는 160자 이내로 입력해 주세요.','error');
+    await staffControl(roomId,()=>db.rpc('hospital_set_room_overlay_text',{
+      p_site:targetSiteId,p_room:roomId,p_text:text||null
+    }),text?'영상 위에 표시할 문구를 저장했습니다.':'영상 위 문구를 삭제했습니다.',{signal:displayControlMode(room)==='remote'||displayControlMode(room)==='hybrid'});
   }
   async function confirmDelivery(room,issuedAt){
     const r=roomById(room);if(!r||roomHealth(r)==='offline')return;

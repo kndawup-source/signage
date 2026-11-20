@@ -621,3 +621,18 @@ body.hospital-page .space-simple-more-grid small{font-size:11px;color:#718094}
 body.hospital-page .space-simple-more-grid b{font-size:13px;color:#263449;overflow-wrap:anywhere}
 body.hospital-page .space-simple-more-grid span{font-size:12px;line-height:1.5;color:#526175;overflow-wrap:anywhere}
 @media(max-width:650px){body.hospital-page .space-simple-inspector .space-simple-header{padding:15px;align-items:flex-start}body.hospital-page .space-simple-heading h3{font-size:18px!important}body.hospital-page .space-simple-main,body.hospital-page .space-simple-reason{padding:15px}body.hospital-page .space-simple-tv-row{grid-template-columns:72px minmax(0,1fr);gap:10px}body.hospital-page .space-simple-tv-row .btn{grid-column:2;justify-self:start}body.hospital-page .space-simple-tv-thumb .floor-space-current-thumb{width:72px!important}body.hospital-page .space-simple-more-grid{grid-template-columns:1fr}}
+
+/* Clinic Signage · adaptive floor navigator + restored TV overlay editor */
+.hospital-unified-ops.single-floor .hospital-floor-console-grid{grid-template-columns:minmax(0,1fr)!important}
+.hospital-unified-ops.single-floor .hospital-floor-ops-content{min-width:0;width:100%}
+.hospital-unified-ops.few-floors .hospital-floor-console-grid{grid-template-columns:minmax(0,1fr)!important}
+.hospital-unified-ops.few-floors .hospital-floor-list{display:flex!important;flex-flow:row wrap!important;gap:8px!important;padding:12px 16px!important;border-right:0!important;border-bottom:1px solid #e7e9ed!important;overflow:visible!important}
+.hospital-unified-ops.few-floors .hospital-floor-list>.hospital-floor-row{flex:0 1 190px!important;min-width:145px!important;max-width:230px!important;margin:0!important}
+.staff-tv-overlay-settings{margin:14px 0;padding:15px 16px;border:1px solid #e4e9ef;border-radius:12px;background:#f8fafc;display:grid;gap:10px}
+.staff-tv-overlay-heading{display:grid;gap:3px}
+.staff-tv-overlay-heading>b{font-size:14px;color:#20314b}
+.staff-tv-overlay-heading>small,.staff-tv-overlay-settings>small{font-size:12px;color:#66758b;line-height:1.5}
+.staff-tv-overlay-row{display:flex;align-items:center;gap:8px}
+.staff-tv-overlay-row>input{min-width:0;flex:1;height:40px;padding:9px 12px;border:1px solid #dbe2eb;border-radius:9px;background:#fff;color:#14263d;font-size:14px}
+.staff-tv-overlay-row>.btn{flex-shrink:0;min-height:40px}
+@media(max-width:640px){.staff-tv-overlay-row{flex-direction:column;align-items:stretch}.staff-tv-overlay-row>.btn{width:100%}.hospital-unified-ops.few-floors .hospital-floor-list>.hospital-floor-row{flex:1 1 135px!important}}
