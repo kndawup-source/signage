@@ -282,45 +282,39 @@
     if(rooms.some(r=>roomDisplayStatus(r).key==='live'))return {key:'live',label:'영상 재생 중'};
     return {key:'offline',label:'영상 재생 안 됨'};
   }
-  // Both map targets use the same inspector sections and reading order.
-  // A space is a group of TVs, so controls act on a selected TV, never silently on all of them.
-  function staffFloorSpacePreviewHtml(sp){
-    const rooms=roomsForFloorSpace(sp),journey=journeyMetaForSpace(sp),broadcast=floorSpaceBroadcastStatus(sp);
-    const floor=state.groups.find(g=>g.id===sp.group_id);
-    const location=[floor?.name||'',sp.name].filter(Boolean).join(' · ');
-    const currentRows=rooms.map(r=>{
-      const status=roomDisplayStatus(r),current=currentVideoForRoom(r),title=currentVideoTitle(r);
-      const setting=`<button type="button" class="btn small" data-staff-open-room-detail="${esc(r.id)}" aria-label="${esc(r.name)} TV 설정 열기">TV 설정</button>`;
-      return `<div class="space-simple-tv-row"><div class="space-simple-tv-thumb">${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</div><div class="space-simple-tv-info"><small>${esc(r.name)}</small><strong>${esc(title)}</strong><span>${esc(status.label)}</span></div>${setting}</div>`;
+  // One shared inspector for both map selection targets. A space selects its TVs,
+  // while a display selects one TV. All controls operate on a specific display.
+  function mapSelectionInspector({space=null,room=null}={}){
+    const linkedSpace=space||(room?(roomSpace(room)||spaceContainingPoint(room.group_id,room.map_x_pct,room.map_y_pct)):null);
+    const rooms=room?[room]:roomsForFloorSpace(linkedSpace);
+    const group=state.groups.find(g=>g.id===(room?.group_id||linkedSpace?.group_id))||null;
+    const heading=room?room.name:(linkedSpace?.name||'선택한 공간');
+    const location=[group?.name||'',room?(linkedSpace?.name||roomTypeLabel(room.room_mode)):'공간'].filter(Boolean).join(' · ');
+    const overall=room?roomDisplayStatus(room):floorSpaceBroadcastStatus(linkedSpace);
+    const rows=rooms.map(r=>{
+      const current=currentVideoForRoom(r),status=roomDisplayStatus(r),isManual=displayControlMode(r)==='manual';
+      const videoTitle=isManual?'현장에서 관리하는 TV':currentVideoTitle(r);
+      const currentMode=roomPlaylistLabel(r);
+      const technicalReason=isManual?'현장에서 영상을 선택하는 TV입니다.':`현재 설정: ${currentMode}`;
+      return `<div class="space-simple-tv-row floor-space-display-row" data-map-tv-row="${esc(r.id)}">
+        <div class="space-simple-tv-thumb">${staffFloorInlineThumb(current,'floor-space-current-thumb','현재 영상 보기')}</div>
+        <div class="space-simple-tv-info"><strong>${esc(r.name)}</strong><span class="space-simple-video-title">${esc(videoTitle)}</span><small>${esc(status.label)} · ${esc(technicalReason)}</small></div>
+        <div class="space-simple-tv-actions"><button type="button" class="btn small" data-map-open-playlist="${esc(r.id)}">영상 바꾸기</button><button type="button" class="btn small" data-staff-open-room-detail="${esc(r.id)}">TV 설정</button></div>
+      </div>`;
     }).join('');
-    // This is a description of the space's planned content, not a claim about
-    // the runtime rule that selected the currently playing video.
-    const purpose=spaceOperationalPurpose(sp);
-    const context=String(journey.stage||'').trim();
-    const contextDetail=String(journey.need||'').trim();
-    const content=String(journey.content||'').trim();
-    const contentDetail=String(journey.why||'').trim();
-    const reason=String(purpose||'').trim() || '이 공간을 이용하는 분들에게 필요한 정보를 안내합니다.';
-    const controls=rooms.length>1?`<span class="space-simple-tv-count">TV ${rooms.length}대 · 아래에서 TV를 선택하세요</span>`:'';
-    return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector space-simple-inspector">
-      <div class="space-simple-header"><div class="space-simple-heading"><small>${esc(floor?.name||'선택한 층')} · 공간</small><h3>${esc(sp.name)}</h3></div><div class="space-simple-header-end"><span class="space-simple-status status-${broadcast.key}">${esc(broadcast.label)}</span>${controls}</div></div>
-      <div class="space-simple-main"><div class="space-simple-section-title">이곳의 TV와 영상</div>${currentRows||'<div class="space-simple-empty">이 공간에 등록된 TV가 없습니다.</div>'}</div>
-      <div class="space-simple-reason"><div class="space-simple-section-title">왜 이 영상을 보여주나요?</div><p>${esc(reason)}</p><details class="space-simple-more"><summary>공간과 영상에 대한 설명 더 보기</summary><div class="space-simple-more-grid"><div><small>이곳은</small><b>${esc(context||'공간 정보 없음')}</b>${contextDetail?`<span>${esc(contextDetail)}</span>`:''}</div><div><small>보여주는 내용</small><b>${esc(content||'정보 없음')}</b>${contentDetail?`<span>${esc(contentDetail)}</span>`:''}</div></div></details></div>
+    // Explain the space's intended content separately from the actual runtime selection rule.
+    const journey=room?journeyMetaForRoom(room):journeyMetaForSpace(linkedSpace);
+    const purpose=room?roomBroadcastReason(room):String(linkedSpace?.content_reason||group?.signage_reason||'').trim();
+    const reason=purpose||'이 공간을 이용하는 분들에게 필요한 안내 영상을 보여주기 위해서입니다.';
+    const details=`<details class="space-simple-more"><summary>설명 더 보기</summary><div class="space-simple-more-grid"><div><small>이곳은</small><b>${esc(journey.stage||'공간 이용 중')}</b><span>${esc(journey.need||'')}</span></div><div><small>주로 보여주는 내용</small><b>${esc(journey.content||'안내 영상')}</b><span>${esc(journey.why||'')}</span></div></div></details>`;
+    return `<div class="floor-room-focus floor-space-focus floor-map-unified-inspector space-simple-inspector" data-map-inspector-kind="${room?'display':'space'}">
+      <div class="space-simple-header"><div class="space-simple-heading"><small>${esc(location)}</small><h3>${esc(heading)}</h3><span class="space-simple-heading-sub">${room?'TV 1대':`TV ${rooms.length}대`}</span></div><div class="space-simple-header-end"><span class="space-simple-status status-${overall.key}">${esc(overall.label)}</span></div></div>
+      <div class="space-simple-main"><div class="space-simple-section-title">${room?'선택한 TV와 영상':'이곳의 TV와 영상'}</div>${rows||'<div class="space-simple-empty">이 공간에 등록된 TV가 없습니다. TV를 추가하면 여기에서 확인할 수 있습니다.</div>'}</div>
+      <div class="space-simple-reason"><div class="space-simple-section-title">왜 이 영상을 보여주나요?</div><p>${esc(reason)}</p>${details}</div>
     </div>`;
   }
-  function staffFloorRoomPreviewHtml(r){
-    const status=roomDisplayStatus(r),current=currentVideoForRoom(r),isManual=displayControlMode(r)==='manual',st=r.player_status||{},journey=journeyMetaForRoom(r);
-    const title=isManual?'현장 수동 운영':(currentVideoTitle(r));
-    const progress=st.duration?`${formatDuration(st.current_time||0)} / ${formatDuration(st.duration)}`:'';
-    const playback=isManual?'TV에서 재생 중인지 알 수 없음':(staffIsOnline(r)?`${playbackLabel(st.playback_state)}${progress?` · ${progress}`:''}`:'플레이어 응답 없음');
-    return `<div class="floor-room-focus floor-map-unified-inspector">
-      <div class="floor-room-focus-head"><div><small>디스플레이</small><b>${esc(r.name)}</b><span>${esc(roomTypeLabel(r.room_mode))}</span></div><em class="status-${status.key}"><i></i>${esc(status.label)}</em></div>
-      <div class="floor-room-current">${staffFloorInlineThumb(current,'floor-room-current-thumb','현재 영상 보기')}<div class="floor-room-current-copy"><small>현재 영상</small><b>${esc(title)}</b><span>${esc(playback)} · ${esc(roomPlaylistLabel(r))}</span>${videoCopyButton(current,'floor-current-copy-btn')}</div></div>
-      <div class="floor-room-next"><small>다음 영상</small>${staffRoomVideoStripHtml(r)}</div>
-      <div class="floor-room-why"><small>왜 이 영상이 나오나요?</small>${journeyReasonPanel(journey,roomOperationalPurpose(r))}</div>
-      <div class="floor-room-controls"><div class="floor-room-actions"><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button type="button" class="btn primary" data-staff-playlist-apply="${r.id}">${isManual?'기본 영상 저장':'영상 바꾸기'}</button></div><div class="floor-room-subactions">${isManual?'':`<button type="button" class="text-btn" data-staff-player-open="${r.id}">플레이어 화면 열기</button><button type="button" class="text-btn" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button>`}<button type="button" class="text-btn dark" data-map-open-playlist="${r.id}">재생목록 편집</button><button type="button" class="text-btn dark floor-room-preview-open" data-staff-open-room-detail="${r.id}">상세 설정</button></div>${isManual?'<small class="floor-room-local-note">현장에서 관리하는 TV입니다. 여기서 설정을 저장해도 TV가 바로 바뀌지는 않습니다.</small>':''}</div>
-    </div>`;
-  }
+  function staffFloorSpacePreviewHtml(sp){return mapSelectionInspector({space:sp});}
+  function staffFloorRoomPreviewHtml(r){return mapSelectionInspector({room:r});}
   // Every visible output has an action. Its source determines what can safely be changed.
   function staffOutputList(r){
     const items=staffRoomOutputItems(r);

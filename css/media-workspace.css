@@ -636,3 +636,14 @@ body.hospital-page .space-simple-more-grid span{font-size:12px;line-height:1.5;c
 .staff-tv-overlay-row>input{min-width:0;flex:1;height:40px;padding:9px 12px;border:1px solid #dbe2eb;border-radius:9px;background:#fff;color:#14263d;font-size:14px}
 .staff-tv-overlay-row>.btn{flex-shrink:0;min-height:40px}
 @media(max-width:640px){.staff-tv-overlay-row{flex-direction:column;align-items:stretch}.staff-tv-overlay-row>.btn{width:100%}.hospital-unified-ops.few-floors .hospital-floor-list>.hospital-floor-row{flex:1 1 135px!important}}
+
+/* Unified map details: identical structure for selecting a room or a space. */
+body.hospital-page .hospital-floor-detail .floor-room-focus.floor-space-focus.floor-map-unified-inspector.space-simple-inspector[data-map-inspector-kind]{display:flex!important;flex-direction:column!important;grid-template-areas:none!important;grid-template-columns:none!important;gap:0!important}
+body.hospital-page .space-simple-inspector .space-simple-heading-sub{font-size:12px;color:#69768a}
+body.hospital-page .space-simple-inspector .space-simple-tv-row{grid-template-columns:88px minmax(0,1fr) auto;gap:14px;align-items:center}
+body.hospital-page .space-simple-inspector .space-simple-tv-info strong{font-size:14px;color:#66758a}
+body.hospital-page .space-simple-inspector .space-simple-video-title{font-size:16px;font-weight:700;color:#263449}
+body.hospital-page .space-simple-inspector .space-simple-tv-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+body.hospital-page .space-simple-inspector .space-simple-tv-actions .btn{min-height:36px;white-space:nowrap}
+body.hospital-page .space-simple-inspector .space-simple-reason{border-top:1px solid #edf0f4;padding:17px 22px 20px}
+@media(max-width:760px){body.hospital-page .space-simple-inspector .space-simple-tv-row{grid-template-columns:72px minmax(0,1fr)}body.hospital-page .space-simple-inspector .space-simple-tv-actions{grid-column:2;justify-content:flex-start}body.hospital-page .space-simple-inspector .space-simple-tv-thumb .floor-space-current-thumb{width:72px!important}}
