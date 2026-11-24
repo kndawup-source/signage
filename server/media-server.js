@@ -113,7 +113,11 @@ async function serveVideo(req,res,file,urlObj) {
   const m=/bytes=(\d*)-(\d*)/.exec(range);
   if(!m){res.writeHead(416,{'Content-Range':`bytes */${st.size}`});return res.end();}
   let start=m[1]?Number(m[1]):0, end=m[2]?Number(m[2]):st.size-1;
-  if(start>=st.size||end>=st.size||start>end){res.writeHead(416,{'Content-Range':`bytes */${st.size}`});return res.end();}
+  // bytes=-N : 마지막 N바이트 (MP4 moov atom이 파일 끝에 있을 때 브라우저가 사용)
+  if(!m[1]&&m[2]){start=Math.max(0,st.size-Number(m[2]));end=st.size-1;}
+  if(!m[1]&&!m[2]){res.writeHead(416,{'Content-Range':`bytes */${st.size}`});return res.end();}
+  end=Math.min(end,st.size-1);
+  if(start>=st.size||start>end){res.writeHead(416,{'Content-Range':`bytes */${st.size}`});return res.end();}
   res.writeHead(206,{'Content-Range':`bytes ${start}-${end}/${st.size}`,'Content-Length':end-start+1});
   if(req.method==='HEAD')return res.end();
   const stream=fs.createReadStream(file,{start,end});
