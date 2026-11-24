@@ -1,3 +1,4 @@
+Clinic Signage 2.35.85 — TV 업데이트 반복 새로고침 수정 (PATCH_NOTES_v2.35.85.md)
 Clinic Signage 2.35.84 — 코드 리뷰 반영 (PATCH_NOTES_v2.35.84.md 참고)
 
 Clinic Signage 2.35.20 — 100-site scaling safety patch
