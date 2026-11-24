@@ -1,2 +1,0 @@
-js/admin.js
-api/r2-delete.js
