@@ -13,18 +13,25 @@
 | 키오스크 | 커서 숨김, Esc/F11/창 닫기 차단, 외부 사이트 이동·팝업 차단 |
 | 다중 모니터 | 출력 화면 선택, 모니터 연결/해제 시 위치 재조정 |
 
-## 단축키 (송출 화면)
-- 설정: `Ctrl+Shift+F12` (mac `Cmd+Shift+F12`)
-- 새로고침: `Ctrl+Shift+R`
-- 종료: `Ctrl+Shift+Q`
+## 처음 연결 (연결 코드)
+1. 설치 후 실행하면 TV 화면에 **6자리 연결 코드**가 크게 나온다 (10분마다 자동 갱신)
+2. 병원 관리자 화면 → 디스플레이 선택 → **설치형 플레이어 연결**에 코드 입력 → 연결
+3. TV에 "연결되었습니다"가 나오고 몇 초 뒤 송출 시작
+- 주소를 직접 넣으려면 연결 코드 화면 왼쪽 아래 **주소 직접 입력 · 설정**
+- DB에 `supabase/v2.35.85-tv-pairing.sql` 적용 필요
+
+## 설정 / 종료
+- 켤 때마다 화면 아래에 10초간 단축키 안내가 나온다 (Esc·Alt+F4를 누를 때도 다시 표시)
+- 설정 `Ctrl+Shift+F12` · 새로고침 `Ctrl+Shift+R` · 종료 `Ctrl+Shift+Q` (mac은 Ctrl 대신 Cmd)
+- 윈도우 작업표시줄 / 맥 메뉴 막대 아이콘 메뉴: 설정 열기 · 새로고침 · 다른 디스플레이로 다시 연결 · 종료
 
 ## Windows
-- 설치: `ClinicSignageSetup-1.0.0.exe` 실행 → 관리자 권한 불필요 (사용자 폴더에 설치)
-- 첫 실행 시 플레이어 주소(또는 TV 키) 입력
+- 설치: `ClinicSignageSetup-1.1.0.exe` 실행 → 관리자 권한 불필요 (사용자 폴더에 설치)
+- 첫 실행 시 TV에 나오는 연결 코드를 관리자 화면에 입력
 - 무인/대량 설치:
   ```
-  ClinicSignageSetup-1.0.0.exe /S /URL=https://signage-lake.vercel.app/player.html?key=TV키
-  ClinicSignageSetup-1.0.0.exe /S /KEY=TV키
+  ClinicSignageSetup-1.1.0.exe /S /URL=https://signage-lake.vercel.app/player.html?key=TV키
+  ClinicSignageSetup-1.1.0.exe /S /KEY=TV키
   ```
 - 제거: 설정 > 앱 > Clinic Signage Player, 또는 `Uninstall.exe /S`
 - 설정·영상 캐시 위치: `%APPDATA%\Clinic Signage Player` (제거해도 유지 → 재설치 시 바로 송출)

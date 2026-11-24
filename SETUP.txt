@@ -1,64 +1,35 @@
-CLINIC SIGNAGE v2.34.78 · CANONICAL SETUP
+CLINIC SIGNAGE v2.35.85 · CANONICAL SETUP
 
 [신규 Supabase 설치]
-1. supabase/schema.sql 전체 실행
-2. 프런트/서버 v2.34.78 배포
-3. /admin.html 에서 병원 생성 및 PIN 설정
-4. 병원 관리자에서 층/디스플레이/도면/플레이리스트 설정
+1. supabase/schema.sql 전체 실행 (v2.35.85까지 모든 변경 포함 — 이 파일 하나로 완료)
+2. Vercel 환경변수 설정 (SUPABASE_URL, SUPABASE_ANON_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
+   R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL)
+3. 저장소 전체 배포
+4. node scripts/check-live.js  → "운영 배포 일치" 확인
+5. / 에서 슈퍼어드민 로그인 → 병원 생성 및 병원 관리자 PIN 설정
+6. 병원 관리자 주소(/hospital.html?site=<병원코드>)에서 층/디스플레이/도면/플레이리스트 설정
 
-[기존 v2.34.x 운영 DB 업그레이드]
-1. DB 백업
-2. schema_version을 확인하고 아래 파일 중 미적용 항목만 버전 순서대로 실행
-3. supabase/v2.34.32-runtime-fixes.sql
-4. supabase/v2.34.41-floor-layout-copy.sql
-5. supabase/v2.34.42-floor-layout-copy-fix.sql
-6. supabase/v2.34.43-floor-layout-copy-display-fix.sql
-7. supabase/v2.34.44-floor-layout-name-map.sql
-8. supabase/v2.34.45-floor-layout-display-key-fix.sql
-9. supabase/v2.34.46-display-space-link.sql
-10. supabase/v2.34.48-display-position-save-fix.sql
-11. supabase/v2.34.49-floor-content-strategy.sql
-12. supabase/v2.34.50-floor-canonicalization.sql
-13. supabase/v2.34.56-physical-floor-integrity.sql
-14. supabase/v2.34.61-release-blockers.sql
-15. supabase/v2.34.62-video-link-url.sql
-16. supabase/v2.34.63-video-link-safe.sql
-17. supabase/v2.34.67-display-floor-space-rpc.sql
-18. supabase/v2.34.70-floor-space-dedupe.sql
-19. supabase/v2.34.71-floor-meta-one-stop.sql
-20. supabase/v2.34.76-display-manage.sql
-21. supabase/v2.34.77-display-delete-safety.sql
-22. supabase/v2.34.78-multisite-scale-safety.sql
-23. v2.34.78 코드 배포 후 강력 새로고침
+[기존 운영 DB 업그레이드]
+- v2.35.83 이상 운영 DB: supabase/v2.35.84-login-hardening.sql → supabase/v2.35.85-tv-pairing.sql 순서로 실행
+- 그보다 오래된 DB: 저장소 이력(git)에서 해당 버전 이후 migration을 꺼내 순서대로 실행한 뒤 위 파일 실행
+- 기존 DB에 schema.sql 전체를 덮어 실행하지 않습니다.
+- 운영 DB에 v2.35.84를 적용한 뒤에는 v2.35.84-login-hardening.sql 파일도 삭제 가능 (schema.sql에 포함됨)
 
-[2.34.78 핵심 변경]
-- PIN 로그인: 병원 관리자 URL의 site 코드로 해당 병원 계정만 검사. 슈퍼어드민은 admin 계정만 검사.
-- player_control_signals에 site_id 추가. 병원 관리자 Realtime을 site 단위로 구독.
-- 신규 디스플레이가 현재 관리자 세션의 실시간 구독에 자동 포함됨.
-- 병원당 디스플레이 100개 초과 시 room_id IN 필터 한계 제거.
-- 영상/플레이리스트 변경 시 해당 병원 플레이어만 깨움. site_id가 없는 레거시 공용 콘텐츠는 전 병원 refresh 유지.
-- schema_version RLS 활성화 + anon/authenticated 직접 권한 제거.
-- '오늘 완료 환자' 기준을 Asia/Seoul 자정으로 수정.
-- videos/playlists/player_events 멀티사이트 인덱스 추가.
-- 키오스크는 설정 볼륨으로 audible autoplay를 먼저 시도하고 일반 브라우저 정책에 막히면 muted playback으로 fallback.
-- .vercelignore 실제 포함, 사용되지 않는 js/admin.js 제거.
-
-[누락 migration 복구]
-- v2.34.43: 2.34.44가 기능을 완전히 대체하므로 연속 업그레이드를 위한 compatibility marker 파일로 복구.
-- v2.34.63: schema.sql의 안전한 영상 링크 RPC 정의를 독립 migration으로 복구.
-- v2.34.70: floor_spaces 정확 중복 제거/unique index 및 schema_version 기록을 독립 migration으로 복구.
+[배포 절차]
+1. node scripts/check-release.js  → OK (파일 간 버전 일치)
+2. 저장소 전체 배포 (일부 파일만 올리지 않음 — TV 버전 기준은 js/version.js)
+3. node scripts/check-live.js     → 운영 서버 버전 파일 7개 일치 확인
+4. TV는 현재 영상이 끝날 때 한 번 새로고침해서 새 버전 적용
 
 [배포 제외]
-루트 .vercelignore가 실제 패키지에 포함되어 있으며 다음 항목을 공개 배포에서 제외합니다.
-- supabase/
-- SETUP.txt / SUPABASE-CONFIG.txt / QA-*.txt / DELETE_FILES.txt
-- floorplans_clean/ / floorplans_source/ / floorplans_svg/ / floorzones/
-- assets/building/
-- server/
+루트 .vercelignore 기준으로 다음은 공개 배포에서 제외됩니다.
+- supabase/ / sql/ / server/ / scripts/ / player/ / desktop-player/ / floorplans_source/
+- 모든 .md 파일, SETUP.txt / SUPABASE-CONFIG.txt / CHANGELOG.txt / DELETE_FILES.txt / QA-*.txt / CHANGES_*.txt
+- *.zip / *.bat / *.ps1 / *.log / .env*
 
 [중요]
-- 신규 설치는 schema.sql 하나만 실행합니다.
-- 기존 DB에는 schema.sql 전체를 덮어 실행하지 말고 schema_version 기준 미적용 migration만 실행합니다.
-- 병원 관리자 로그인은 슈퍼어드민이 제공하는 /hospital.html?site=<병원코드> 주소를 사용합니다.
-- 루트 / 에서 병원 PIN만 입력하는 방식은 더 이상 병원 전체 계정을 스캔하지 않습니다.
+- 병원 관리자 로그인: /hospital.html?site=<병원코드> (그 병원 PIN만 검사)
+- 슈퍼어드민 로그인: / (슈퍼어드민 PIN만 검사, 병원 주소로는 로그인 불가)
+- 같은 병원 또는 슈퍼어드민에 15분 안에 PIN 10회 실패 시 15분 잠금 (병원 PIN 재설정 시 해당 병원 잠금 해제)
 - 활성 환자(배정/진료중)가 연결된 디스플레이는 삭제할 수 없습니다.
+- 설치형 TV 플레이어: desktop-player/README.md

@@ -1,7 +1,7 @@
 {
   "name": "clinic-signage-player",
   "productName": "Clinic Signage Player",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Clinic Signage TV 송출 플레이어 (Windows / macOS)",
   "author": "dasaft",
   "license": "UNLICENSED",

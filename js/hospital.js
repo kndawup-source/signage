@@ -167,6 +167,22 @@
       toast('영상 주소를 복사했습니다. 이 주소를 따로 열어도 TV 재생 상태에는 표시되지 않습니다.');
     }catch(e){toast('링크 복사에 실패했습니다. 브라우저 권한을 확인하세요.','error');}
   }
+  // 설치형 플레이어: TV 화면의 6자리 코드로 이 디스플레이에 연결
+  async function pairRoomPlayer(roomId,button){
+    const input=qsa('[data-tv-pair-input]').find(x=>x.dataset.tvPairInput===roomId);
+    const code=String(input?.value||'').replace(/\D/g,'');
+    if(code.length!==6){toast('TV 화면에 표시된 6자리 숫자를 입력하세요.','error');input?.focus();return;}
+    if(button)button.disabled=true;
+    try{
+      const {data,error}=await db.rpc('hospital_pair_display',{p_room:roomId,p_code:code});
+      if(error)throw error;
+      if(input)input.value='';
+      toast(`${data?.room_name||'디스플레이'} TV에 연결했습니다. 몇 초 안에 TV에서 영상이 시작됩니다.`);
+    }catch(e){
+      const msg=String(e?.message||e);
+      toast(Signage.isMissingFunction?.(e)?'DB 업데이트(v2.35.85-tv-pairing.sql)가 필요합니다.':msg.replace(/^.*?ERROR:\s*/,''),'error');
+    }finally{if(button)button.disabled=false;}
+  }
   async function copyRoomPlayer(roomId){
     try{const path=await roomPlayerPath(roomId);if(!path)throw new Error('환자 화면 주소를 찾을 수 없습니다.');const url=new URL(path,location.origin).href;if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(url);else{const ta=document.createElement('textarea');ta.value=url;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}toast('TV 연결 주소를 복사했습니다. 이 주소를 TV 브라우저에 등록하세요.');}
     catch(e){toast(e.message||String(e),'error');}
@@ -1989,7 +2005,7 @@
       ${playerDiagnosticsHtml(r)}
       <div class="staff-tv-overlay-settings"><div class="staff-tv-overlay-heading"><b>영상 위에 문구 표시</b><small>이 TV에서 나오는 영상 아래쪽에 문구를 보여줍니다. 비워서 저장하면 문구가 사라집니다.</small></div><div class="staff-tv-overlay-row"><input type="text" maxlength="160" data-tv-overlay-input="${esc(r.id)}" value="${esc(r.overlay_text||'')}" placeholder="예: 진료 대기 고객 안내" aria-label="${esc(r.name)} TV 화면 문구"><button type="button" class="btn small" data-tv-overlay-save="${esc(r.id)}">문구 저장</button></div>${displayControlMode(r)==='manual'?'<small>현장 관리 TV는 원격 문구 표시를 확인할 수 없습니다.</small>':'<small>영상 자체는 수정되지 않습니다. 변경 후 플레이어에서 반영되는지 확인하세요.</small>'}</div>
       ${audience?`<div class="room-output-note">맞춤 대상 · ${esc(audience)}</div>`:''}
-      ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>현장 관리 TV</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>설정은 저장되지만, 현장 TV에는 바로 적용되지 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'확인 취소':'오늘 확인함'}</button></div>`:`<details class="staff-output-details"><summary>지금 보여주는 영상 · 변경하기</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV에서 보여줄 영상 목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">영상 추가·제거</button><small>저장하면 이 목록을 사용하는 TV에도 변경됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 영상으로 돌아가기</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">플레이어 화면 열기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div>`}
+      ${displayControlMode(r)==='manual'?`<div class="manual-display-panel"><b>현장 관리 TV</b><p>${esc(r.display_note||'현장에서 직접 영상 재생 상태를 확인합니다.')}</p><div class="staff-output-row manual-config-row"><span>기본 재생목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn primary" data-staff-playlist-apply="${r.id}">설정 저장</button><button type="button" class="btn" data-tv-edit-playlist="${esc(r.id)}">재생목록 편집</button></div><small>설정은 저장되지만, 현장 TV에는 바로 적용되지 않습니다.</small><button class="btn ${r.manual_check_status==='checked'?'':'primary'}" data-manual-check="${r.id}">${r.manual_check_status==='checked'?'확인 취소':'오늘 확인함'}</button></div>`:`<details class="staff-output-details"><summary>지금 보여주는 영상 · 변경하기</summary>${staffOutputList(r)}</details><div class="staff-output-controls"><div class="staff-output-row"><span>TV에서 보여줄 영상 목록</span><select data-staff-playlist="${r.id}">${playlistOptions(r.default_playlist_id||'')}</select><button class="btn" data-staff-playlist-apply="${r.id}">TV에 적용</button></div><div class="staff-output-edit-action"><button type="button" class="btn primary" data-tv-edit-playlist="${esc(r.id)}">영상 추가·제거</button><small>저장하면 이 목록을 사용하는 TV에도 변경됩니다.</small></div>${manual?`<button class="btn small" data-staff-manual-clear="${r.id}">기본 영상으로 돌아가기</button>`:''}</div><div class="room-player-actions hospital-room-player-actions"><span>환자 화면</span><div><button class="btn small" data-staff-player-open="${r.id}">플레이어 화면 열기</button><button class="btn small" data-staff-player-copy="${r.id}">TV 연결 주소 복사</button></div></div><div class="staff-tv-overlay-settings tv-pair-settings"><div class="staff-tv-overlay-heading"><b>설치형 플레이어 연결</b><small>TV 화면에 크게 나온 6자리 연결 코드를 입력하면 이 디스플레이로 바로 연결됩니다.</small></div><div class="staff-tv-overlay-row"><input type="text" inputmode="numeric" autocomplete="off" maxlength="7" pattern="[0-9 ]*" data-tv-pair-input="${esc(r.id)}" placeholder="예: 123456" aria-label="${esc(r.name)} TV 연결 코드"><button type="button" class="btn small primary" data-tv-pair="${esc(r.id)}">연결</button></div></div>`}
       ${p?`<div class="room-patient compact"><b>${esc(p.label||`대기 ${p.queue_no}`)}</b><span>${esc(waitText(p))}</span></div>`:''}
       ${displayControlMode(r)!=='manual'&&isPatientRoom(r)?`<div class="room-card-actions">${!p?`<button class="btn" data-open-quick="${r.id}">${quick?'맞춤 변경':'환자 맞춤'}</button>${quick?`<button class="btn" data-quick-clear="${r.id}">맞춤 해제</button>`:''}`:'<span class="room-managed-note">환자 관리에서 변경</span>'}</div>${!p?quickPanel(r):''}`:''}
     </div></details>`;
@@ -2171,6 +2187,8 @@
     qsa('[data-staff-playlist-apply]').forEach(b=>b.addEventListener('click',()=>setRoomPlaylist(b.dataset.staffPlaylistApply,b)));
     qsa('[data-staff-player-open]').forEach(b=>b.addEventListener('click',()=>openRoomPlayer(b.dataset.staffPlayerOpen)));
     qsa('[data-staff-player-copy]').forEach(b=>b.addEventListener('click',()=>copyRoomPlayer(b.dataset.staffPlayerCopy)));
+    qsa('[data-tv-pair]').forEach(b=>b.addEventListener('click',()=>pairRoomPlayer(b.dataset.tvPair,b)));
+    qsa('[data-tv-pair-input]').forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const b=qsa('[data-tv-pair]').find(x=>x.dataset.tvPair===i.dataset.tvPairInput);if(b)pairRoomPlayer(i.dataset.tvPairInput,b);}}));
     qsa('[data-staff-video-add]').forEach(b=>b.addEventListener('click',()=>addRoomVideo(b.dataset.staffVideoAdd,b)));
     qsa('[data-staff-manual-clear]').forEach(b=>b.addEventListener('click',()=>clearRoomManual(b.dataset.staffManualClear)));
     qsa('[data-manual-check]').forEach(b=>b.addEventListener('click',()=>markManualChecked(b.dataset.manualCheck)));

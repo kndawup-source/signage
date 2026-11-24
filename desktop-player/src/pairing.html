@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'">
+<title>TV 연결</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="pairing">
+  <main class="pair-box">
+    <section id="waiting">
+      <p class="pair-step">병원 관리자 화면 → 디스플레이 선택 → <b>설치형 플레이어 연결</b>에 입력</p>
+      <div class="pair-label">TV 연결 코드</div>
+      <div id="code" class="pair-code dim" aria-live="polite">--- ---</div>
+      <p id="status" class="pair-status">코드를 받아오는 중…</p>
+    </section>
+    <section id="done" hidden>
+      <div class="pair-ok">✓</div>
+      <h1>연결되었습니다</h1>
+      <p id="doneName" class="pair-status"></p>
+      <p class="pair-status">곧 영상이 시작됩니다.</p>
+    </section>
+  </main>
+  <footer class="pair-footer">
+    <button type="button" id="manual" class="ghost">주소 직접 입력 · 설정</button>
+    <span id="hint"></span>
+    <span id="ver"></span>
+  </footer>
+<script src="pairing.js"></script>
+</body>
+</html>

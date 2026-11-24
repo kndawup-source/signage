@@ -9,17 +9,25 @@
 <body class="setup">
 <main class="card">
   <header>
-    <h1>Clinic Signage Player</h1>
-    <p class="muted">이 TV에서 송출할 플레이어 주소를 입력하세요. <span id="ver"></span></p>
+    <h1>Clinic Signage Player 설정</h1>
+    <p class="muted" id="current"></p>
   </header>
+
+  <section class="pair-cta">
+    <div>
+      <b>연결 코드로 연결 (권장)</b>
+      <p class="hint">TV에 6자리 코드가 나오면 병원 관리자 화면의 디스플레이 설정에 입력하세요.</p>
+    </div>
+    <button type="button" id="pair">연결 코드 화면으로</button>
+  </section>
+
   <form id="form" autocomplete="off">
-    <label>플레이어 주소 또는 TV 키
-      <input id="playerUrl" required placeholder="https://signage-lake.vercel.app/player.html?key=..." spellcheck="false">
+    <label>또는 플레이어 주소 / TV 키 직접 입력
+      <input id="playerUrl" placeholder="https://signage-lake.vercel.app/player.html?key=..." spellcheck="false">
     </label>
-    <p class="hint">관리자 화면에서 복사한 플레이어 주소 전체를 붙여 넣거나, TV 키(UUID)만 넣어도 됩니다.</p>
     <details>
       <summary>고급 설정</summary>
-      <label>서버 주소 (TV 키만 넣을 때 사용)
+      <label>서버 주소
         <input id="baseUrl" spellcheck="false">
       </label>
       <label>출력 화면
@@ -33,12 +41,12 @@
     <p id="error" class="error" role="alert"></p>
     <div class="actions">
       <button type="button" id="quit" class="ghost">프로그램 종료</button>
-      <button type="button" id="cancel" class="ghost">취소</button>
-      <button type="submit" id="save">저장하고 송출 시작</button>
+      <button type="button" id="cancel" class="ghost">돌아가기</button>
+      <button type="submit" id="save">주소로 송출 시작</button>
     </div>
   </form>
   <footer class="muted small">
-    <div>송출 중 단축키 — 설정: <kbd id="k1">Ctrl+Shift+F12</kbd> · 새로고침: <kbd id="k2">Ctrl+Shift+R</kbd> · 종료: <kbd id="k3">Ctrl+Shift+Q</kbd></div>
+    <div id="hint"></div>
     <div id="logPath"></div>
   </footer>
 </main>
