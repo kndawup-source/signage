@@ -1,0 +1,78 @@
+{
+  "name": "clinic-signage-player",
+  "productName": "Clinic Signage Player",
+  "version": "1.0.0",
+  "description": "Clinic Signage TV 송출 플레이어 (Windows / macOS)",
+  "author": "dasaft",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win dir --x64 && node build/win-finish.js",
+    "dist:mac": "electron-builder --mac dmg zip --x64 --arm64",
+    "dist": "electron-builder --win --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "resedit": "^2.0.3"
+  },
+  "build": {
+    "appId": "com.dasaft.clinicsignage.player",
+    "productName": "Clinic Signage Player",
+    "artifactName": "ClinicSignagePlayer-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Clinic Signage Player",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "ClinicSignageSetup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "artifactName": "ClinicSignagePlayer-${version}-mac-${arch}.${ext}",
+      "title": "Clinic Signage Player"
+    },
+    "electronLanguages": [
+      "ko",
+      "en-US"
+    ],
+    "publish": null
+  }
+}

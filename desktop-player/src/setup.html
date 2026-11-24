@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'">
+<title>Clinic Signage Player 설정</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="setup">
+<main class="card">
+  <header>
+    <h1>Clinic Signage Player</h1>
+    <p class="muted">이 TV에서 송출할 플레이어 주소를 입력하세요. <span id="ver"></span></p>
+  </header>
+  <form id="form" autocomplete="off">
+    <label>플레이어 주소 또는 TV 키
+      <input id="playerUrl" required placeholder="https://signage-lake.vercel.app/player.html?key=..." spellcheck="false">
+    </label>
+    <p class="hint">관리자 화면에서 복사한 플레이어 주소 전체를 붙여 넣거나, TV 키(UUID)만 넣어도 됩니다.</p>
+    <details>
+      <summary>고급 설정</summary>
+      <label>서버 주소 (TV 키만 넣을 때 사용)
+        <input id="baseUrl" spellcheck="false">
+      </label>
+      <label>출력 화면
+        <select id="displayIndex"></select>
+      </label>
+      <label>정기 새로고침 시각 (매일)
+        <select id="dailyReloadHour"></select>
+      </label>
+    </details>
+    <label class="check"><input type="checkbox" id="autoStart" checked> 컴퓨터 로그인 시 자동 실행</label>
+    <p id="error" class="error" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="quit" class="ghost">프로그램 종료</button>
+      <button type="button" id="cancel" class="ghost">취소</button>
+      <button type="submit" id="save">저장하고 송출 시작</button>
+    </div>
+  </form>
+  <footer class="muted small">
+    <div>송출 중 단축키 — 설정: <kbd id="k1">Ctrl+Shift+F12</kbd> · 새로고침: <kbd id="k2">Ctrl+Shift+R</kbd> · 종료: <kbd id="k3">Ctrl+Shift+Q</kbd></div>
+    <div id="logPath"></div>
+  </footer>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

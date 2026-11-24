@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
     const maxSize = member.role === 'admin' ? 2 * 1024 * 1024 * 1024 : 350 * 1024 * 1024;
     if (!Number.isFinite(size) || size <= 0 || size > maxSize) return json(res, 400, { error: 'INVALID_FILE_SIZE' });
     const key = `sites/${siteId}/videos/${crypto.randomUUID()}.mp4`;
-    const signed = presignPut(key, 900, contentType);
+    const signed = presignPut(key, 900, contentType, size);
     return json(res, 200, { key, ...signed });
   } catch (e) {
     return json(res, e.statusCode || 500, { error: e.message || 'R2_PRESIGN_FAILED' });

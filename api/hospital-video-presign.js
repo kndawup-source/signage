@@ -1,20 +1,4 @@
- 'use strict';
-const { requireMember, resolveSite, json, parseBody } = require('./_lib/auth');
-const crypto = require('node:crypto');
-const { config, presignPut } = require('./_lib/r2');
-module.exports=async(req,res)=>{
-  if(req.method!=='POST')return json(res,405,{error:'METHOD_NOT_ALLOWED'});
-  try{
-    const session=await requireMember(req),body=parseBody(req);
-    const siteId=resolveSite(session,body.siteId);
-    if(!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(siteId))return json(res,400,{error:'INVALID_SITE'});
-    const filename=String(body.filename||'').trim(),type=String(body.contentType||'').toLowerCase(),size=Number(body.size);
-    if(!filename.toLowerCase().endsWith('.mp4')||type!=='video/mp4')return json(res,400,{error:'MP4_ONLY'});
-    if(!Number.isFinite(size)||size<=0||size>2*1024*1024*1024)return json(res,400,{error:'INVALID_FILE_SIZE'});
-    if(!config().ready)return json(res,503,{error:'R2_NOT_CONFIGURED'});
-    // Scoped key makes multi-tenant media ownership explicit. Site authorization uses the PIN session.
-    const key=`sites/${siteId}/videos/${crypto.randomUUID()}.mp4`;
-    const signed=presignPut(key,900,'video/mp4');
-    return json(res,200,{key,uploadUrl:signed.uploadUrl,publicUrl:signed.publicUrl,siteId});
-  }catch(e){return json(res,e.statusCode||500,{error:e.message||'VIDEO_UPLOAD_SIGN_FAILED'});}
-};
+'use strict';
+// 구버전 업로드 경로. 현재 화면은 /api/r2-presign 만 사용한다.
+// 권한·용량 제한(병원 350MB / 슈퍼어드민 2GB)·키 형식·Content-Length 서명을 한 곳에서 관리하도록 그대로 위임한다.
+module.exports = require('./r2-presign');

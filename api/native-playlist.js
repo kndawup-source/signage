@@ -36,8 +36,8 @@ module.exports = async (req, res) => {
     return json(res, 200, {
       contract:'clinic-signage-native/v1',
       server_time:state.server_time || new Date().toISOString(),
-      // Stable per-device jitter prevents 1,000 TVs from polling on the same second.
-      poll_after_seconds:50+(Number.parseInt(key.replace(/-/g,'').slice(0,8),16)%21),
+      // Stable per-device jitter (110~130s, web player fallback poll과 같은 수준) prevents 1,000 TVs from polling on the same second.
+      poll_after_seconds:110+(Number.parseInt(key.replace(/-/g,'').slice(0,8),16)%21),
       room:{
         id:String(state.room.id),name:String(state.room.name || '').slice(0,100),
         paused:Boolean(state.room.paused), force_mute:Boolean(state.room.force_mute),

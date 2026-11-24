@@ -31,29 +31,35 @@ function canonicalQuery(params) {
   return Object.entries(params).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${enc(k)}=${enc(v)}`).join('&');
 }
 
-function presignPut(key, expires = 900, contentType = 'application/octet-stream') {
+// contentLength를 넘기면 서명에 포함한다. 브라우저는 업로드 파일 크기로 Content-Length를 자동 설정하므로
+// 신고한 크기와 실제 파일 크기가 다르면 R2가 SignatureDoesNotMatch(403)로 거부한다.
+function presignPut(key, expires = 900, contentType = 'application/octet-stream', contentLength = null) {
   const c = config();
   if (!c.ready) throw new Error('R2_NOT_CONFIGURED');
   const amz = amzDate();
   const host = endpoint(c);
   const uri = `/${enc(c.bucket)}/${encodePath(key)}`;
   const type = String(contentType || 'application/octet-stream').toLowerCase();
+  const length = contentLength === null || contentLength === undefined ? null : Number(contentLength);
+  if (length !== null && !(Number.isSafeInteger(length) && length > 0)) throw new Error('INVALID_CONTENT_LENGTH');
+  const signedHeaders = length === null ? 'content-type;host' : 'content-length;content-type;host';
   const params = {
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
     'X-Amz-Credential': `${c.accessKeyId}/${scope(amz)}`,
     'X-Amz-Date': amz,
     'X-Amz-Expires': String(expires),
-    'X-Amz-SignedHeaders': 'content-type;host'
+    'X-Amz-SignedHeaders': signedHeaders
   };
   const query = canonicalQuery(params);
-  const canonicalHeaders = `content-type:${type}\nhost:${host}\n`;
-  const canonicalRequest = ['PUT', uri, query, canonicalHeaders, 'content-type;host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const canonicalHeaders = (length === null ? '' : `content-length:${length}\n`) + `content-type:${type}\nhost:${host}\n`;
+  const canonicalRequest = ['PUT', uri, query, canonicalHeaders, signedHeaders, 'UNSIGNED-PAYLOAD'].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', amz, scope(amz), sha256(canonicalRequest)].join('\n');
   const signature = hmac(signingKey(c.secretAccessKey, amz), stringToSign, 'hex');
   return {
     uploadUrl: `https://${host}${uri}?${query}&X-Amz-Signature=${signature}`,
     publicUrl: `${c.publicBaseUrl}/${encodePath(key)}`,
-    requiredHeaders: { 'Content-Type': type }
+    requiredHeaders: { 'Content-Type': type },
+    contentLength: length
   };
 }
 

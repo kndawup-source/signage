@@ -1,7 +1,11 @@
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xtzchrpwgjvalvallfre.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0emNocnB3Z2p2YWx2YWxsZnJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNzcwMTEsImV4cCI6MjEwNzk1MzAxMX0.FDD6cycD3kd0K1IBLp0P-4Jn7x3izEwGz6Q3trBsNqE';
+// 운영(Production) 배포에서만 내장 기본값을 허용한다. Preview/Development 배포에 환경변수가 없으면
+// 운영 DB에 붙지 않도록 SERVICE_NOT_CONFIGURED로 멈춘다.
+const ALLOW_BUILTIN = !process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'production';
+const SUPABASE_URL = process.env.SUPABASE_URL || (ALLOW_BUILTIN ? 'https://xtzchrpwgjvalvallfre.supabase.co' : '');
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || (ALLOW_BUILTIN ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0emNocnB3Z2p2YWx2YWxsZnJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNzcwMTEsImV4cCI6MjEwNzk1MzAxMX0.FDD6cycD3kd0K1IBLp0P-4Jn7x3izEwGz6Q3trBsNqE' : '');
 
 async function sessionInfo(req) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw Object.assign(new Error('SERVICE_NOT_CONFIGURED'), { statusCode: 503 });
   const token = String(req.headers['x-signage-session'] || '');
   if (!token) throw Object.assign(new Error('AUTH_REQUIRED'), { statusCode: 401 });
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/pin_session_info`, {
