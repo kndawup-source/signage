@@ -1,5 +1,15 @@
 (async function () {
   'use strict';
+  // TV 업데이트 상태 (common.js 버전과 무관하게 동작하도록 이 파일 안에 둔다)
+  // 'pending'은 TV가 현재 영상이 끝나면 알아서 적용하는 정상 대기라 문제로 세지 않는다.
+  function playerUpdateState(st){
+    const err=String(st?.update_error||'');
+    if(err.startsWith('version_mismatch'))return {key:'mismatch',issue:true,label:'배포 버전 불일치',detail:'새로고침해도 이전 버전이 실행됨 · 배포 파일 확인 필요'};
+    if(err)return {key:'error',issue:true,label:'업데이트 확인 실패',detail:'버전 확인이 계속 실패함 · 네트워크 확인'};
+    if(st?.update_pending_version)return {key:'pending',issue:false,label:'업데이트 대기',detail:`v${st.update_pending_version} · 현재 영상이 끝나면 자동 적용`};
+    return null;
+  }
+
   const { db, qs, qsa, esc, toast, formatDuration } = Signage;
   const auth=await Signage.requireAuth();
   if(!['admin','staff'].includes(auth.role)){location.replace('/');return;}
@@ -356,7 +366,7 @@
     if(h==='offline'||play==='stopped')return {key:'offline',label:mode==='hybrid'?'원격 연결 끊김':'오프라인'};
     if(st.online===false)return {key:'delayed',label:'네트워크 확인'};
     if(st.visibility_state==='hidden')return {key:'delayed',label:'탭 숨김'};
-    const upd=Signage.playerUpdateState(st);
+    const upd=playerUpdateState(st);
     if(upd?.issue)return {key:'update',label:upd.label};
     if(ack?.status==='error'||ack?.status==='unconfirmed'||h==='error'||h==='recovering'||st.error||st.offline_cache_error||Number(st.failed_video_count||0)>0)return {key:'error',label:'오류'};
     // A delayed heartbeat must not be reported as verified playback (or ordinary idle).
@@ -502,7 +512,7 @@
     if(h==='offline')return `${diagnosis.label} · ${lastReportLabel(r)}`;
     if(st.online===false||st.visibility_state==='hidden'||(st.visibility_state==='visible'&&st.window_focused===false))return diagnosis.label;
     if(String(st.playback_state||'').toLowerCase()==='stopped')return `플레이어 연결 종료 · ${lastReportLabel(r)}`;
-    const upd=Signage.playerUpdateState(st);
+    const upd=playerUpdateState(st);
     if(upd?.issue)return `${upd.label} · ${upd.detail}`;
     if(st.offline_cache_error)return '캐시 오류';
     if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}개 건너뜀`;

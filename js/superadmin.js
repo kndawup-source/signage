@@ -1,5 +1,15 @@
 (async function () {
   'use strict';
+  // TV 업데이트 상태 (common.js 버전과 무관하게 동작하도록 이 파일 안에 둔다)
+  // 'pending'은 TV가 현재 영상이 끝나면 알아서 적용하는 정상 대기라 문제로 세지 않는다.
+  function playerUpdateState(st){
+    const err=String(st?.update_error||'');
+    if(err.startsWith('version_mismatch'))return {key:'mismatch',issue:true,label:'배포 버전 불일치',detail:'새로고침해도 이전 버전이 실행됨 · 배포 파일 확인 필요'};
+    if(err)return {key:'error',issue:true,label:'업데이트 확인 실패',detail:'버전 확인이 계속 실패함 · 네트워크 확인'};
+    if(st?.update_pending_version)return {key:'pending',issue:false,label:'업데이트 대기',detail:`v${st.update_pending_version} · 현재 영상이 끝나면 자동 적용`};
+    return null;
+  }
+
   const { db, qs, esc, toast } = Signage;
   await Signage.requireAuth('admin');
   qs('#signOut')?.addEventListener('click', Signage.signOut);
@@ -19,7 +29,7 @@
     if(isManual(r))return r.manual_check_status==='checked'?'':'현장 확인 필요';
     const h=healthOf(r),st=r.player_status||{};
     if(h==='offline')return '연결 안 됨';
-    const upd=Signage.playerUpdateState(st);
+    const upd=playerUpdateState(st);
     if(upd?.issue)return upd.label;
     if(st.offline_cache_error)return '캐시 오류';
     if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}건`;
