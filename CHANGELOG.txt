@@ -1,3 +1,5 @@
+Clinic Signage 2.35.84 — 코드 리뷰 반영 (PATCH_NOTES_v2.35.84.md 참고)
+
 Clinic Signage 2.35.20 — 100-site scaling safety patch
 BASE: signage-main(8).zip (2.35.19)
 

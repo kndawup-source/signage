@@ -1,6 +1,6 @@
-/* Clinic Signage Player offline runtime — v2.35.83 */
+/* Clinic Signage Player offline runtime — v2.35.84 */
 'use strict';
-const VERSION='2.35.83';
+const VERSION='2.35.84';
 const SHELL_CACHE=`clinic-signage-player-shell-${VERSION}`;
 const MEDIA_CACHE='clinic-signage-playlist-media-v1';
 const RUNTIME_CACHE='clinic-signage-player-runtime-v1';
