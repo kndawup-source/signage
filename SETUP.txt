@@ -10,7 +10,7 @@ CLINIC SIGNAGE v2.35.85 · CANONICAL SETUP
 6. 병원 관리자 주소(/hospital.html?site=<병원코드>)에서 층/디스플레이/도면/플레이리스트 설정
 
 [기존 운영 DB 업그레이드]
-- v2.35.83 이상 운영 DB: supabase/v2.35.84-login-hardening.sql → supabase/v2.35.85-tv-pairing.sql 순서로 실행
+- v2.35.83 이상 운영 DB: supabase/v2.35.84-login-hardening.sql → v2.35.85-tv-pairing.sql → v2.35.85-db-sync.sql 순서로 실행
 - 그보다 오래된 DB: 저장소 이력(git)에서 해당 버전 이후 migration을 꺼내 순서대로 실행한 뒤 위 파일 실행
 - 기존 DB에 schema.sql 전체를 덮어 실행하지 않습니다.
 - 운영 DB에 v2.35.84를 적용한 뒤에는 v2.35.84-login-hardening.sql 파일도 삭제 가능 (schema.sql에 포함됨)
