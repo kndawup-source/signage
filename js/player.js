@@ -29,10 +29,17 @@
   const OFFLINE_CACHE_MAX_RETRY_MS = 30*60*1000;
   const MIN_ACTIVE_BUFFER_FOR_OFFLINE_SEC = 4;
   const APP_VERSION = String(window.CLINIC_SIGNAGE_VERSION || '2.35.76');
-  const RELEASE_URL='/player-release.json';
+  // 배포 버전의 기준은 TV가 실제로 실행하게 될 js/version.js 하나다.
+  // (예전에는 player-release.json을 따로 봐서, 두 파일이 어긋나게 배포되면 영상이 끝날 때마다 새로고침을 반복했다.)
+  const RELEASE_URL='/js/version.js';
+  const RELEASE_ERROR_REPORT_AFTER=3; // 일시적 네트워크 실패는 연속 3회(약 30분)부터 보고
   const UPDATE_CHECK_MS=10*60*1000;
   const UPDATE_FORCE_MS=30*60*1000; // only force when playback is genuinely stuck, never during healthy playback
-  let updatePendingVersion=null,updateDetectedAt=0,lastUpdateCheckAt=0,updateCheckBusy=false,updateError=null;
+  let updatePendingVersion=null,updateDetectedAt=0,lastUpdateCheckAt=0,updateCheckBusy=false,updateError=null,updateCheckFailures=0;
+  // 업데이트하려고 새로고침했는데도 실행 버전이 그대로면(배포 불일치·캐시) 같은 버전으로는 다시 새로고침하지 않는다.
+  // 단, 배포가 바로잡혔을 수 있으므로 1시간마다 한 번은 (영상이 끝나는 안전 지점에서) 다시 시도한다.
+  const UPDATE_MISMATCH_RETRY_MS=60*60*1000;
+  const {blockedReleaseVersion,blockedReleaseAt}=(()=>{try{const q=new URL(location.href).searchParams,v=q.get('_player_release'),at=Number(q.get('_reload'))||0;return v&&/^\d+\.\d+\.\d+$/.test(v)?{blockedReleaseVersion:v,blockedReleaseAt:at}:{blockedReleaseVersion:null,blockedReleaseAt:0};}catch(_){return {blockedReleaseVersion:null,blockedReleaseAt:0};}})();
 
   let state = null;
   let index = 0;
@@ -680,15 +687,36 @@
     }
     return false;
   }
+  function parseDeployedVersion(text){
+    const m=/CLINIC_SIGNAGE_VERSION\s*=\s*['"](\d+\.\d+\.\d+)['"]/.exec(String(text||''));
+    return m?m[1]:null;
+  }
   async function checkForPlayerUpdate(force=false){
     if(updateCheckBusy)return;
     const now=Date.now();if(!force&&now-lastUpdateCheckAt<UPDATE_CHECK_MS)return;
     updateCheckBusy=true;lastUpdateCheckAt=now;
     try{
       const r=await fetch(`${RELEASE_URL}?t=${now}`,{cache:'no-store'});if(!r.ok)throw new Error(`release_http_${r.status}`);
-      const data=await r.json(),latest=String(data?.version||'').trim();if(!latest)return;
-      updateError=null;if(versionCompare(latest,APP_VERSION)>0){if(updatePendingVersion!==latest){updatePendingVersion=latest;updateDetectedAt=Date.now();scheduleReport(0);}updateAtSafePoint();}
-    }catch(e){updateError=e?.message||String(e);scheduleReport(0);}finally{updateCheckBusy=false;}
+      const latest=parseDeployedVersion(await r.text());if(!latest)throw new Error('release_parse_failed');
+      updateCheckFailures=0;
+      if(versionCompare(latest,APP_VERSION)<=0){
+        // 서버가 같은(또는 낮은) 버전이면 대기 중이던 업데이트도 취소
+        if(updatePendingVersion||updateError){updatePendingVersion=null;updateError=null;scheduleReport(0);}
+        return;
+      }
+      if(blockedReleaseVersion&&versionCompare(latest,blockedReleaseVersion)<=0&&Date.now()-blockedReleaseAt<UPDATE_MISMATCH_RETRY_MS){
+        // 이 버전으로 이미 새로고침했는데 여전히 이전 코드가 실행됨 → 반복 새로고침 대신 문제로 보고
+        const err=`version_mismatch:${APP_VERSION}->${latest}`;
+        if(updateError!==err||updatePendingVersion){updatePendingVersion=null;updateError=err;recordPlaybackEvent('update_version_mismatch',{running:APP_VERSION,deployed:latest});scheduleReport(0);}
+        return;
+      }
+      if(updateError){updateError=null;scheduleReport(0);}
+      if(updatePendingVersion!==latest){updatePendingVersion=latest;updateDetectedAt=Date.now();scheduleReport(0);}
+      updateAtSafePoint();
+    }catch(e){
+      updateCheckFailures+=1;
+      if(updateCheckFailures>=RELEASE_ERROR_REPORT_AFTER&&navigator.onLine){const err=`release_check_failed:${e?.message||String(e)}`.slice(0,120);if(updateError!==err){updateError=err;scheduleReport(0);}}
+    }finally{updateCheckBusy=false;}
   }
 
   function maybeReportPlaybackPresence(){

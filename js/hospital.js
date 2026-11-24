@@ -356,7 +356,8 @@
     if(h==='offline'||play==='stopped')return {key:'offline',label:mode==='hybrid'?'원격 연결 끊김':'오프라인'};
     if(st.online===false)return {key:'delayed',label:'네트워크 확인'};
     if(st.visibility_state==='hidden')return {key:'delayed',label:'탭 숨김'};
-    if(st.update_error||st.update_pending_version)return {key:'update',label:'업데이트 필요'};
+    const upd=Signage.playerUpdateState(st);
+    if(upd?.issue)return {key:'update',label:upd.label};
     if(ack?.status==='error'||ack?.status==='unconfirmed'||h==='error'||h==='recovering'||st.error||st.offline_cache_error||Number(st.failed_video_count||0)>0)return {key:'error',label:'오류'};
     // A delayed heartbeat must not be reported as verified playback (or ordinary idle).
     // A pending control acknowledgement is separate from the playback telemetry.
@@ -501,7 +502,8 @@
     if(h==='offline')return `${diagnosis.label} · ${lastReportLabel(r)}`;
     if(st.online===false||st.visibility_state==='hidden'||(st.visibility_state==='visible'&&st.window_focused===false))return diagnosis.label;
     if(String(st.playback_state||'').toLowerCase()==='stopped')return `플레이어 연결 종료 · ${lastReportLabel(r)}`;
-    if(st.update_error||st.update_pending_version)return '업데이트 필요';
+    const upd=Signage.playerUpdateState(st);
+    if(upd?.issue)return `${upd.label} · ${upd.detail}`;
     if(st.offline_cache_error)return '캐시 오류';
     if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}개 건너뜀`;
     if(st.error)return String(st.error).slice(0,60);
@@ -509,6 +511,7 @@
     if(h==='delayed')return `상태 보고 지연 · ${lastReportLabel(r)}`;
     if(ack?.status==='pending')return `영상 변경 확인 중 · ${lastReportLabel(r)}`;
     if(st.mode==='closed')return '운영시간 외';
+    if(upd?.key==='pending')return `${upd.label} · ${lastReportLabel(r)}`;
     return lastReportLabel(r);
   }
   const priorityLabel=(v)=>({broadcast:'전체',broadcast_schedule:'예약',manual:'개별',group:'층·구역',group_schedule:'예약',patient:'개별',session:'개별',default:'기본',emergency:'비상',closed:'운영시간 외'})[String(v||'').toLowerCase()]||'기본';
@@ -522,7 +525,7 @@
     if(!rooms.length){label='공간 없음';}
     else if(offline===rooms.length-manual-manualNeedsCheck&&offline>0&&manual+manualNeedsCheck===0){key='offline';label='연결 안 됨';}
     else if(errors>0){key='issue';label='오류';}
-    else if(updates>0){key='issue';label='업데이트 필요';}
+    else if(updates>0){key='issue';label='업데이트 확인 필요';}
     else if(offline>0){key='issue';label='연결 안 됨';}
     else if(manualNeedsCheck>0){key='issue';label='수동 확인';}
     else if(delayed>0){key='issue';label='상태 확인 지연';}
@@ -533,7 +536,7 @@
   function groupIssueParts(st){
     return [
       ['오류',st.errors],
-      ['업데이트 필요',st.updates],
+      ['업데이트 확인 필요',st.updates],
       ['연결 안 됨',st.offline],
       ['상태 확인 지연',st.delayed],
       ['수동 확인',st.manualNeedsCheck]
@@ -657,7 +660,7 @@
     return care==='minish'||name.includes('미니쉬')||name.includes('minish')?'minish':'general';
   }
   // Presentation-only labels: do not alter heartbeat, presence, or control state.
-  const visibleTvStatus=(status)=>({live:'영상 재생 중',offline:'재생 상태를 알 수 없음',delayed:'상태 확인 지연',idle:'재생 대기',manual:'수동 운영','manual-warn':'수동 운영',error:'재생 오류',update:'업데이트 필요'})[status.key]||status.label;
+  const visibleTvStatus=(status)=>({live:'영상 재생 중',offline:'재생 상태를 알 수 없음',delayed:'상태 확인 지연',idle:'재생 대기',manual:'수동 운영','manual-warn':'수동 운영',error:'재생 오류',update:'업데이트 확인 필요'})[status.key]||status.label;
   // Compact per-TV indicator. The colors reflect telemetry, not proof that a physical display is on.
   function floorStatusDotKind(r){
     const key=roomDisplayStatus(r).key;

@@ -19,7 +19,8 @@
     if(isManual(r))return r.manual_check_status==='checked'?'':'현장 확인 필요';
     const h=healthOf(r),st=r.player_status||{};
     if(h==='offline')return '연결 안 됨';
-    if(st.update_error||st.update_pending_version)return '업데이트 필요';
+    const upd=Signage.playerUpdateState(st);
+    if(upd?.issue)return upd.label;
     if(st.offline_cache_error)return '캐시 오류';
     if(Number(st.failed_video_count||0)>0)return `재생 실패 ${Number(st.failed_video_count||0)}건`;
     if(st.error)return String(st.error).slice(0,50);

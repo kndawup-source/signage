@@ -324,14 +324,23 @@
     if (duration > 0) current = Math.min(duration, current);
     return current;
   }
+  // 배포 버전 = js/version.js (TV 플레이어와 같은 기준)
   async function fetchPlayerRelease() {
     try {
-      const r = await fetch(`/player-release.json?t=${Date.now()}`, { cache: 'no-store' });
+      const r = await fetch(`/js/version.js?t=${Date.now()}`, { cache: 'no-store' });
       if (!r.ok) return null;
-      const data = await r.json();
-      return String(data?.version || '').trim() || null;
+      const m = /CLINIC_SIGNAGE_VERSION\s*=\s*['"](\d+\.\d+\.\d+)['"]/.exec(await r.text());
+      return m ? m[1] : null;
     } catch (_) { return null; }
   }
+  // TV 업데이트 상태. 'pending'은 TV가 현재 영상이 끝나면 알아서 적용하는 정상 대기라 문제로 세지 않는다.
+  function playerUpdateState(st) {
+    const err = String(st?.update_error || '');
+    if (err.startsWith('version_mismatch')) return { key: 'mismatch', issue: true, label: '배포 버전 불일치', detail: '새로고침해도 이전 버전이 실행됨 · 배포 파일 확인 필요' };
+    if (err) return { key: 'error', issue: true, label: '업데이트 확인 실패', detail: '버전 확인이 계속 실패함 · 네트워크 확인' };
+    if (st?.update_pending_version) return { key: 'pending', issue: false, label: '업데이트 대기', detail: `v${st.update_pending_version} · 현재 영상이 끝나면 자동 적용` };
+    return null;
+  }
 
-  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,isMissingFunction,createLiveMonitor,roomAgeMs,roomHealth,estimatedCurrentTime,fetchPlayerRelease,LIVE_DELAY_MS,LIVE_OFFLINE_MS,storePinSession,clearPinSession,getPinSession,getSession,requireAuth,signOut});
+  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,isMissingFunction,createLiveMonitor,roomAgeMs,roomHealth,estimatedCurrentTime,fetchPlayerRelease,playerUpdateState,LIVE_DELAY_MS,LIVE_OFFLINE_MS,storePinSession,clearPinSession,getPinSession,getSession,requireAuth,signOut});
 })();
