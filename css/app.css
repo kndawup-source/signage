@@ -227,11 +227,11 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 .monitor-group-title-row h2{font-size:30px}
 .group-status-badge,.room-status-badge{display:inline-flex;align-items:center;gap:6px;width:max-content;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:850;line-height:1;background:#f1f2f4;color:var(--muted)}
 .group-status-badge:before,.room-status-badge:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto}
-.status-live{background:var(--primary-soft);color:var(--primary)}
-.status-issue,.status-delayed,.status-recovering{background:#f7f2e8;color:#70551f}
-.status-offline{background:#f1f2f4;color:#8a8f98}
-.status-error{background:#faf0f0;color:var(--danger)}
-.status-paused,.status-idle{background:#f1f2f4;color:#6f7580}
+.status-live:not(.floor-ops-tv){background:var(--primary-soft);color:var(--primary)}
+.status-issue:not(.floor-ops-tv),.status-delayed:not(.floor-ops-tv),.status-recovering:not(.floor-ops-tv){background:#f7f2e8;color:#70551f}
+.status-offline:not(.floor-ops-tv){background:#f1f2f4;color:#8a8f98}
+.status-error:not(.floor-ops-tv){background:#faf0f0;color:var(--danger)}
+.status-paused:not(.floor-ops-tv),.status-idle:not(.floor-ops-tv){background:#f1f2f4;color:#6f7580}
 .group-metric-row{display:flex;align-items:center;gap:6px 18px;flex-wrap:wrap}
 .group-metric-row span{font-size:10px;color:var(--muted);font-weight:650}
 .group-metric-row b{margin-left:4px;color:var(--ink);font-size:16px;font-variant-numeric:tabular-nums}
@@ -344,7 +344,7 @@ button,input,select{font:inherit}button,select{color:inherit}button{border-radiu
 .display-position-marker.is-selected{outline:3px solid rgba(35,33,118,.18);outline-offset:4px;transform:translate(-50%,-50%) scale(1.08)}
 
 /* v2.33.0 — site-ready superadmin / hospital-admin operations */
-.status-manual{background:#f2f3f5;color:#4f5560}.status-manual-warn{background:#fff7e8;color:#8a5d16}.group-state-manual{border-color:#e4e6ea}
+.status-manual:not(.floor-ops-tv){background:#f2f3f5;color:#4f5560}.status-manual-warn{background:#fff7e8;color:#8a5d16}.group-state-manual{border-color:#e4e6ea}
 .product-site-manager .site-manager-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.product-site-manager .settings-card{min-width:0}
 .floor-space-stage,.display-setup-stage{touch-action:none}.floor-space-overlay{position:absolute;z-index:3;display:grid;place-items:center;border:1.5px solid rgba(35,33,118,.36);background:rgba(35,33,118,.045);color:#232176;border-radius:8px;padding:4px;overflow:hidden;cursor:pointer}.floor-space-overlay span{font-size:9px;font-weight:850;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}.floor-space-overlay.is-editable{border-style:dashed}.floor-space-draft{position:absolute;z-index:6;border:2px dashed var(--primary);background:rgba(35,33,118,.08);border-radius:8px;pointer-events:none}
 .floor-space-list{display:grid;gap:6px;margin-top:10px}.floor-space-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.floor-space-list>div>span{display:grid;gap:2px}.floor-space-list small{font-size:9px;color:var(--muted)}

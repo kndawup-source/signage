@@ -26,12 +26,12 @@
 - 윈도우 작업표시줄 / 맥 메뉴 막대 아이콘 메뉴: 설정 열기 · 새로고침 · 다른 디스플레이로 다시 연결 · 종료
 
 ## Windows
-- 설치: `ClinicSignageSetup-1.1.0.exe` 실행 → 관리자 권한 불필요 (사용자 폴더에 설치)
+- 설치: `ClinicSignageSetup-1.2.1.exe` 실행 → 관리자 권한 불필요 (사용자 폴더에 설치)
 - 첫 실행 시 TV에 나오는 연결 코드를 관리자 화면에 입력
 - 무인/대량 설치:
   ```
-  ClinicSignageSetup-1.1.0.exe /S /URL=https://signage-lake.vercel.app/player.html?key=TV키
-  ClinicSignageSetup-1.1.0.exe /S /KEY=TV키
+  ClinicSignageSetup-1.2.1.exe /S /URL=https://signage-lake.vercel.app/player.html?key=TV키
+  ClinicSignageSetup-1.2.1.exe /S /KEY=TV키
   ```
 - 제거: 설정 > 앱 > Clinic Signage Player, 또는 `Uninstall.exe /S`
 - 설정·영상 캐시 위치: `%APPDATA%\Clinic Signage Player` (제거해도 유지 → 재설치 시 바로 송출)

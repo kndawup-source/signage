@@ -111,3 +111,8 @@ body:is(.hospital-page,.superadmin-page) .topbar-inner .brand{display:inline-fle
 body:is(.hospital-page,.superadmin-page) .topbar-inner>.text-btn{margin-left:auto!important;flex:0 0 auto!important;white-space:nowrap!important}
 body.hospital-page .hospital-unified-ops .floor-dot.floor-dot-unpaired{background:#fff!important;border:0!important;box-shadow:inset 0 0 0 2px var(--tv-unpaired)!important}
 @media(max-width:760px){body:is(.hospital-page,.superadmin-page) .topbar-inner{min-height:56px!important;gap:8px!important;flex-wrap:wrap!important}body:is(.hospital-page,.superadmin-page) .topbar-inner .brand{font-size:12px!important}body.superadmin-page .top-label{font-size:10px!important}body.hospital-page .topbar-inner nav{order:3;flex-basis:100%;min-width:0}}
+
+/* Keep the detail card neutral; status colors belong to badges, markers and explicit danger actions. */
+body.hospital-page .floor-ops-tv[class*="status-"]{color:var(--ink,#182435);background:#fff;}
+body.hospital-page .tv-pair-reset{margin-top:12px;}
+@media(max-width:760px){body.hospital-page .floor-ops-state .st-detail{display:none;}}
