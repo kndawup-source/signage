@@ -1,5 +1,8 @@
-js/admin.js
-api/r2-delete.js
+# v2.35.86 정리 목록 (GitHub에서 삭제할 경로)
+# 1) 예전 DB 업데이트 파일: 삭제가 아니라 supabase/archive/ 로 '이동'입니다.
+#    → supabase/archive/ 폴더를 먼저 업로드한 뒤 아래 supabase/v2.*.sql 원래 위치 파일을 삭제하세요.
+#    → schema.sql 단독 구축 DB와 운영 동일 DB+v2.35.86 결과가 같음을 확인했습니다.
+#    → 운영 DB에는 아무 변경이 없습니다 (파일 위치만 바뀜).
 supabase/v2.14-reception-playlists.sql
 supabase/v2.15-quick-reception.sql
 supabase/v2.16-playback-analytics.sql
@@ -60,6 +63,10 @@ supabase/v2.35.79-r2-video-delete.sql
 supabase/v2.35.80-short-video-keys.sql
 supabase/v2.35.81-force-bulk-playlist-delete.sql
 supabase/v2.35.83-player-diagnostics.sql
+
+# 2) 이전 버전에서 이미 정리 대상이던 파일 (저장소에 남아 있으면 삭제)
+js/admin.js
+api/r2-delete.js
 sql/v2.35.27-delete-floor.sql
 sql/v2.35.48-video-renditions.sql
 PATCH_NOTES_v2.35.75.md

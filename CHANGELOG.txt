@@ -1,3 +1,7 @@
+v2.35.88 — 관리자 UI와 2.35.87 정리본 통합, 배포 검사 강화, 상태 색상 범위 수정. DB 2.35.87 유지.
+
+Clinic Signage 2.35.87 — 연결 소유 기기 고정·해제 시 상태 초기화·해제된 플레이어 송출 중단 (PATCH_NOTES_v2.35.87.md)
+Clinic Signage 2.35.86 — 보안·연결 코드·TV 상태 분류·관리자 화면 정리 (PATCH_NOTES_v2.35.86.md)
 Clinic Signage 2.35.85 — TV 업데이트 반복 새로고침 수정 (PATCH_NOTES_v2.35.85.md)
 Clinic Signage 2.35.84 — 코드 리뷰 반영 (PATCH_NOTES_v2.35.84.md 참고)
 

@@ -1,7 +1,8 @@
-CLINIC SIGNAGE v2.35.85 · CANONICAL SETUP
+CLINIC SIGNAGE v2.35.88 · CANONICAL SETUP
+웹 2.35.88 / DB 2.35.87 / 설치형 1.2.1. DB가 이미 2.35.87이면 마이그레이션 재실행 불필요.
 
 [신규 Supabase 설치]
-1. supabase/schema.sql 전체 실행 (v2.35.85까지 모든 변경 포함 — 이 파일 하나로 완료)
+1. supabase/schema.sql 전체 실행 (v2.35.87까지 모든 변경 포함 — 이 파일 하나로 완료)
 2. Vercel 환경변수 설정 (SUPABASE_URL, SUPABASE_ANON_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
    R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL)
 3. 저장소 전체 배포
@@ -10,26 +11,53 @@ CLINIC SIGNAGE v2.35.85 · CANONICAL SETUP
 6. 병원 관리자 주소(/hospital.html?site=<병원코드>)에서 층/디스플레이/도면/플레이리스트 설정
 
 [기존 운영 DB 업그레이드]
-- v2.35.83 이상 운영 DB: supabase/v2.35.84-login-hardening.sql → v2.35.85-tv-pairing.sql → v2.35.85-db-sync.sql 순서로 실행
-- 그보다 오래된 DB: 저장소 이력(git)에서 해당 버전 이후 migration을 꺼내 순서대로 실행한 뒤 위 파일 실행
+- 먼저 현재 버전 확인: select version from public.schema_version order by applied_at desc limit 3;
+- 2.35.86이 이미 있으면: supabase/v2.35.87-pairing-hardening.sql 하나만 실행
+- 2.35.85-db-sync까지 있으면: v2.35.86-pairing-hardening.sql → v2.35.87-pairing-hardening.sql
+- v2.35.83 ~ 2.35.85 동기화 전 DB:
+  v2.35.84-login-hardening.sql → v2.35.85-tv-pairing.sql → v2.35.85-db-sync.sql → v2.35.86 → v2.35.87
+- 그보다 오래된 DB: supabase/archive/ 의 해당 버전 이후 파일을 순서대로 실행한 뒤 위 순서 적용
+- v2.35.87 파일은 2.35.86이 없으면 아무것도 바꾸지 않고 멈춥니다 (안내 메시지 표시).
 - 기존 DB에 schema.sql 전체를 덮어 실행하지 않습니다.
-- 운영 DB에 v2.35.84를 적용한 뒤에는 v2.35.84-login-hardening.sql 파일도 삭제 가능 (schema.sql에 포함됨)
+- 두 파일 모두 병원·TV·영상·재생목록·통계 데이터를 지우지 않습니다. 기존 TV 연결 주소(키)는 바꾸지 않습니다.
+- 확인: select public.app_db_version();  → version 2.35.87
+         scripts/db-check.sql 실행 → 0행이면 운영 DB = 저장소 schema.sql
+- DB가 2.35.87보다 낮으면 병원 관리자 화면 위에 실행할 파일 안내가 뜨고
+  설치형 플레이어 연결·기기 연결 해제만 막힙니다. TV 송출과 다른 기능은 그대로 동작합니다.
 
 [배포 절차]
 1. node scripts/check-release.js  → OK (파일 간 버전 일치)
 2. 저장소 전체 배포 (일부 파일만 올리지 않음 — TV 버전 기준은 js/version.js)
-3. node scripts/check-live.js     → 운영 서버 버전 파일 7개 일치 확인
+3. node scripts/check-live.js     → 운영 서버 버전 파일 일치 확인
 4. TV는 현재 영상이 끝날 때 한 번 새로고침해서 새 버전 적용
 
 [배포 제외]
-루트 .vercelignore 기준으로 다음은 공개 배포에서 제외됩니다.
-- supabase/ / sql/ / server/ / scripts/ / player/ / desktop-player/ / floorplans_source/
-- 모든 .md 파일, SETUP.txt / SUPABASE-CONFIG.txt / CHANGELOG.txt / DELETE_FILES.txt / QA-*.txt / CHANGES_*.txt
-- *.zip / *.bat / *.ps1 / *.log / .env*
+루트 .vercelignore 기준. 공개 배포에는 화면 파일(*.html, js/, css/, player-sw.js,
+player-release.json, vercel.json)과 api/ 만 올라갑니다.
+- supabase/ sql/ server/ scripts/ player/ desktop-player/ .github/ test/ tests/
+- floorplans_source/ floorplans_clean/ floorplans_svg/ floorzones/ (도면은 /api/floorplan 으로 R2에서 제공)
+- 모든 *.md, *.txt
+- *.zip *.exe *.dmg *.bat *.ps1 *.sh *.log .env*
+
+[TV 연결 코드 (설치형 플레이어)]
+- 상태: 발급(issued) → 승인(approved) → 인증 정보 전달(delivered) → 기기 저장 확인(confirmed)
+- 코드 유효시간 10분. 승인하면 그 시점부터 10분 연장. 만료된 코드는 승인 여부와 상관없이 사용 불가.
+- 승인할 때마다(첫 연결 포함) 인증 키를 새로 만들고, 승인된 기기 1대만 그 키를 받을 수 있습니다.
+  저장 확인 전 네트워크가 끊기면 같은 기기만 재수신 가능. 승인 후 해제·교체되면 전달하지 않습니다.
+- 병원별 오입력 10분 10회 초과 시 10분 잠금 (다른 병원에는 영향 없음).
+- 이미 연결된 TV에 새 코드를 입력하면 "교체 확인" 후 승인. "기존 기기 연결 해제"도 확인창 후 실행.
+  교체·해제된 이전 키(기존 설치형 기기·기존 TV 연결 주소)는 영상 수신·상태 보고가 즉시 불가하고,
+  해당 플레이어는 서버에 닿는 즉시 송출을 멈춥니다. 해제된 TV는 '미연결'로 표시됩니다.
+- 첫 연결에도 키가 바뀌므로, 같은 TV에 예전에 복사해 둔 웹 연결 주소는 더 이상 쓸 수 없습니다.
+
+[TV 상태 5분류]
+정상 송출 / 대기 중(운영시간 외·일시정지) / 미연결(설치 전) / 확인 필요(꺼짐·오류·지연) / 직접 관리
+- 운영시간 외, 일시정지, 설치 전 TV는 장애(확인 필요)에 포함되지 않습니다.
+- 대시보드·층별 화면·TV 상세·상태 필터가 같은 판정(js/common.js Signage.tvStatus)을 씁니다.
 
 [중요]
 - 병원 관리자 로그인: /hospital.html?site=<병원코드> (그 병원 PIN만 검사)
 - 슈퍼어드민 로그인: / (슈퍼어드민 PIN만 검사, 병원 주소로는 로그인 불가)
 - 같은 병원 또는 슈퍼어드민에 15분 안에 PIN 10회 실패 시 15분 잠금 (병원 PIN 재설정 시 해당 병원 잠금 해제)
 - 활성 환자(배정/진료중)가 연결된 디스플레이는 삭제할 수 없습니다.
-- 설치형 TV 플레이어: desktop-player/README.md
+- 설치형 TV 플레이어: desktop-player/README.md (v1.2.1)
