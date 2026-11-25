@@ -1,5 +1,5 @@
-CLINIC SIGNAGE v2.35.89 · CANONICAL SETUP
-웹 2.35.89 / DB 2.35.87 / 설치형 1.2.1. DB가 이미 2.35.87이면 마이그레이션 재실행 불필요.
+CLINIC SIGNAGE v2.35.90 · CANONICAL SETUP
+웹 2.35.90 / DB 2.35.87 / 설치형 1.2.1. DB가 이미 2.35.87이면 마이그레이션 재실행 불필요.
 
 [신규 Supabase 설치]
 1. supabase/schema.sql 전체 실행 (v2.35.87까지 모든 변경 포함 — 이 파일 하나로 완료)

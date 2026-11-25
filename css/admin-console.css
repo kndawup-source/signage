@@ -855,4 +855,22 @@
       display: none;
     }
   }
+
+  /* Video upload workspace — moved from hospital.html. */
+  .hospital-video-upload-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end}
+  .hospital-video-upload-controls .field{min-width:0}
+  .hospital-video-upload-controls input{width:100%;min-width:0}
+  .hospital-video-upload-progress{margin-top:14px;display:flex;align-items:center;gap:12px}
+  .hospital-video-upload-progress[hidden]{display:none}
+  .hospital-video-upload-progress progress{width:min(360px,55%);height:12px}
+  .hospital-video-upload-hint{display:block;margin-top:10px;color:#64748b}
+  .hospital-uploaded-video-list{display:grid;gap:6px}
+  .hospital-uploaded-video-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;border:1px solid #e5e7eb;border-radius:8px}
+  .hospital-uploaded-video-row b{overflow-wrap:anywhere}
+  .hospital-uploaded-video-row span{white-space:nowrap;color:#64748b;font-size:12px}
+  @media(max-width:760px){.hospital-video-upload-controls{grid-template-columns:minmax(0,1fr)}
+  .hospital-uploaded-video-row{align-items:flex-start;flex-direction:column}
+  .hospital-video-upload-progress{align-items:flex-start;flex-direction:column}
+  .hospital-video-upload-progress progress{width:100%}
+  }
 }

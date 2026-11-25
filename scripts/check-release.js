@@ -19,6 +19,7 @@ if(!adminCss.includes('@layer signage-admin'))errors.push('Admin design layer mi
 for(const file of ['admin.html','hospital.html']){
  const html=fs.readFileSync(path.join(root,file),'utf8');
  if(!html.includes('/css/admin-foundation.css?v=')||html.includes('/css/app.css?v='))errors.push(file+': admin must use layered foundation only');
+ if(/<style\b/i.test(html))errors.push(file+': inline style block bypasses cascade layers');
  if(html.indexOf('/css/admin-console.css?v=')<html.indexOf('/css/admin-foundation.css?v='))errors.push(file+': admin layer load order incorrect');
 }
 for(const file of ['index.html','player.html']){
@@ -52,7 +53,7 @@ if(!fs.existsSync(ignorePath)){
 } else {
   const rules=fs.readFileSync(ignorePath,'utf8').split(/\r?\n/).map(x=>x.trim())
     .filter(x=>x && !x.startsWith('#'));
-  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/','desktop-player/','*.md','*.txt']){
+  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/','floorplans_clean/','floorplans_svg/','floorzones/','desktop-player/','*.md','*.txt']){
     if(!rules.includes(p))errors.push(`not ignored: ${p}`);
   }
   // Critical: serverless functions still need their private assets at build time.
