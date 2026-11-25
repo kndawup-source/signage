@@ -60,6 +60,6 @@ if(!fs.existsSync(ignorePath)){
   if(rules.includes('api/')||rules.includes('api/_private/')) errors.push('api private server resources excluded');
 }
 
-for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
+for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql','supabase/v2.36.1-video-delete-impact.sql']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
 if(errors.length){console.error('Deployment consistency FAILED:\n'+errors.join('\n'));process.exit(1);}
 console.log(`Deployment consistency OK: ${version}`);

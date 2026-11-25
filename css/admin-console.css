@@ -907,3 +907,33 @@
     body.hospital-page .site-catalog-code{padding-top:0;}
   }
 }
+
+@layer signage-admin {
+.video-impact-dialog { width:min(560px,calc(100% - 32px)); max-height:calc(100dvh - 32px); padding:0; border:1px solid #dce3eb; border-radius:14px; color:#172334; background:#fff; box-shadow:0 12px 48px #17233433; }
+.video-impact-dialog::backdrop { background:#17233470; }
+.video-impact-dialog form { display:flex; flex-direction:column; max-height:calc(100dvh - 34px); margin:0; }
+.video-impact-dialog header,.video-impact-dialog footer { padding:18px 20px; flex:none; }
+.video-impact-dialog header { border-bottom:1px solid #e2e8f0; }
+.video-impact-dialog h3 { margin:0 0 6px; font-size:19px; }
+.video-impact-dialog header p { margin:0; overflow-wrap:anywhere; }
+.video-impact-body { padding:16px 20px; overflow:auto; min-height:0; font-size:14px; line-height:1.6; }
+.video-impact-body p { margin:0 0 12px; }
+.video-impact-body ul { padding:0; margin:12px 0; list-style:none; }
+.video-impact-body li { border-bottom:1px solid #e2e8f0; padding:10px 0; overflow-wrap:anywhere; }
+.video-impact-body li span,.video-impact-body li small { display:block; }
+.video-impact-body li small { color:#64748b; }
+.video-impact-body .video-impact-warning { color:#b91c1c; }
+.video-impact-dialog footer { display:flex; gap:10px; justify-content:flex-end; border-top:1px solid #e2e8f0; }
+.video-impact-dialog footer .video-impact-delete { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+.video-impact-body details { margin-bottom:14px; }
+}
+
+@layer signage-admin {
+body.hospital-page .video-usage-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0; }
+body.hospital-page .video-usage-toolbar select { width:auto; min-width:0; }
+body.hospital-page .video-delete-select { flex:0 0 auto; width:16px; height:16px; }
+body.hospital-page .media-work-library-item .media-video-delete { white-space:normal; max-width:76px; line-height:1.25; }
+.video-impact-body section h4 { margin:12px 0 4px; font-size:15px; }
+.video-impact-body section+section { border-top:1px solid #dce3eb; }
+@media(max-width:420px){body.hospital-page .media-work-library-item { flex-wrap:wrap; } body.hospital-page .media-work-library-item .media-work-name { min-width:70px; } }
+}

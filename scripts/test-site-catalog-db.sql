@@ -6,7 +6,7 @@ do $$
 declare admin_id bigint; account bigint; ta text:=encode(gen_random_bytes(32),'hex'); tb text:=encode(gen_random_bytes(32),'hex'); tm text:=encode(gen_random_bytes(32),'hex');
   suffix text:=encode(gen_random_bytes(8),'hex'); a uuid; b uuid; result jsonb; cfg jsonb; p text; i integer;
 begin
-  if public.app_db_version()->>'version'<>'2.36.0' then raise exception 'Apply v2.36.0 first'; end if;
+  if NOT (public.app_db_version()->'features' ? 'site_catalog_v1') then raise exception 'Apply v2.36.0 first'; end if;
   select id into admin_id from public.pin_accounts where role='admin' and enabled limit 1;
   if admin_id is null then raise exception 'Configure an enabled test admin first'; end if;
   insert into public.pin_sessions(account_id,token_hash,expires_at) values(admin_id,digest(tm,'sha256'),now()+interval '1 hour');

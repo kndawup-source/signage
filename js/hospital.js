@@ -661,17 +661,18 @@
 
   let lastLoadStartedAt=0;
   // ---- DB 버전 확인: 화면이 필요로 하는 DB 기능이 없으면 해당 버튼만 막고 구체적으로 안내한다 (TV 송출과 무관) ----
-  const REQUIRED_DB_VERSION='2.36.0';
+  const REQUIRED_DB_VERSION='2.36.1';
   let dbInfo={checked:false,version:null,features:[],error:null};
   const dbVersionCmp=(a,b)=>{const pa=String(a||'0').split('.').map(Number),pb=String(b||'0').split('.').map(Number);for(let i=0;i<3;i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d;}return 0;};
   const dbFeature=(f)=>dbInfo.features.includes('pairing_v3')&&dbInfo.features.includes(f);
-  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1'));
+  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1')||!dbInfo.features.includes('video_delete_impact_v1'));
   function dbVersionMessage(){
     if(dbInfo.error==='network')return 'DB 버전을 확인하지 못했습니다. 새로고침 후 다시 시도하세요.';
     const files=[];
     if(dbVersionCmp(dbInfo.version,'2.35.86')<0||!dbInfo.features.includes('pairing_v2'))files.push('v2.35.86-pairing-hardening.sql');
     if(dbVersionCmp(dbInfo.version,'2.35.87')<0||!dbInfo.features.includes('pairing_v3'))files.push('v2.35.87-pairing-hardening.sql');
     if(!dbInfo.features.includes('site_catalog_v1'))files.push('v2.36.0-site-catalog.sql');
+    if(!dbInfo.features.includes('video_delete_impact_v1'))files.push('v2.36.1-video-delete-impact.sql');
     return `Supabase SQL Editor에서 ${files.map(f=>'supabase/'+f).join(' → ')}${files.length>1?' 순서로':''} 실행하세요. (현재 DB ${dbInfo.version||'2.35.85 이하'} · 필요 ${REQUIRED_DB_VERSION})`;
   }
   async function checkDbVersion(){
@@ -683,7 +684,7 @@
       dbInfo={checked:true,version:null,features:[],error:Signage.isMissingFunction?.(e)?'missing':'network'};
     }
   }
-  const dbVersionBanner=()=>dbOutdated()?`<div class="db-version-banner" role="alert"><b>DB 업데이트 필요</b><span>${esc(dbVersionMessage())}</span><small>${dbFeature('pairing_v3')?'병원별 분류·로고 설정은 DB 업데이트 후 사용할 수 있습니다. 기존 송출과 기기 연결 기능은 유지됩니다.':'DB 업데이트 전까지 신규 병원별 설정과 설치형 플레이어 연결·해제는 제한됩니다. 기존 TV 송출은 계속됩니다.'}</small></div>`:'';
+  const dbVersionBanner=()=>dbOutdated()?`<div class="db-version-banner" role="alert"><b>DB 업데이트 필요</b><span>${esc(dbVersionMessage())}</span><small>${dbFeature('pairing_v3')?'새 관리 기능은 DB 업데이트 후 사용할 수 있습니다. 기존 송출과 기기 연결 기능은 유지됩니다.':'DB 업데이트 전까지 신규 병원별 설정과 설치형 플레이어 연결·해제는 제한됩니다. 기존 TV 송출은 계속됩니다.'}</small></div>`:'';
   async function load({background=false}={}){
     lastLoadStartedAt=Date.now();
     if(!dbInfo.checked||dbInfo.error==='network'||dbOutdated())await checkDbVersion();
@@ -709,7 +710,7 @@
     renderPreservingUi(background);
   }
   function isInteracting(){
-    if(catalogDirty||catalogSaving||tab==='videos'&&(mediaDirty||mediaSaving))return true;
+    if(catalogDirty||catalogSaving||deletingHospitalVideo||videoUsageBusy||tab==='videos'&&(mediaDirty||mediaSaving))return true;
     const a=document.activeElement,root=qs('#hospitalRoot');
     if(root?.querySelector('.floor-inline-video-panel'))return true;
     return !!(a&&root&&root.contains(a)&&['INPUT','SELECT','TEXTAREA'].includes(a.tagName));
@@ -1435,6 +1436,8 @@
   // Never persist an incomplete drag/selection; publish only a complete ordered list.
   let mediaPlaylistId='',mediaDraft=[],mediaDirty=false,mediaSaving=false,mediaFilter='',mediaSaveTimer=null,mediaTargetFloor='',mediaTargetRoom='';
   let bulkPlaylistDeleting=false;
+  let videoUsageCounts=null,videoUsageFilter='all',videoUsageBusy=false;
+  const selectedVideoDeletes=new Set();
   function scheduleMediaSave(){/* Explicit save only: never publish a draft automatically. */}
   window.addEventListener('beforeunload',e=>{
     if(!mediaDirty&&!mediaSaving)return;
@@ -1456,7 +1459,7 @@
   function mediaVideoUpdateQuery(query,video){return video.site_id==null?query.is('site_id',null):query.eq('site_id',targetSiteId);}
   function mediaPlaylistItems(id){return state.playlistItems.filter(x=>String(x.playlist_id)===String(id)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(x=>String(x.video_id));}
   function mediaThumb(video){return video?.thumbnail_data_url?`<img src="${esc(video.thumbnail_data_url)}" alt="" loading="lazy">`:'<span class="media-no-thumb">▶</span>';}
-  function mediaVideoRow(video,queued){const own=String(video.site_id)===String(targetSiteId);return `<div class="media-work-library-item" draggable="true" data-media-source="${esc(video.id)}"><span class="media-work-thumb">${mediaThumb(video)}</span><span class="media-work-name"><strong title="${esc(video.title)}">${esc(video.title)}</strong><small>${video.duration_sec?formatDuration(video.duration_sec):'영상'}${video.site_id?' · 병원 영상':' · 공용 영상'}</small></span><button class="btn small" data-media-add="${esc(video.id)}" ${queued?'disabled':''} type="button">${queued?'추가됨':'+ 추가'}</button>${(own||(isSuperadmin&&video.site_id==null))?`<button type="button" class="media-video-delete" data-media-delete="${esc(video.id)}" title="R2 원본 영상 삭제" aria-label="${esc(video.title)} 원본 삭제">원본 삭제</button>`:''}</div>`;}
+  function mediaVideoRow(video,queued){const own=String(video.site_id)===String(targetSiteId);return `<div class="media-work-library-item" draggable="true" data-media-source="${esc(video.id)}">${mediaCanEditVideo(video)?`<input type="checkbox" class="video-delete-select" data-video-delete-select="${esc(video.id)}" ${selectedVideoDeletes.has(String(video.id))?'checked':''} aria-label="${esc(video.title)} 삭제 선택">`:''}<span class="media-work-thumb">${mediaThumb(video)}</span><span class="media-work-name"><strong title="${esc(video.title)}">${esc(video.title)}</strong><small>${video.duration_sec?formatDuration(video.duration_sec):'영상'}${video.site_id?' · 병원 영상':' · 공용 영상'}${videoUsageCounts&&Object.hasOwn(videoUsageCounts,String(video.id))?` · ${Number(videoUsageCounts[String(video.id)])?`연결 ${Number(videoUsageCounts[String(video.id)])}개`:'미사용'}`:''}</small></span><button class="btn small" data-media-add="${esc(video.id)}" ${queued?'disabled':''} type="button">${queued?'추가됨':'+ 추가'}</button>${(own||(isSuperadmin&&video.site_id==null))?`<button type="button" class="media-video-delete" data-media-delete="${esc(video.id)}" title="사용 위치 확인 및 원본 삭제" aria-label="${esc(video.title)} 사용 위치 확인 및 삭제">사용 위치·삭제</button>`:''}</div>`;}
   let mediaThumbBusy=false;
   function captureHospitalVideoThumbnail(video){return new Promise((resolve,reject)=>{
     if(!video?.url)return reject(new Error('영상 주소가 없습니다.'));
@@ -1485,6 +1488,23 @@
     }finally{mediaThumbBusy=false;if(batch){batch.disabled=false;batch.textContent=label||'누락 썸네일 생성';}refreshMediaWorkspace();}
   }
 
+  function mediaFilteredVideos(){return mediaVideos().filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase())&&(videoUsageFilter!=='unused'||videoUsageCounts&&Object.hasOwn(videoUsageCounts,String(v.id))&&Number(videoUsageCounts[String(v.id)])===0));}
+  async function refreshVideoUsage(){
+    if(videoUsageBusy)return;
+    videoUsageBusy=true;const button=qs('#videoUsageRefresh');if(button)button.disabled=true;
+    try{
+      if(!dbInfo.features.includes('video_delete_impact_v1'))await checkDbVersion();
+      if(!dbInfo.features.includes('video_delete_impact_v1'))throw new Error('먼저 supabase/v2.36.1-video-delete-impact.sql을 실행하세요.');
+      const ids=mediaVideos().filter(mediaCanEditVideo).map(v=>String(v.id));const counts={};
+      for(let i=0;i<ids.length;i+=1000){const {data,error}=await db.rpc('video_usage_counts',{p_site:targetSiteId,p_ids:ids.slice(i,i+1000)});if(error)throw error;Object.assign(counts,data||{});}
+      videoUsageCounts=counts;refreshMediaWorkspace();
+    }catch(e){videoUsageCounts=null;videoUsageFilter='all';refreshMediaWorkspace();toast(e.message||'사용 현황 조회 실패','error');}
+    finally{videoUsageBusy=false;const b=qs('#videoUsageRefresh');if(b)b.disabled=false;}
+  }
+  function updateVideoDeleteControls(){
+    const b=qs('#videoDeleteSelected');if(b){b.textContent=`선택 ${selectedVideoDeletes.size}개 삭제`;b.disabled=!selectedVideoDeletes.size||deletingHospitalVideo;}
+    const filter=qs('#videoUsageFilter');if(filter){filter.value=videoUsageFilter;filter.disabled=!videoUsageCounts;}
+  }
   function mediaQueueRow(id,i){const v=state.videos.find(x=>String(x.id)===id);return `<div class="media-work-queue-item" draggable="true" data-media-queue-id="${esc(id)}"><span class="media-work-handle" aria-label="순서 변경">⠿</span><span class="media-work-index">${i+1}</span><span class="media-work-thumb">${mediaThumb(v)}</span><span class="media-work-name"><strong>${esc(v?.title||'삭제된 영상')}</strong><small>${v?.duration_sec?formatDuration(v.duration_sec):''}</small></span><div class="media-work-queue-actions"><button type="button" class="btn small" data-media-move="${esc(id)}" data-dir="-1" ${i===0?'disabled':''} aria-label="위로 이동">↑</button><button type="button" class="btn small" data-media-move="${esc(id)}" data-dir="1" ${i===mediaDraft.length-1?'disabled':''} aria-label="아래로 이동">↓</button><button type="button" class="btn small" data-media-remove="${esc(id)}" title="재생목록에서만 제거 (원본 유지)" aria-label="재생목록에서 제거">×</button></div></div>`;}
   function hospitalPlaylistManagerMarkup(){
     const own=state.playlists.filter(p=>p.active!==false&&(p.site_id==null||String(p.site_id)===String(targetSiteId))).sort((a,b)=>Number(a.site_id==null)-Number(b.site_id==null)||(a.sort_order||0)-(b.sort_order||0));
@@ -1493,7 +1513,7 @@
     // Do not silently choose another TV's playlist. The user selects a TV or a list explicitly.
     const playlist=own.find(p=>String(p.id)===mediaPlaylistId);
     const globalSelected=!!playlist&&playlist.site_id==null;
-    const queueSet=new Set(mediaDraft),filtered=videos.filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase()));
+    const queueSet=new Set(mediaDraft),filtered=mediaFilteredVideos();
     const rooms=state.rooms.filter(r=>r&&r.id);
     // One navigation row per *physical floor*, not per care type / display group.
     // Legacy data can contain multiple groups on the same floor (e.g. general and orthodontics).
@@ -1527,7 +1547,7 @@
     const bulkRows=(items)=>items.map(p=>`<label class="media-bulk-playlist-row"><input type="checkbox" data-bulk-playlist-id="${esc(p.id)}"><span><strong>${esc(p.name)}</strong><small>${p.site_id==null?'공용 · 전체 병원 영향':'병원 전용'} · TV 연결 ${mediaPlaylistSharingCount(p.id)}대</small></span></label>`).join('');
     const bulkManager=`<details class="media-bulk-playlists" id="mediaBulkPlaylists"><summary>재생목록 여러 개 삭제</summary><p>삭제할 목록을 선택하세요. 삭제 전에 영향받는 병원·TV 수를 확인합니다. 삭제를 확인하면 TV·층의 연결을 해제합니다. 영상 원본과 R2 파일은 삭제하지 않습니다.</p><div class="media-bulk-playlist-controls"><label><input type="checkbox" id="mediaBulkSelectOwn"> 병원 전용 전체 선택</label><span id="mediaBulkSelectedCount">선택 0개</span></div><div class="media-bulk-playlist-list">${bulkRows(bulkOwn)||'<p class="muted">병원 전용 재생목록이 없습니다.</p>'}</div>${isSuperadmin?`<details class="media-bulk-global"><summary>공용 재생목록 (슈퍼어드민 전용 · 별도 선택)</summary><p>공용 목록은 모든 병원에 영향을 줄 수 있습니다. 삭제는 슈퍼어드민만 가능합니다.</p><div class="media-bulk-playlist-list">${bulkRows(bulkShared)}</div></details>`:''}<div class="media-bulk-playlist-actions"><button type="button" class="btn danger-outline" id="mediaBulkDeletePlaylists" disabled>선택한 재생목록 삭제</button><span id="mediaBulkPlaylistResult" role="status"></span></div></details>`;
     return `<section class="media-workspace"><div class="media-work-flow-note"><strong>재생목록 만들기 · 수정하기</strong><span>목록을 선택하고 영상을 편집한 다음 저장하세요. TV에 보내는 작업은 마지막 단계에서 합니다.</span></div><div class="media-work-toolbar"><div><span class="media-work-step">1</span><h2>재생목록 선택</h2><p>기존 목록을 고치거나 새 목록을 만드세요.</p></div><div class="media-work-controls"><label class="media-playlist-select-label"><span>편집할 재생목록</span><select id="staffPlaylistSelect" aria-label="재생목록 선택"><option value="">새 재생목록</option>${own.map(p=>`<option value="${esc(p.id)}" ${String(p.id)===mediaPlaylistId?'selected':''}>${esc(p.name)}${p.site_id==null?' · 공용':''}</option>`).join('')}</select></label><button type="button" class="btn" data-new-playlist>+ 새 목록</button><button type="button" class="btn" id="mediaOpenUpload">영상 업로드</button></div></div><details id="mediaUploadQuickDetails" class="media-upload-collapse"><summary>영상 업로드 영역 펼치기</summary><button type="button" id="mediaQuickUpload" class="media-quick-upload"><span>⇧ &nbsp; MP4를 여기에 끌어놓거나 눌러서 업로드</span><small>여러 파일 선택 가능 · 원본 1080p 유지 · 업로드 완료 후 목록에 표시</small></button></details>
-    <div class="media-work-columns"><section class="media-work-panel"><div class="media-work-section-head"><div><h3>영상 보관함</h3><small>전체 ${videos.length}개 · 원하는 영상은 + 추가</small></div></div><label class="media-work-search"><span>⌕</span><input id="mediaWorkSearch" type="search" placeholder="영상 검색" value="${esc(mediaFilter)}" autocomplete="off" aria-label="영상 검색"></label><div id="mediaWorkLibrary" class="media-work-scroll">${filtered.map(v=>mediaVideoRow(v,queueSet.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>'}</div><p class="media-work-help">원본 삭제는 파일 자체를 지웁니다. 목록에서만 빼려면 오른쪽의 ×를 사용하세요.</p></section>
+    <div class="media-work-columns"><section class="media-work-panel"><div class="media-work-section-head"><div><h3>영상 보관함</h3><small>전체 ${videos.length}개 · 원하는 영상은 + 추가</small></div></div><label class="media-work-search"><span>⌕</span><input id="mediaWorkSearch" type="search" placeholder="영상 검색" value="${esc(mediaFilter)}" autocomplete="off" aria-label="영상 검색"></label><div class="video-usage-toolbar"><button class="btn small" type="button" id="videoUsageRefresh">사용 현황 조회</button><select id="videoUsageFilter" aria-label="영상 사용 필터" ${videoUsageCounts?'':'disabled'}><option value="all" ${videoUsageFilter==='all'?'selected':''}>전체 영상</option><option value="unused" ${videoUsageFilter==='unused'?'selected':''}>미사용 영상 (조회 기준)</option></select><button class="btn small" type="button" id="videoDeleteSelected" ${selectedVideoDeletes.size?'':'disabled'}>선택 ${selectedVideoDeletes.size}개 삭제</button></div><div id="mediaWorkLibrary" class="media-work-scroll">${filtered.map(v=>mediaVideoRow(v,queueSet.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>'}</div><p class="media-work-help">원본 삭제는 파일 자체를 지웁니다. 목록에서만 빼려면 오른쪽의 ×를 사용하세요.</p></section>
     <section class="media-work-panel media-work-editor"><div class="media-work-section-head media-work-editor-head"><div><h3><span class="media-work-step">2</span>영상 구성 · 순서</h3><small>왼쪽에서 추가 → 오른쪽에서 순서 변경·제거 → 저장</small></div><div class="media-work-editor-actions"><span class="media-work-count" id="mediaWorkCount">${mediaDraft.length}개</span><button type="button" class="btn primary media-work-save-top" id="mediaSaveTop" ${globalSelected&&!isSuperadmin?'disabled':''}>변경 저장</button></div></div><label class="field media-work-name-field"><span>재생목록 이름</span><input id="staffPlaylistName" maxlength="60" value="${esc(playlist?.name||'')}" ${globalSelected&&!isSuperadmin?'readonly':''} placeholder="예: 9층 대기실" autocomplete="off"></label>${globalSelected?`<p class="media-shared-warning">${isSuperadmin?'슈퍼어드민: 공용 재생목록을 수정하면 사용하는 모든 병원에 영향을 줍니다.':'공용 재생목록입니다. 원본은 수정할 수 없습니다.'} <button type="button" class="btn small" id="mediaCopyGlobal">이 병원에 복사해서 수정</button></p>`:''}${sharedNotice}<div id="mediaWorkQueue" class="media-work-scroll media-work-queue" aria-label="재생 순서">${mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>'}</div><div class="media-work-foot"><span id="mediaWorkSaveStatus" role="status" aria-live="polite">${mediaDirty?'저장되지 않은 변경 사항 · 변경 저장 필요':'현재 재생목록 · 저장 상태'}</span><div><button id="staffDeletePlaylist" class="btn danger-outline" type="button" ${playlist&&(!globalSelected||isSuperadmin)?'':'disabled'}>삭제</button><button id="staffSavePlaylist" class="btn primary" type="button" ${globalSelected&&!isSuperadmin?'disabled':''}>${mediaDirty?'변경 저장':'저장'}</button></div></div></section></div>
     <section class="media-work-apply"><div class="media-work-section-head"><div><h3><span class="media-work-step">3</span>TV에 적용</h3><small>저장한 재생목록을 TV에 지정합니다. 기존 목록만 수정했다면 다시 적용할 필요가 없습니다.</small></div><button class="btn primary" type="button" id="mediaWorkApplyTv" disabled>선택한 TV에 적용</button></div><div class="media-work-tv-guidance">재생목록을 먼저 저장하세요. 아래에서 TV를 선택하거나, 다른 TV 여러 대에 한 번에 적용할 수 있습니다.</div>${targetSelector}<div class="media-work-apply-current"><button type="button" class="btn" id="mediaApplyCurrent" ${target&&mediaPlaylistId&&!mediaDirty?"":"disabled"}>현재 선택한 TV에 적용</button></div>
     <details class="media-bulk-apply"><summary>다른 TV에도 같은 재생목록 적용하기</summary><div class="media-work-tv-toolbar"><label class="media-work-floor-label">층 선택<select id="mediaWorkFloor"><option value="">층을 선택하세요</option>${floorOptions.map(g=>`<option value="${esc(g.id)}">${Number(g.floor_number)}층 · TV ${g.rooms.length}대</option>`).join('')}</select></label><label class="media-work-tv-search-label">TV 검색<input id="mediaWorkTvSearch" type="search" placeholder="TV 이름 검색" autocomplete="off" disabled></label><span id="mediaWorkTvSelection" class="media-work-selected">선택한 TV 0대</span></div>
@@ -1537,7 +1557,7 @@
   function refreshMediaWorkspace(){
     const panel=qs('#mediaWorkQueue'),library=qs('#mediaWorkLibrary'),counter=qs('#mediaWorkCount');
     if(panel)panel.innerHTML=mediaDraft.map(mediaQueueRow).join('')||'<div class="media-work-dropempty">왼쪽에서 영상을 추가하세요.</div>';
-    if(library){const queued=new Set(mediaDraft);library.innerHTML=mediaVideos().filter(v=>String(v.title||'').toLowerCase().includes(mediaFilter.toLowerCase())).map(v=>mediaVideoRow(v,queued.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>';}
+    if(library){const queued=new Set(mediaDraft);library.innerHTML=mediaFilteredVideos().map(v=>mediaVideoRow(v,queued.has(String(v.id)))).join('')||'<p class="muted">검색 결과가 없습니다.</p>';}
     if(counter)counter.textContent=`${mediaDraft.length}개`;
     const status=qs('#mediaWorkSaveStatus');if(status){status.textContent=mediaSaving?'저장 중…':mediaDirty?'● 저장하지 않은 변경 사항':'✓ 저장 완료 · TV 송출 적용은 별도 확인';status.classList.toggle('is-unsaved',!!mediaDirty);}
     const globalReadonly=mediaGlobalReadonly(mediaPlaylistId);
@@ -1547,7 +1567,7 @@
     qsa('[data-media-add],[data-media-remove],[data-media-move]').forEach(el=>{el.disabled=globalReadonly||el.hasAttribute('data-media-add')&&mediaDraft.includes(el.dataset.mediaAdd);});
     const currentApply=qs('#mediaApplyCurrent');if(currentApply)currentApply.disabled=!mediaTargetRoom||!mediaPlaylistId||mediaDirty||mediaSaving;
     refreshMediaTvSelection();
-    bindMediaDragAndButtons();
+    bindMediaDragAndButtons();updateVideoDeleteControls();
   }
   function fillHospitalPlaylistEditor(){
     const id=qs('#staffPlaylistSelect')?.value||'';
@@ -1576,22 +1596,37 @@
     finally{mediaSaving=false;refreshMediaWorkspace();}
   }
   let deletingHospitalVideo=false;
-  async function deleteHospitalVideo(videoId){
-    if(deletingHospitalVideo||mediaSaving||mediaDirty){
-      toast(mediaDirty?'재생목록 변경을 먼저 저장하거나 취소하세요.':'다른 작업이 끝난 뒤 삭제하세요.','error');return;
-    }
-    const video=state.videos.find(v=>String(v.id)===String(videoId));
-    if(!mediaCanEditVideo(video))return toast('이 영상에 대한 삭제 권한이 없습니다.','error');
-    const globalVideo=video.site_id==null;
-    if(!confirm(`'${video.title}' 영상을 삭제할까요?\n\n${globalVideo?'[공용 영상] 모든 병원에 영향을 줄 수 있습니다.\n':''}재생목록·송출 설정에서 사용 중이면 삭제되지 않습니다.\n이 작업은 되돌릴 수 없습니다.`))return;
-    deletingHospitalVideo=true;
+  function confirmVideoImpact(impacts,globalVideo){
+    const labels={playlist:'재생목록',rule:'개별 TV 영상 규칙',manual:'TV 수동 송출',site:'병원 송출',group:'층 송출',schedule:'예약 송출',emergency_site:'병원 긴급 영상',emergency_global:'전체 긴급 영상',legacy:'기존 공통 송출'};
+    const all=Array.isArray(impacts)?impacts:[impacts];const tvs=[...new Map(all.flatMap(i=>i.tvs||[]).map(x=>[x.id,x])).values()];const refs=new Map();
+    for(const i of all)for(const l of i.links||[]){const key=l.kind+':'+l.id;const old=refs.get(key);refs.set(key,{...l,removed:(old?.removed||0)+1});}
+    const links=[...refs.values()];const dialog=document.createElement('dialog');dialog.className='video-impact-dialog';
+    const details=all.map(i=>`<section><h4>${esc(i.title)}</h4>${i.links?.length?`<ul>${i.links.map(l=>{const combined=refs.get(l.kind+':'+l.id);const remaining=l.remaining==null?null:Math.max(0,Number(l.remaining)-(combined.removed-1));return `<li><b>${esc(labels[l.kind]||l.kind)} · ${esc(l.site)}</b><span>${esc(l.label)}</span>${remaining===0?'<small class="video-impact-warning">삭제 후 이 설정에 남는 영상이 없습니다.</small>':remaining!=null?`<small>남는 등록 영상 ${remaining}개</small>`:''}</li>`;}).join('')}</ul>`:'<p>등록된 사용 위치가 없습니다.</p>'}</section>`).join('');
+    dialog.innerHTML=`<form method="dialog"><header><h3>영상 사용 위치 및 삭제</h3><p>선택한 영상 ${all.length}개</p></header><div class="video-impact-body"><p><strong>등록된 연결 ${links.length}개 · 연결 대상 TV ${tvs.length}대</strong></p><p>현재 재생 여부가 아니라 등록된 설정 기준입니다. 환자 조건·공용 목록 등으로 추가 TV에 영향을 줄 수 있습니다.</p>${globalVideo?'<p class="video-impact-warning">공용 영상입니다. 모든 병원에 영향을 줄 수 있습니다.</p>':''}${details}${tvs.length?`<details><summary>연결 대상 TV ${tvs.length}대 보기</summary><ul>${tvs.map(t=>`<li>${esc(t.site)} · ${esc(t.label)}</li>`).join('')}</ul></details>`:''}<p class="video-impact-warning">삭제하면 선택한 영상만 모든 연결에서 제거합니다. 다른 영상과 재생목록은 유지됩니다. 남는 영상이 없으면 송출이 중단되거나 기본 목록으로 전환될 수 있습니다. 되돌릴 수 없습니다.</p></div><footer><button class="btn" value="cancel" autofocus>취소</button><button class="btn video-impact-delete" value="delete">${links.length?'연결 해제 후 삭제':'영상 삭제'}</button></footer></form>`;
+    document.body.append(dialog);
+    return new Promise(resolve=>{dialog.addEventListener('close',()=>{const ok=dialog.returnValue==='delete';dialog.remove();resolve(ok);},{once:true});try{dialog.showModal();}catch(e){dialog.remove();resolve(false);toast('삭제 확인 창을 열지 못했습니다. 최신 브라우저에서 다시 시도하세요.','error');}});
+  }
+  async function deleteHospitalVideo(videoId){return deleteHospitalVideos([videoId]);}
+  async function deleteHospitalVideos(ids){
+    if(deletingHospitalVideo||mediaSaving||mediaDirty){toast(mediaDirty?'재생목록 변경을 먼저 저장하거나 취소하세요.':'다른 작업이 끝난 뒤 삭제하세요.','error');return;}
+    const unique=[...new Set(ids.map(String))];if(!unique.length||unique.length>10)return toast('영상은 1~10개씩 삭제하세요.','error');
+    const videos=unique.map(id=>state.videos.find(v=>String(v.id)===id));
+    if(videos.some(v=>!mediaCanEditVideo(v)))return toast('영상이 없거나 삭제 권한이 없습니다.','error');
+    deletingHospitalVideo=true;updateVideoDeleteControls();
     try{
-      const result=await apiJson('/api/video-delete',{method:'POST',body:JSON.stringify({videoId:video.id,siteId:targetSiteId})});
-      mediaDraft=mediaDraft.filter(x=>String(x)!==String(video.id));
-      toast(result.cleanup_pending?'영상은 보관함에서 삭제됐지만 R2 정리가 대기 중입니다. 「R2 정리 재시도」를 눌러주세요.':'영상과 R2 원본을 삭제했습니다.',result.cleanup_pending?'error':undefined);
+      if(!dbInfo.features.includes('video_delete_impact_v1'))await checkDbVersion();
+      if(!dbInfo.features.includes('video_delete_impact_v1'))throw new Error('영상 사용 위치 확인 기능을 사용하려면 supabase/v2.36.1-video-delete-impact.sql을 먼저 실행하세요.');
+      const post=body=>apiJson('/api/video-delete',{method:'POST',body:JSON.stringify({...body,siteId:targetSiteId})});
+      const impacts=await Promise.all(unique.map(videoId=>post({action:'preview',videoId})));
+      if(!await confirmVideoImpact(impacts,videos.some(v=>v.site_id==null)))return;
+      const items=unique.map((videoId,i)=>({videoId,signature:impacts[i].signature}));
+      const result=await post(items.length===1?{action:'confirm',...items[0]}:{action:'batch-confirm',items});
+      const pending=items.length===1?!!result.cleanup_pending:(result.results||[]).some(x=>x.cleanup_pending);
+      mediaDraft=mediaDraft.filter(x=>!unique.includes(String(x)));unique.forEach(id=>selectedVideoDeletes.delete(id));videoUsageCounts=null;videoUsageFilter='all';
+      toast(pending?'영상은 보관함에서 삭제됐지만 R2 정리가 대기 중입니다. 「R2 정리 재시도」를 눌러주세요.':`영상 ${unique.length}개 삭제가 완료됐습니다.`,pending?'error':undefined);
       await load();
     }catch(e){toast(e.message||'영상 삭제에 실패했습니다.','error');}
-    finally{deletingHospitalVideo=false;}
+    finally{deletingHospitalVideo=false;updateVideoDeleteControls();}
   }
   // 서버 미리보기 결과를 경고창에 표시하고, 동일한 상태 지문으로 원자적 삭제한다.
   async function requestPlaylistDelete(ids){
@@ -1660,6 +1695,7 @@
     }catch(e){toast('R2 정리 재시도 실패: '+(e.message||String(e)),'error');}
   }
   function bindMediaDragAndButtons(){
+    qsa('[data-video-delete-select]').forEach(b=>b.onchange=()=>{const id=b.dataset.videoDeleteSelect;if(b.checked){if(selectedVideoDeletes.size>=10){b.checked=false;toast('영상은 최대 10개씩 선택하세요.','error');return;}selectedVideoDeletes.add(id);}else selectedVideoDeletes.delete(id);updateVideoDeleteControls();});
     qsa('[data-media-delete]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();void deleteHospitalVideo(b.dataset.mediaDelete);}));
     qsa('[data-media-add]').forEach(b=>b.addEventListener('click',()=>{if(mediaGlobalReadonly(mediaPlaylistId))return toast('공용 재생목록을 복사해서 수정하세요.','error');const id=b.dataset.mediaAdd;if(mediaDraft.includes(id))return;mediaDraft.push(id);mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();}));
     qsa('[data-media-remove]').forEach(b=>b.addEventListener('click',()=>{if(mediaGlobalReadonly(mediaPlaylistId))return;mediaDraft=mediaDraft.filter(x=>x!==b.dataset.mediaRemove);mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();}));
@@ -1781,6 +1817,10 @@
     qs('#staffPlaylistSelect')?.addEventListener('change',()=>{if(mediaDirty&&!confirm('저장하지 않은 변경 사항을 버릴까요?')){qs('#staffPlaylistSelect').value=mediaPlaylistId;return;}fillHospitalPlaylistEditor();});
     qs('[data-new-playlist]')?.addEventListener('click',()=>{if(mediaDirty&&!confirm('저장하지 않은 변경 사항을 버릴까요?'))return;qs('#staffPlaylistSelect').value='';fillHospitalPlaylistEditor();qs('#staffPlaylistName')?.focus();});
     qs('#staffPlaylistName')?.addEventListener('input',()=>{mediaDirty=true;refreshMediaWorkspace();scheduleMediaSave();});
+    qs('#videoUsageRefresh')?.addEventListener('click',()=>void refreshVideoUsage());
+    qs('#videoUsageFilter')?.addEventListener('change',e=>{videoUsageFilter=e.target.value;refreshMediaWorkspace();});
+    qs('#videoDeleteSelected')?.addEventListener('click',()=>void deleteHospitalVideos([...selectedVideoDeletes]));
+    updateVideoDeleteControls();
     qs('#mediaWorkSearch')?.addEventListener('input',e=>{mediaFilter=e.target.value;refreshMediaWorkspace();});
     qs('#mediaGenerateMissingThumbs')?.addEventListener('click',()=>void generateHospitalThumbnails());
     qs('#mediaSelectedThumb')?.addEventListener('click',()=>{const id=qs('#mediaWorkEditVideo')?.value;if(!id)return toast('영상을 먼저 선택하세요.','error');void generateHospitalThumbnails(id);});

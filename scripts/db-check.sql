@@ -1,4 +1,4 @@
--- Clinic Signage 운영 DB 점검 (v2.36.0 기준, 읽기 전용) — 결과가 0행이면 운영 DB = 저장소 schema.sql
+-- Clinic Signage 운영 DB 점검 (v2.36.1 기준, 읽기 전용) — 결과가 0행이면 운영 DB = 저장소 schema.sql
 with expected(kind,name,val) as (values
 ('col','app_settings.building_label','text/NO/''MAIN BUILDING''::text'),
 ('col','app_settings.disk_warning_gb','integer/NO/20'),
@@ -522,7 +522,7 @@ with expected(kind,name,val) as (values
 ('func','admin_stop_broadcast(p_resume text)','308edc974227a693ffe3fc3498d3839a/void'),
 ('func','admin_sync_local_videos(p_files jsonb)','9f2e63143b68b4118efccc333ea119f2/void'),
 ('func','admin_undo_control(p_history bigint)','b635ae649aca5dc99067c34f404b68c6/void'),
-('func','app_db_version()','0b5ca8a48e27355b7ff3daa030c67a3b/jsonb'),
+('func','app_db_version()','3dcc4b5204107c4490efeaab417b3e66/jsonb'),
 ('func','apply_room_video_rules(p_room uuid, p_playlist jsonb)','9dfc8e33defbd0bb72198abdf4da22d8/jsonb'),
 ('func','audit_event(p_site uuid, p_action text, p_entity_type text, p_entity_id text, p_summary text, p_before jsonb, p_after jsonb)','60140f4a977acfe4e28d934ad0fe22dd/void'),
 ('func','audit_floor_space_change()','b223939ab80909887c5964004074a286/trigger'),
@@ -650,7 +650,7 @@ with expected(kind,name,val) as (values
 ('func','superadmin_save_global_playlist(p_id uuid, p_name text, p_video_ids uuid[])','be37156b3b0e4d669aade99c6bec4387/uuid'),
 ('func','video_delete_enqueue(p_video uuid, p_site uuid)','b1a4a7e15ca4a47035712ffa23434f43/jsonb'),
 ('func','video_delete_finish(p_video uuid, p_error text)','d7229213e082fd6b4dbe65ab3e3510bb/void'),
-('func','video_delete_pending(p_site uuid)','337c2c0d2e2082c16804303cbc102cbf/jsonb'),
+('func','video_delete_pending(p_site uuid)','5c3bd50a99c04c9466aeae135114afd6/jsonb'),
 ('index','app_settings_pkey','72dad493bdadbf62fc55e51973a371ed'),
 ('index','audit_log_pkey','699c2e83d7415b2bc46801f073cacbb8'),
 ('index','audit_log_site_created_idx','31943ceae5f5c0d9cf1dc31fb9fca1a4'),
@@ -830,7 +830,15 @@ with expected(kind,name,val) as (values
 ('col','sites.catalog_config','jsonb/NO/catalog-v1-default'),
 ('trigger','signage_groups.signage_groups_site_catalog_guard','catalog-guard-v1'),
 ('trigger','floor_spaces.floor_spaces_site_catalog_guard','catalog-guard-v1'),
-('catalog','legacy-type-checks','removed')
+('catalog','legacy-type-checks','removed'),
+('func','video_delete_impact(p_video uuid, p_site uuid)','6d437b20e0e872b48eb1732654863e56/jsonb'),
+('exec','video_delete_impact(p_video uuid, p_site uuid)','true/true'),
+('func','video_delete_confirmed(p_video uuid, p_site uuid, p_signature text)','6339fa9d85969d65ffd60aa77dc7f5c3/jsonb'),
+('exec','video_delete_confirmed(p_video uuid, p_site uuid, p_signature text)','true/true'),
+('func','video_usage_counts(p_site uuid, p_ids uuid[])','600b957dabc15172efe94182fde14ffe/jsonb'),
+('exec','video_usage_counts(p_site uuid, p_ids uuid[])','true/true'),
+('func','video_delete_batch_confirmed(p_site uuid, p_items jsonb)','edfd1cbcd0afa5b806ff58bbdc906a0e/jsonb'),
+('exec','video_delete_batch_confirmed(p_site uuid, p_items jsonb)','true/true')
 ),
 actual as (
 select 'func'::text as kind, p.proname||'('||pg_get_function_identity_arguments(p.oid)||')' as name, md5(regexp_replace(p.prosrc,'\s','','g'))||'/'||pg_get_function_result(p.oid) as val from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind='f' and not exists(select 1 from pg_depend d where d.objid=p.oid and d.deptype='e')

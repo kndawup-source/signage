@@ -61,11 +61,27 @@ module.exports=async(req,res)=>{
       for(const job of jobs)results.push(await removeOne(job,token));
       return json(res,200,{ok:true,retried:results.length,results});
     }
+    if(body.action==='batch-confirm'){
+      const items=body.items;
+      if(!Array.isArray(items)||items.length<1||items.length>10||items.some(i=>!i||!UUID.test(String(i.videoId||''))||!(/^[0-9a-f]{32}$/.test(String(i.signature||''))))||new Set(items.map(i=>i.videoId.toLowerCase())).size!==items.length)return json(res,400,{error:'삭제 대상을 다시 선택하세요. (최대 10개)'});
+      const jobs=await rpc('video_delete_batch_confirmed',token,{p_site:siteId||null,p_items:items.map(i=>({videoId:i.videoId,signature:i.signature}))});
+      const results=[];
+      for(const job of jobs){
+        try{results.push(job.status==='complete'?{video_id:job.video_id,physical_deleted:true,cleanup_pending:false}:await removeOne(job,token));}
+        catch(e){results.push({video_id:job.video_id,physical_deleted:false,cleanup_pending:true,error:String(e.message||e)});}
+      }
+      return json(res,200,{ok:true,metadata_deleted:true,deleted_count:jobs.length,results});
+    }
     const videoId=String(body.videoId||'');
     if(!UUID.test(videoId))return json(res,400,{error:'INVALID_VIDEO_ID'});
-    const job=await rpc('video_delete_enqueue',token,{p_video:videoId,p_site:siteId||null});
+    if(body.action==='preview'){
+      const impact=await rpc('video_delete_impact',token,{p_video:videoId,p_site:siteId||null});
+      return json(res,200,{ok:true,...impact});
+    }
+    if(body.action!=='confirm'||!(/^[0-9a-f]{32}$/.test(String(body.signature||''))))return json(res,400,{error:'사용 위치를 먼저 확인하세요.'});
+    const job=await rpc('video_delete_confirmed',token,{p_video:videoId,p_site:siteId||null,p_signature:body.signature});
     if(job.status==='complete')return json(res,200,{ok:true,physical_deleted:true,already_deleted:true});
-    const result=await removeOne(job,token);
-    return json(res,200,{ok:true,metadata_deleted:true,...result});
+    try{const result=await removeOne(job,token);return json(res,200,{ok:true,metadata_deleted:true,...result});}
+    catch(e){return json(res,200,{ok:true,metadata_deleted:true,video_id:videoId,physical_deleted:false,cleanup_pending:true,error:String(e.message||e)});}
   }catch(e){return json(res,e.statusCode||500,{error:e.message||'VIDEO_DELETE_FAILED'});}
 };
