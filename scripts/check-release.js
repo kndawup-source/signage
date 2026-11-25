@@ -7,6 +7,15 @@ const version=JSON.parse(fs.readFileSync(path.join(root,'player-release.json'),'
 const errors=[];
 for(const file of ['player.html','hospital.html','admin.html','index.html']){
  const txt=fs.readFileSync(path.join(root,file),'utf8');
+ // Check every local HTML script and stylesheet reference, including cache-busting URLs.
+ for(const match of txt.matchAll(/<(script|link)\b[^>]*>/gi)){
+   const tag=match[0], isScript=match[1].toLowerCase()==='script';
+   if(!isScript&&!/\brel\s*=\s*["']stylesheet["']/i.test(tag))continue;
+   const attr=tag.match(isScript?/\bsrc\s*=\s*["']([^"']+)["']/i:/\bhref\s*=\s*["']([^"']+)["']/i);
+   if(!attr||/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(attr[1]))continue;
+   const relative=attr[1].split(/[?#]/)[0].replace(/^\/+/, '');
+   if(!relative||!fs.existsSync(path.join(root,relative))||!fs.statSync(path.join(root,relative)).isFile())errors.push(`${file}: missing local asset ${relative}`);
+ }
  const versions=[...txt.matchAll(/v=(2\.35\.\d+(?:-layout\d+)?)/g)].map(m=>m[1]);
  if(!versions.length||versions.some(x=>x!==version))errors.push(`${file}: ${versions.join(', ')||'missing'}`);
  const dataset=[...txt.matchAll(/data-(?:player-)?version="([^"]+)"/g)].map(m=>m[1]);
@@ -22,7 +31,7 @@ if(!fs.existsSync(ignorePath)){
 } else {
   const rules=fs.readFileSync(ignorePath,'utf8').split(/\r?\n/).map(x=>x.trim())
     .filter(x=>x && !x.startsWith('#'));
-  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/']){
+  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/','desktop-player/','*.md','*.txt']){
     if(!rules.includes(p))errors.push(`not ignored: ${p}`);
   }
   // Critical: serverless functions still need their private assets at build time.

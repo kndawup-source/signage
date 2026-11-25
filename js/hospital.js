@@ -666,7 +666,11 @@
   const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0;
   function dbVersionMessage(){
     if(dbInfo.error==='network')return 'DB 버전을 확인하지 못했습니다. 새로고침 후 다시 시도하세요.';
-    return `Supabase SQL Editor에서 supabase/v${REQUIRED_DB_VERSION}-pairing-hardening.sql을 실행하세요. (현재 DB ${dbInfo.version?`v${dbInfo.version}`:'v2.35.85 이하'} · 필요 v${REQUIRED_DB_VERSION})`;
+    // 2.35.87 SQL은 2.35.86 위에서만 적용된다. DB가 2.35.86 미만이면 두 파일을 순서대로 안내한다.
+    const files=(!dbInfo.version||dbVersionCmp(dbInfo.version,'2.35.86')<0)
+      ?'supabase/v2.35.86-pairing-hardening.sql → supabase/v2.35.87-pairing-hardening.sql 순서로'
+      :`supabase/v${REQUIRED_DB_VERSION}-pairing-hardening.sql을`;
+    return `Supabase SQL Editor에서 ${files} 실행하세요. (현재 DB ${dbInfo.version?`v${dbInfo.version}`:'v2.35.85 이하'} · 필요 v${REQUIRED_DB_VERSION})`;
   }
   async function checkDbVersion(){
     try{
@@ -873,9 +877,9 @@
   }
   function hospitalOperationsSummary(){
     const c=tvCounts(state.rooms);
-    const desc={live:'영상이 나오고 있어요',standby:'운영시간 외·일시정지',unpaired:'아직 플레이어 연결 전',issue:'꺼짐·오류·지연',manual:'현장에서 직접 관리'};
+    const desc={live:'영상 재생 중',standby:'운영시간 외 · 일시정지',unpaired:'최초 기기 연결 전',issue:'오프라인 · 오류 · 지연',manual:'현장 직접 관리'};
     return `<div class="hospital-ops-summary hospital-ops-summary-easy hospital-ops-summary-5" aria-label="TV 상태별 목록">${TV_CAT_ORDER.map(key=>
-      `<button type="button" class="ops-status-card ops-${key}${statusViewFilter===key?' is-active':''}" data-status-filter="${key}" aria-pressed="${statusViewFilter===key?'true':'false'}"><span class="ops-status-title"><i aria-hidden="true"></i>${TV_CAT_LABEL[key]}</span><strong data-tv-count="${key}">${c[key]}</strong><span class="ops-status-help">${desc[key]}</span></button>`
+      `<button type="button" class="ops-status-card ops-${key}${c[key]>0?' has-count':''}${statusViewFilter===key?' is-active':''}" data-status-filter="${key}" aria-pressed="${statusViewFilter===key?'true':'false'}"><span class="ops-status-title"><i aria-hidden="true"></i>${TV_CAT_LABEL[key]}</span><strong data-tv-count="${key}">${c[key]}</strong><span class="ops-status-help">${desc[key]}</span><span class="ops-status-action">목록 보기 <span aria-hidden="true">›</span></span></button>`
     ).join('')}</div>${hospitalStatusFilterMarkup()}`;
   }
   function floorQuickTvList(rooms){
@@ -1048,7 +1052,7 @@
     const selected=floors.find(g=>g.id===selectedFloorId)||floors[0];
     const floorLayout=floors.length===1?'single-floor':floors.length<=3?'few-floors':'many-floors';
     return `<section class="hospital-building-dashboard hospital-unified-ops ${floorLayout}"><div class="hospital-building-console"><div class="hospital-floor-console-card">
-      <div class="hospital-floor-console-title"><div><small>${floors.length===1?'TV 위치와 상태':floors.length<=3?'층을 골라주세요':'층 선택'}</small><h2>${floors.length===1?'병원 TV 현황':'층별 TV'}</h2><p>${floors.length===1?'도면에서 TV를 누르면 영상과 상태를 확인할 수 있습니다.':'층을 누르면 TV 위치와 상태를 볼 수 있어요.'}</p><div class="floor-status-legend" aria-label="상태 점 범례">${TV_CAT_ORDER.map(cat=>`<span><i class="${cat}"></i>${TV_CAT_LABEL[cat]}</span>`).join('')}</div></div><div class="hospital-floor-fast-actions"><button type="button" class="btn small primary" data-ops-quick-add="space">+ 공간·TV</button><button type="button" class="btn small" data-ops-quick-add="display">+ TV</button><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'보기로 돌아가기':'도면에서 배치 수정'}</button></div></div>
+      <div class="hospital-floor-console-title"><div><h2>${floors.length===1?'병원 TV 현황':'층별 TV'}</h2><p>${floors.length===1?'도면에서 TV를 누르면 영상과 상태를 확인할 수 있습니다.':'층별 TV 위치와 송출 상태를 확인합니다.'}</p><div class="floor-status-legend" aria-label="상태 점 범례">${TV_CAT_ORDER.map(cat=>`<span><i class="${cat}"></i>${TV_CAT_LABEL[cat]}</span>`).join('')}</div></div><div class="hospital-floor-fast-actions"><button type="button" class="btn small" data-ops-quick-add="space">+ 공간·TV</button><button type="button" class="btn small primary" data-ops-quick-add="display">+ TV 추가</button><button type="button" class="btn ${layoutPanelOpen?'primary':''} hospital-layout-edit-toggle" data-ops-layout-toggle aria-expanded="${layoutPanelOpen?'true':'false'}">${layoutPanelOpen?'보기로 돌아가기':'도면에서 배치 수정'}</button></div></div>
       <div class="hospital-floor-console-grid">${floors.length===1?'':`<div class="hospital-floor-list" role="group" aria-label="층 선택">${floors.map(staffBuildingFloor).join('')}</div>`}
       <div class="hospital-floor-ops-content">${layoutPanelOpen?operationsLayoutEditorMarkup():`${staffFloorPanelMarkup(selected)}${floorQuickTvList(selected.rooms||state.rooms.filter(r=>r.group_id===selected.id))}`}</div></div>
     </div></div></section>`;
@@ -1872,7 +1876,7 @@
   function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page"><div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
   function hospitalVideosPageMarkup(){
     return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
-      <header class="unified-page-heading"><div><h1>${esc(state.site?.name||'병원')}</h1><p>TV 영상과 설정 관리</p></div></header>${dbVersionBanner()}
+      <header class="unified-page-heading"><div><h1>${esc(state.site?.name||'병원')}</h1><p>TV 송출 현황과 재생목록, 공간 설정을 관리합니다.</p></div></header>${dbVersionBanner()}
       <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>전체 TV 상태</b><small data-tv-summary-line>${esc(tvSummaryLine(tvCounts(state.rooms)))}</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content"><div class="hospital-status-toolbar"><button type="button" id="staffStatusRefresh" class="btn small">상태 새로고침</button><button type="button" id="staffReloadAllPlayers" class="btn small danger-outline">전체 플레이어 새로고침</button></div>${hospitalOperationsSummary()}</div></details>
       <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       <section id="signagePlaylistManagement" class="signage-playlist-management" aria-label="재생목록 관리">
@@ -2342,7 +2346,7 @@
   }
   function paintStaffSummary(){
     const c=tvCounts(state.rooms);
-    TV_CAT_ORDER.forEach(cat=>qsa(`[data-tv-count="${cat}"]`).forEach(el=>{if(el.textContent!==String(c[cat]))el.textContent=String(c[cat]);}));
+    TV_CAT_ORDER.forEach(cat=>qsa(`[data-tv-count="${cat}"]`).forEach(el=>{if(el.textContent!==String(c[cat]))el.textContent=String(c[cat]);el.closest('.ops-status-card')?.classList.toggle('has-count',c[cat]>0);}));
     const line=qs('[data-tv-summary-line]');if(line)line.textContent=tvSummaryLine(c);
     qsa('[data-ops-state]').forEach(el=>{const r=roomById(el.dataset.opsState);if(!r)return;const s=roomDisplayStatus(r);el.className=`floor-ops-state status-${s.key} cat-${s.cat}`;el.title=visibleTvStatus(s);el.innerHTML=tvBadgeHtml(s);el.closest('.floor-ops-tv')?.setAttribute('class',`floor-ops-tv status-${s.key} cat-${s.cat}`);});
     qsa('[data-ops-video]').forEach(el=>{const r=roomById(el.dataset.opsVideo);if(r)el.textContent=displayControlMode(r)==='manual'?'현장 수동 운영':(currentVideoTitle(r));});
