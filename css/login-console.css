@@ -1,0 +1,11 @@
+/* Login uses the console's visual vocabulary without changing player CSS. */
+body.auth-page{background:#f5f7fa;color:#17283b;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Noto Sans KR","Malgun Gothic",sans-serif;line-height:1.5}
+.auth-page .auth-panel{width:min(420px,100%);box-sizing:border-box;padding:clamp(24px,5vw,40px);border:1px solid #dce3eb;border-radius:14px;box-shadow:0 8px 32px #17283b0d}
+.auth-page .auth-panel .eyebrow{color:#233e65;font-size:12px;font-weight:800;letter-spacing:.065em}
+.auth-page .auth-panel h1{font-size:26px;line-height:1.3;margin:8px 0 24px;letter-spacing:-.035em}
+.auth-page .pin-field input{border:1px solid #dce3eb;border-radius:8px;min-height:52px;font-size:24px;transition:border-color 180ms,box-shadow 180ms}
+.auth-page .btn.primary{background:#233e65;border-color:#233e65;color:#fff;border-radius:8px;min-height:44px;font-weight:650;transition:background-color 180ms}
+.auth-page .btn.primary:hover:not(:disabled){background:#183251}
+.auth-page :is(input,button):focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.auth-page .btn:disabled{opacity:.55;cursor:not-allowed}
+@media(prefers-reduced-motion:reduce){.auth-page :is(input,button){transition:none}}
