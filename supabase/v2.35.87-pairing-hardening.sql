@@ -1,6 +1,12 @@
 -- v2.35.87: persistent pairing ownership, credential snapshots, status reset.
 -- Apply after v2.35.86. Existing playback keys are NOT rotated by migration.
 begin;
+-- 2.35.86이 먼저 적용되어 있어야 한다 (연결 코드 상태 컬럼·보조 함수 의존).
+do $$ begin
+  if not exists(select 1 from public.schema_version where version='2.35.86') then
+    raise exception '먼저 supabase/v2.35.86-pairing-hardening.sql을 실행한 뒤 이 파일을 실행하세요.';
+  end if;
+end $$;
 alter table public.player_pairing_codes add column if not exists approved_key uuid;
 create table if not exists public.display_pairing_owner (
   room_id uuid primary key references public.rooms(id) on delete cascade,
