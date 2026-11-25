@@ -937,3 +937,96 @@ body.hospital-page .media-work-library-item .media-video-delete { white-space:no
 .video-impact-body section+section { border-top:1px solid #dce3eb; }
 @media(max-width:420px){body.hospital-page .media-work-library-item { flex-wrap:wrap; } body.hospital-page .media-work-library-item .media-work-name { min-width:70px; } }
 }
+
+/* Compact administrative workspace. Keep behavior in existing handlers and
+   preserve the shared player/login styles. */
+@layer signage-admin {
+  body:is(.hospital-page,.superadmin-page) {
+    --cs-section-gap:24px;
+    --cs-card-gap:16px;
+    --cs-card-pad:20px;
+    --cs-control-height:40px;
+  }
+  body:is(.hospital-page,.superadmin-page) .btn {
+    min-height:var(--cs-control-height); font-size:14px; padding:8px 14px;
+  }
+  body:is(.hospital-page,.superadmin-page) .btn.small {min-height:32px;font-size:12px;padding:5px 10px;}
+  body.hospital-page .unified-hospital-page,body.superadmin-page .superadmin-home {gap:var(--cs-section-gap);}
+  body.hospital-page .unified-page-heading h1,body.superadmin-page .hospital-overview-head h1 {font-size:26px;}
+  body.hospital-page .signage-playlist-management {padding:var(--cs-card-pad);}
+  body.hospital-page .media-workspace {gap:var(--cs-card-gap);}
+  body.hospital-page .media-work-toolbar {
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+    gap:12px;padding:14px 16px;min-height:0;
+  }
+  body.hospital-page .media-work-toolbar h2 {font-size:18px;margin:0;}
+  body.hospital-page .media-work-controls {
+    display:flex;align-items:center;justify-content:flex-end;flex:1 1 440px;gap:8px;width:auto;
+  }
+  body.hospital-page .media-work-controls .media-playlist-select-label {flex:1 1 180px;min-width:0;max-width:340px;margin:0;}
+  body.hospital-page .media-work-controls select {min-width:0;max-width:none;width:100%;min-height:var(--cs-control-height);font-size:14px;}
+  body.hospital-page .media-work-controls>.btn {flex:none;width:auto;white-space:nowrap;}
+  body.hospital-page .media-upload-collapse {margin:0;}
+  body.hospital-page .media-work-columns {gap:var(--cs-card-gap);align-items:start;}
+  body.hospital-page :is(.media-work-panel,.media-work-apply,.media-work-manage,.media-target-picker,.hospital-settings-card) {padding:var(--cs-card-pad);border-radius:12px;}
+  body.hospital-page .media-work-panel {min-height:0;gap:12px;}
+  body.hospital-page .media-work-panel .media-work-section-head h3,body.hospital-page .media-work-apply .media-work-section-head h3 {font-size:18px;line-height:1.4;margin:0;}
+  body.hospital-page .media-work-editor-head {position:static;margin:0;padding:0 0 12px;}
+  body.hospital-page .media-work-editor-actions {gap:8px;}
+  body.hospital-page .media-work-scroll {min-height:72px;max-height:420px;gap:8px;}
+  body.hospital-page :is(.media-work-library-item,.media-work-queue-item) {gap:8px;padding:9px;min-width:0;}
+  body.hospital-page .media-work-thumb {width:64px;min-width:64px;}
+  body.hospital-page .media-work-name {min-width:0;}
+  body.hospital-page .media-work-name strong {font-size:14px;}
+  body.hospital-page .media-work-name small {font-size:12px;white-space:normal;overflow-wrap:anywhere;}
+  body.hospital-page .media-work-library-item .media-video-delete {font-size:12px;min-height:32px;padding:5px 8px;max-width:none;flex:none;}
+  body.hospital-page .video-usage-toolbar {margin:0;gap:8px;}
+  body.hospital-page .video-usage-toolbar select {min-height:32px;max-width:100%;font-size:12px;}
+  body.hospital-page .media-work-foot {gap:8px;flex-wrap:wrap;}
+  body.hospital-page .media-work-apply .media-work-section-head {flex-wrap:wrap;gap:8px;}
+  body.hospital-page .media-bulk-playlists {margin:0;}
+  body.hospital-page .media-work-help {font-size:12px;margin:0;}
+  body.hospital-page .video-impact-dialog {width:min(480px,calc(100% - 32px));}
+  body.hospital-page .video-impact-dialog h3 {font-size:20px;margin:0;}
+  body.hospital-page .video-impact-dialog header,body.hospital-page .video-impact-dialog footer {padding:16px 20px;}
+  body.hospital-page .video-impact-body {padding:16px 20px;font-size:14px;}
+  body.hospital-page .video-impact-body p {margin:0 0 8px;}
+  body.hospital-page .video-impact-body p:not(.video-impact-warning) {color:var(--cs-subtle);font-size:12px;}
+  body.hospital-page .video-impact-body p strong {color:var(--cs-text);font-size:13px;}
+  body.hospital-page .video-impact-body section h4 {font-size:16px;margin:12px 0 8px;overflow-wrap:anywhere;}
+  body.hospital-page .video-impact-body ul {margin:0 0 12px;}
+  body.hospital-page .video-impact-body li {padding:8px 10px;background:#f5f7fa;border:0;border-radius:8px;margin:0 0 6px;}
+  body.hospital-page .video-impact-body li b {display:block;font-size:14px;}
+  body.hospital-page .video-impact-body li small {font-size:12px;}
+  body.hospital-page .video-impact-body .video-impact-warning {font-size:13px;color:#b91c1c;}
+  body.hospital-page .video-impact-body .video-impact-note {border-top:1px solid var(--cs-border);padding-top:12px;}
+  @media(max-width:950px) {
+    body.hospital-page .media-work-columns {grid-template-columns:minmax(0,1fr);}
+    body.hospital-page .media-work-controls {flex:1 1 100%;justify-content:flex-start;}
+    body.hospital-page .media-work-controls .media-playlist-select-label {max-width:none;}
+  }
+  @media(max-width:600px) {
+    body:is(.hospital-page,.superadmin-page) {--cs-section-gap:20px;--cs-card-gap:12px;--cs-card-pad:14px;--cs-control-height:44px;}
+    body:is(.hospital-page,.superadmin-page) .btn.small {min-height:44px;}
+    body.hospital-page .signage-playlist-management {padding:12px;}
+    body.hospital-page .media-work-toolbar {padding:12px;gap:10px;}
+    body.hospital-page .media-work-controls {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:8px;}
+    body.hospital-page .media-work-controls .media-playlist-select-label {grid-column:1/-1;width:100%;}
+    body.hospital-page .media-work-controls>.btn {width:100%;white-space:normal;}
+    body.hospital-page .media-work-thumb {width:48px;min-width:48px;}
+    body.hospital-page .media-work-library-item {display:grid;grid-template-columns:auto 48px minmax(0,1fr) auto;align-items:center;gap:6px;}
+    body.hospital-page .media-work-library-item:not(:has(.video-delete-select)) {grid-template-columns:48px minmax(0,1fr) auto;}
+    body.hospital-page .media-work-library-item .media-video-delete {grid-column:1/-1;justify-self:end;min-height:44px;}
+    body.hospital-page .media-work-queue-item {display:flex;flex-wrap:wrap;gap:6px;}
+    body.hospital-page .media-work-queue-actions {display:flex;justify-content:flex-end;gap:6px;width:100%;}
+    body.hospital-page .media-work-queue-actions .btn {min-width:44px;min-height:44px;}
+    body.hospital-page .media-work-editor-actions {width:auto;justify-content:flex-end;}
+    body.hospital-page .media-work-scroll {max-height:350px;}
+    body.hospital-page .video-usage-toolbar select {min-height:44px;flex:1 1 100px;}
+    body.hospital-page .video-impact-dialog {width:calc(100% - 24px);max-height:calc(100dvh - 24px);}
+    body.hospital-page .video-impact-dialog form {max-height:calc(100dvh - 26px);}
+    body.hospital-page .video-impact-dialog header,body.hospital-page .video-impact-dialog footer,body.hospital-page .video-impact-body {padding:14px;}
+    body.hospital-page .video-impact-dialog footer .btn {flex:1;min-width:0;white-space:normal;}
+    body.hospital-page .video-impact-dialog footer .video-impact-delete {flex:2;}
+  }
+}
