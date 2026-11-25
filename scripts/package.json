@@ -1,0 +1,5 @@
+{
+  "name": "clinic-signage-admin-tools",
+  "private": true,
+  "devDependencies": { "postcss": "8.5.6" }
+}

@@ -5,6 +5,27 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const version=JSON.parse(fs.readFileSync(path.join(root,'player-release.json'),'utf8')).version;
 const errors=[];
+// Admin uses a generated layered foundation so the shared TV/login CSS stays intact.
+const crypto=require('node:crypto');
+const sharedCss=fs.readFileSync(path.join(root,'css/app.css'));
+const foundationPath=path.join(root,'css/admin-foundation.css');
+const foundation=fs.existsSync(foundationPath)?fs.readFileSync(foundationPath,'utf8'):'';
+const sourceHash=crypto.createHash('sha256').update(sharedCss).digest('hex');
+if(!foundation.includes('Source SHA256: '+sourceHash+' */'))errors.push('Admin foundation missing or stale; run node scripts/build-admin-foundation.js');
+if(!foundation.includes('@layer signage-base, signage-legacy, signage-admin;'))errors.push('Admin cascade layer order missing');
+const adminCss=fs.readFileSync(path.join(root,'css/admin-console.css'),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+if(/!\s*important\b/i.test(adminCss))errors.push('Admin design must use cascade layers instead of !important');
+if(!adminCss.includes('@layer signage-admin'))errors.push('Admin design layer missing');
+for(const file of ['admin.html','hospital.html']){
+ const html=fs.readFileSync(path.join(root,file),'utf8');
+ if(!html.includes('/css/admin-foundation.css?v=')||html.includes('/css/app.css?v='))errors.push(file+': admin must use layered foundation only');
+ if(html.indexOf('/css/admin-console.css?v=')<html.indexOf('/css/admin-foundation.css?v='))errors.push(file+': admin layer load order incorrect');
+}
+for(const file of ['index.html','player.html']){
+ const html=fs.readFileSync(path.join(root,file),'utf8');
+ if(!html.includes('/css/app.css?v=')||html.includes('/css/admin-foundation.css?v='))errors.push(file+': legacy player/login CSS must remain isolated');
+}
+
 for(const file of ['player.html','hospital.html','admin.html','index.html']){
  const txt=fs.readFileSync(path.join(root,file),'utf8');
  // Check every local HTML script and stylesheet reference, including cache-busting URLs.

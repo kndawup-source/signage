@@ -1,3 +1,4 @@
+@layer signage-base {
 /* Clinic Signage v2.35.86 — TV 상태 5분류 색상, 버튼 색 의미, 머리말·요약 정렬 (마지막에 로드) */
 body.hospital-page{
   --tv-live:#2563eb; --tv-live-bg:#dbeafe; --tv-live-ink:#1d4ed8;
@@ -8,38 +9,27 @@ body.hospital-page{
   /* 추가·저장 같은 기본 동작은 남색, 빨강은 장애·위험 동작에만 */
   --cs-accent:#232176; --cs-accent-hover:#1b195f; --cs-soft-accent:#f1f0f8;
 }
-body.hospital-page button.btn.primary{background:var(--cs-accent)!important;border-color:var(--cs-accent)!important;color:#fff!important}
-body.hospital-page button.btn.primary:hover:not(:disabled){background:var(--cs-accent-hover)!important;border-color:var(--cs-accent-hover)!important}
-body.hospital-page .btn.danger-outline{color:var(--tv-issue-ink)!important;border:1px solid #f3c4c4!important;background:#fff!important;padding-left:11px!important;padding-right:11px!important}
-body.hospital-page .btn.danger-outline:hover:not(:disabled){background:#fff5f5!important;border-color:var(--tv-issue)!important}
-
 /* 머리말: 병원 이름이 제목 */
 body.hospital-page .unified-page-heading{margin-bottom:18px}
 body.hospital-page .unified-page-heading h1{font-size:28px;line-height:1.2}
 body.hospital-page .unified-page-heading p{font-size:13px}
-
 /* DB 버전 안내 */
 body.hospital-page .db-version-banner{display:grid;gap:4px;margin:0 0 16px;padding:14px 16px;border:1px solid #f3c4c4;border-left:4px solid var(--tv-issue);border-radius:10px;background:#fff8f8;color:#3f1d1d}
 body.hospital-page .db-version-banner b{font-size:14px;color:var(--tv-issue-ink)}
 body.hospital-page .db-version-banner span{font-size:13px;line-height:1.5;word-break:keep-all}
 body.hospital-page .db-version-banner small{font-size:12px;color:#6b4a4a}
-
 /* 전체 TV 상태: 버튼은 오른쪽, 카드 5개 */
 body.hospital-page .hospital-status-toolbar{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin:0 0 12px}
-body.hospital-page .hospital-ops-summary-5{grid-template-columns:repeat(5,minmax(0,1fr))!important}
-body.hospital-page .hospital-ops-summary-5>.ops-status-card{min-height:112px!important}
 body.hospital-page .hospital-ops-summary-5 .ops-live .ops-status-title i{background:var(--tv-live)}
 body.hospital-page .hospital-ops-summary-5 .ops-standby .ops-status-title i{background:var(--tv-standby)}
 body.hospital-page .hospital-ops-summary-5 .ops-unpaired .ops-status-title i{background:#fff;box-shadow:inset 0 0 0 2px var(--tv-unpaired)}
 body.hospital-page .hospital-ops-summary-5 .ops-issue .ops-status-title i{background:var(--tv-issue)}
 body.hospital-page .hospital-ops-summary-5 .ops-manual .ops-status-title i{background:var(--tv-manual)}
-body.hospital-page .hospital-ops-summary-5 .ops-issue strong{color:var(--tv-issue-ink)!important}
 body.hospital-page .hospital-ops-summary-5 .ops-status-help{margin-top:auto}
-
 /* 층 목록 점·범례 */
 body.hospital-page .hospital-unified-ops .floor-dot-live{background:var(--tv-live);border-color:var(--tv-live)}
 body.hospital-page .hospital-unified-ops .floor-dot-standby{background:var(--tv-standby);border-color:var(--tv-standby)}
-body.hospital-page .hospital-unified-ops .floor-dot-unpaired{background:#e2e8f0!important;border:2px solid #8b97a8!important;box-sizing:border-box}
+body.hospital-page .hospital-unified-ops .floor-dot-unpaired{box-sizing:border-box}
 body.hospital-page .hospital-unified-ops .floor-dot-issue{background:var(--tv-issue);border-color:var(--tv-issue)}
 body.hospital-page .hospital-unified-ops .floor-dot-manual{background:var(--tv-manual);border-color:var(--tv-manual)}
 body.hospital-page .floor-status-legend{display:flex;flex-wrap:wrap;gap:4px 12px}
@@ -50,52 +40,65 @@ body.hospital-page .floor-status-legend i.standby{background:var(--tv-standby)}
 body.hospital-page .floor-status-legend i.unpaired{background:#fff;box-shadow:inset 0 0 0 2px var(--tv-unpaired)}
 body.hospital-page .floor-status-legend i.issue{background:var(--tv-issue)}
 body.hospital-page .floor-status-legend i.manual{background:var(--tv-manual)}
-
 /* 층 상세 칩 */
 body.hospital-page .hospital-floor-detail-stats{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
-body.hospital-page .hospital-floor-detail-stats .tv-chip-issue b{color:var(--tv-issue-ink)!important}
-body.hospital-page .hospital-floor-detail-stats .tv-chip-live b{color:var(--tv-live-ink)!important}
-
 /* TV 단위 배지 (층 TV 목록·상세·도면 핀) */
-body.hospital-page .floor-ops-state.cat-live,body.hospital-page .room-status-badge.cat-live{background:var(--tv-live-bg)!important;color:var(--tv-live-ink)!important}
-body.hospital-page .floor-ops-state.cat-standby,body.hospital-page .room-status-badge.cat-standby{background:var(--tv-standby-bg)!important;color:var(--tv-standby-ink)!important}
-body.hospital-page .floor-ops-state.cat-unpaired,body.hospital-page .room-status-badge.cat-unpaired{background:var(--tv-unpaired-bg)!important;color:var(--tv-unpaired-ink)!important;box-shadow:inset 0 0 0 1px #cbd5e1}
-body.hospital-page .floor-ops-state.cat-issue,body.hospital-page .room-status-badge.cat-issue{background:var(--tv-issue-bg)!important;color:var(--tv-issue-ink)!important}
-body.hospital-page .floor-ops-state.cat-manual,body.hospital-page .room-status-badge.cat-manual{background:var(--tv-manual-bg)!important;color:var(--tv-manual-ink)!important}
-body.hospital-page .floor-ops-tv.cat-issue{border-color:#f3c4c4!important}
-body.hospital-page .floor-display-pin.cat-live .floor-display-dot{background:var(--tv-live)!important}
-body.hospital-page .floor-display-pin.cat-standby .floor-display-dot{background:var(--tv-standby)!important}
-body.hospital-page .floor-display-pin.cat-unpaired .floor-display-dot{background:#fff!important;box-shadow:inset 0 0 0 2px var(--tv-unpaired)}
-body.hospital-page .floor-display-pin.cat-issue .floor-display-dot{background:var(--tv-issue)!important}
-body.hospital-page .floor-display-pin.cat-manual .floor-display-dot{background:var(--tv-manual)!important}
+body.hospital-page .floor-ops-state.cat-unpaired,body.hospital-page .room-status-badge.cat-unpaired{box-shadow:inset 0 0 0 1px #cbd5e1}
+body.hospital-page .floor-display-pin.cat-unpaired .floor-display-dot{box-shadow:inset 0 0 0 2px var(--tv-unpaired)}
 body.hospital-page .floor-ops-state{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-
 /* 도면 공간 색 */
-body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-live>span{background:var(--tv-live)!important}
-body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-standby>span{background:var(--tv-standby)!important}
-body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-unpaired>span{background:#64748b!important}
-body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-issue>span{background:var(--tv-issue)!important}
-body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-manual>span{background:var(--tv-manual)!important}
-
 /* 설치형 플레이어 연결 */
 body.hospital-page .tv-pair-reset{margin-top:8px}
 body.hospital-page .tv-pair-db-note{margin:8px 0 0;font-size:12px;color:var(--tv-issue-ink)}
-
-@media (max-width:1100px){
-  body.hospital-page .hospital-ops-summary-5{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-}
 @media (max-width:760px){
   body.hospital-page .unified-page-heading h1{font-size:22px}
   body.hospital-page .hospital-status-toolbar{justify-content:stretch}
   body.hospital-page .hospital-status-toolbar .btn{flex:1}
-  body.hospital-page .hospital-ops-summary-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.hospital-page .hospital-ops-summary-5>.ops-status-card{min-height:0!important;display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;padding:11px 13px!important}
-  body.hospital-page .hospital-ops-summary-5 .ops-status-card strong{grid-column:2;grid-row:1/span 2;font-size:24px!important}
+  body.hospital-page .hospital-ops-summary-5 .ops-status-card strong{grid-column:2;grid-row:1/span 2}
   body.hospital-page .hospital-ops-summary-5 .ops-status-help{grid-column:1;margin:0}
 }
-@media (max-width:420px){
-  body.hospital-page .hospital-ops-summary-5{grid-template-columns:1fr!important}
-}
-
 /* 목록 배지: 좁은 화면에서는 분류만 표시 (전체 문구는 title) */
 @media (max-width:760px){.floor-ops-state .st-detail{display:none}}
+}
+
+/* Former legacy visual priorities. New admin design is in a later layer. */
+@layer signage-legacy {
+
+body.hospital-page button.btn.primary{background:var(--cs-accent);border-color:var(--cs-accent);color:#fff}
+body.hospital-page button.btn.primary:hover:not(:disabled){background:var(--cs-accent-hover);border-color:var(--cs-accent-hover)}
+body.hospital-page .btn.danger-outline{color:var(--tv-issue-ink);border:1px solid #f3c4c4;background:#fff;padding-left:11px;padding-right:11px}
+body.hospital-page .btn.danger-outline:hover:not(:disabled){background:#fff5f5;border-color:var(--tv-issue)}
+body.hospital-page .hospital-ops-summary-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+body.hospital-page .hospital-ops-summary-5>.ops-status-card{min-height:112px}
+body.hospital-page .hospital-ops-summary-5 .ops-issue strong{color:var(--tv-issue-ink)}
+body.hospital-page .hospital-unified-ops .floor-dot-unpaired{background:#e2e8f0;border:2px solid #8b97a8}
+body.hospital-page .hospital-floor-detail-stats .tv-chip-issue b{color:var(--tv-issue-ink)}
+body.hospital-page .hospital-floor-detail-stats .tv-chip-live b{color:var(--tv-live-ink)}
+body.hospital-page .floor-ops-state.cat-live,body.hospital-page .room-status-badge.cat-live{background:var(--tv-live-bg);color:var(--tv-live-ink)}
+body.hospital-page .floor-ops-state.cat-standby,body.hospital-page .room-status-badge.cat-standby{background:var(--tv-standby-bg);color:var(--tv-standby-ink)}
+body.hospital-page .floor-ops-state.cat-unpaired,body.hospital-page .room-status-badge.cat-unpaired{background:var(--tv-unpaired-bg);color:var(--tv-unpaired-ink)}
+body.hospital-page .floor-ops-state.cat-issue,body.hospital-page .room-status-badge.cat-issue{background:var(--tv-issue-bg);color:var(--tv-issue-ink)}
+body.hospital-page .floor-ops-state.cat-manual,body.hospital-page .room-status-badge.cat-manual{background:var(--tv-manual-bg);color:var(--tv-manual-ink)}
+body.hospital-page .floor-ops-tv.cat-issue{border-color:#f3c4c4}
+body.hospital-page .floor-display-pin.cat-live .floor-display-dot{background:var(--tv-live)}
+body.hospital-page .floor-display-pin.cat-standby .floor-display-dot{background:var(--tv-standby)}
+body.hospital-page .floor-display-pin.cat-unpaired .floor-display-dot{background:#fff}
+body.hospital-page .floor-display-pin.cat-issue .floor-display-dot{background:var(--tv-issue)}
+body.hospital-page .floor-display-pin.cat-manual .floor-display-dot{background:var(--tv-manual)}
+body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-live>span{background:var(--tv-live)}
+body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-standby>span{background:var(--tv-standby)}
+body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-unpaired>span{background:#64748b}
+body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-issue>span{background:var(--tv-issue)}
+body.hospital-page .building-floor-plan-stage .floor-space-overlay.status-manual>span{background:var(--tv-manual)}
+@media (max-width:1100px){
+  body.hospital-page .hospital-ops-summary-5{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:760px){
+  body.hospital-page .hospital-ops-summary-5{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.hospital-page .hospital-ops-summary-5>.ops-status-card{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;padding:11px 13px}
+  body.hospital-page .hospital-ops-summary-5 .ops-status-card strong{font-size:24px}
+}
+@media (max-width:420px){
+  body.hospital-page .hospital-ops-summary-5{grid-template-columns:1fr}
+}
+}
