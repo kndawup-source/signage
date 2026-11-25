@@ -1,23 +1,43 @@
-# Exclude development files, database definitions and local-only utilities
-# from the public Vercel deployment.
-# Keep api/ and api/_private/ available to the serverless functions.
+# 공개 Vercel 배포에서 제외: 내부 문서, DB 정의, 개발·테스트 도구, 설치형 플레이어 소스, 원본 도면.
+# api/ (서버리스 함수와 api/_lib, api/_private)는 제외하지 않는다.
+# 화면에 필요한 파일: *.html, player-sw.js, player-release.json, vercel.json, js/, css/, api/
+
+# DB / 개발 / 테스트
 supabase/
 sql/
 server/
 scripts/
-floorplans_source/
 player/
-SETUP.txt
-SUPABASE-CONFIG.txt
-DELETE_FILES.txt
-CHANGELOG.txt
-CHANGES_*.txt
-QA-*.txt
-README*.md
+desktop-player/
+.github/
+test/
+tests/
+*.test.js
+*.spec.js
+
+# 원본·예전 도면 (화면은 /api/floorplan 으로 R2에서 권한 확인 후 받음)
+floorplans_source/
+floorplans_clean/
+floorplans_svg/
+floorzones/
+
+# 내부 문서
+*.md
+*.txt
+
+# 빌드 산출물 / 설치 스크립트 / 로그 / 비밀값
 *.zip
+*.exe
+*.dmg
 *.bat
 *.ps1
+*.sh
 *.log
 .env
 .env.*
 !.env.example
+
+# Local dependencies and build metadata
+node_modules/
+.vercel/
+.gitignore
