@@ -31,10 +31,12 @@
 
   const AGE_OPTIONS=[['','전체'],['teen','10대 이하'],['20-30','20~30대'],['40-50','40~50대'],['60+','60대 이상']];
   const GENDER_OPTIONS=[['','전체'],['female','여성'],['male','남성']];
-  const TREATMENTS=[['minish','미니쉬'],['implant','임플란트'],['whitening','미백'],['orthodontics','교정'],['checkup','검진'],['aftercare','수술 후 관리'],['general','일반 진료']];
   const CONTROL_MODES=[['remote','원격 관리'],['manual','수동 운영'],['hybrid','원격·현장 관리']];
-  const FLOOR_SPACE_TYPES=[['treatment','진료실'],['consultation','상담실'],['waiting','대기'],['lounge','라운지'],['reception','접수/안내'],['lobby','로비'],['staff','스탭'],['support','지원'],['public','공용'],['other','기타']];
-  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,selectedFloorArea=null,layoutPanelOpen=false,combinedCreateMode='both',combinedPlacementQueue=[],combinedSourceSpaceId=null,tab='videos',statusViewFilter='',tvOperationsExpanded=true;
+  let state={site:null,siteSettings:{},buildingAsset:{},floorplanAssets:{},floorSpaces:[],floorplanVersions:[],patients:[],rooms:[],groups:[],playlists:[],videos:[],playlistItems:[],roomRules:[],broadcast:{active:false}}, busy=false, signalChannel=null,statusWakeChannel=null,settingsOpen=false,spaceEditorGroupId=null,spaceRedrawId=null,layoutEditMode='display',layoutCopyOpen=false,layoutPlacementRoomId=null,selectedFloorId=null,layoutPanelOpen=false,combinedCreateMode='both',combinedPlacementQueue=[],combinedSourceSpaceId=null,tab='videos',statusViewFilter='',tvOperationsExpanded=true;
+  const Catalog=window.SignageCatalog;
+  const catalogConfig=()=>state.site?.catalog_config||null;
+  const catalogEntries=(category,selected)=>Catalog.entries(catalogConfig(),category,selected);
+  let catalogDraft=null,catalogDirty=false,catalogSaving=false;
   // Preview stays click-to-load. Parked elements are capped and evicted LRU.
   const floorInlineVideoCache=new Map();
   const floorInlineVideoCacheLimit=3;
@@ -119,7 +121,7 @@
   const monitor=Signage.createLiveMonitor({onUpdate:(res)=>applyLiveResult(res),roomIds:()=>state.rooms.map(r=>r.id)});
   async function signalRoom(room){try{const {error}=await db.rpc('signal_signage_rooms',{p_room_ids:[room],p_group:null,p_all:false});if(error)throw error;return true;}catch(e){console.warn('Clinic Signage signal failed:',e);toast('영상 변경 알림을 TV에 보내지 못했습니다. TV가 다시 연결되면 변경될 수 있습니다.','error');return false;}}
 
-  const treatmentLabel=(v)=>TREATMENTS.find(([id])=>id===v)?.[1]||v||'일반 진료';
+  const treatmentLabel=(v)=>Catalog.label(catalogConfig(),'treatments',v,'일반 진료');
   const ageLabel=(v)=>AGE_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
   const genderLabel=(v)=>GENDER_OPTIONS.find(([id])=>id===v)?.[1]||'전체';
   /* O(1) lookups. The live-status repaint calls these for every room every tick, so linear
@@ -659,18 +661,18 @@
 
   let lastLoadStartedAt=0;
   // ---- DB 버전 확인: 화면이 필요로 하는 DB 기능이 없으면 해당 버튼만 막고 구체적으로 안내한다 (TV 송출과 무관) ----
-  const REQUIRED_DB_VERSION='2.35.87';
+  const REQUIRED_DB_VERSION='2.36.0';
   let dbInfo={checked:false,version:null,features:[],error:null};
   const dbVersionCmp=(a,b)=>{const pa=String(a||'0').split('.').map(Number),pb=String(b||'0').split('.').map(Number);for(let i=0;i<3;i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d;}return 0;};
   const dbFeature=(f)=>dbInfo.features.includes('pairing_v3')&&dbInfo.features.includes(f);
-  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0;
+  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1'));
   function dbVersionMessage(){
     if(dbInfo.error==='network')return 'DB 버전을 확인하지 못했습니다. 새로고침 후 다시 시도하세요.';
-    // 2.35.87 SQL은 2.35.86 위에서만 적용된다. DB가 2.35.86 미만이면 두 파일을 순서대로 안내한다.
-    const files=(!dbInfo.version||dbVersionCmp(dbInfo.version,'2.35.86')<0)
-      ?'supabase/v2.35.86-pairing-hardening.sql → supabase/v2.35.87-pairing-hardening.sql 순서로'
-      :`supabase/v${REQUIRED_DB_VERSION}-pairing-hardening.sql을`;
-    return `Supabase SQL Editor에서 ${files} 실행하세요. (현재 DB ${dbInfo.version?`v${dbInfo.version}`:'v2.35.85 이하'} · 필요 v${REQUIRED_DB_VERSION})`;
+    const files=[];
+    if(dbVersionCmp(dbInfo.version,'2.35.86')<0||!dbInfo.features.includes('pairing_v2'))files.push('v2.35.86-pairing-hardening.sql');
+    if(dbVersionCmp(dbInfo.version,'2.35.87')<0||!dbInfo.features.includes('pairing_v3'))files.push('v2.35.87-pairing-hardening.sql');
+    if(!dbInfo.features.includes('site_catalog_v1'))files.push('v2.36.0-site-catalog.sql');
+    return `Supabase SQL Editor에서 ${files.map(f=>'supabase/'+f).join(' → ')}${files.length>1?' 순서로':''} 실행하세요. (현재 DB ${dbInfo.version||'2.35.85 이하'} · 필요 ${REQUIRED_DB_VERSION})`;
   }
   async function checkDbVersion(){
     try{
@@ -681,7 +683,7 @@
       dbInfo={checked:true,version:null,features:[],error:Signage.isMissingFunction?.(e)?'missing':'network'};
     }
   }
-  const dbVersionBanner=()=>dbOutdated()?`<div class="db-version-banner" role="alert"><b>DB 업데이트 필요</b><span>${esc(dbVersionMessage())}</span><small>업데이트 전까지 설치형 플레이어 연결·기기 연결 해제만 사용할 수 없고, TV 송출과 다른 관리 기능은 그대로 동작합니다.</small></div>`:'';
+  const dbVersionBanner=()=>dbOutdated()?`<div class="db-version-banner" role="alert"><b>DB 업데이트 필요</b><span>${esc(dbVersionMessage())}</span><small>${dbFeature('pairing_v3')?'병원별 분류·로고 설정은 DB 업데이트 후 사용할 수 있습니다. 기존 송출과 기기 연결 기능은 유지됩니다.':'DB 업데이트 전까지 신규 병원별 설정과 설치형 플레이어 연결·해제는 제한됩니다. 기존 TV 송출은 계속됩니다.'}</small></div>`:'';
   async function load({background=false}={}){
     lastLoadStartedAt=Date.now();
     if(!dbInfo.checked||dbInfo.error==='network'||dbOutdated())await checkDbVersion();
@@ -707,7 +709,7 @@
     renderPreservingUi(background);
   }
   function isInteracting(){
-    if(tab==='videos'&&(mediaDirty||mediaSaving))return true;
+    if(catalogDirty||catalogSaving||tab==='videos'&&(mediaDirty||mediaSaving))return true;
     const a=document.activeElement,root=qs('#hospitalRoot');
     if(root?.querySelector('.floor-inline-video-panel'))return true;
     return !!(a&&root&&root.contains(a)&&['INPUT','SELECT','TEXTAREA'].includes(a.tagName));
@@ -729,7 +731,7 @@
     window.scrollTo(0,scrollY);
   }
 
-  const careTypeLabel=(v)=>({general:'일반진료',minish:'MINISH',common:'공용',support:'지원',other:'기타'})[v]||'미설정';
+  const careTypeLabel=(v)=>Catalog.label(catalogConfig(),'floor_types',v);
   const floorNumber=(g)=>Number(g?.floor_number||String(g?.name||'').match(/(\d+)/)?.[1]||0);
   function groupedRooms(){
     const groups=[...state.groups].sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||(floorNumber(a)-floorNumber(b)));
@@ -737,11 +739,6 @@
     const out=groups.map(g=>({...g,rooms:state.rooms.filter(r=>r.group_id===g.id)}));
     const ungrouped=state.rooms.filter(r=>!r.group_id);if(ungrouped.length)out.push({id:'ungrouped',name:'미분류',rooms:ungrouped});
     return out.filter(g=>g.rooms.length||g.id!=='ungrouped');
-  }
-  function floorAreaKey(g){
-    const care=String(g?.care_type||'').toLowerCase();
-    const name=String(g?.name||'').toLowerCase();
-    return care==='minish'||name.includes('미니쉬')||name.includes('minish')?'minish':'general';
   }
   const visibleTvStatus=(status)=>status.cat==='live'?status.catLabel:`${status.catLabel} · ${status.label}`;
   // 목록 배지: 분류는 항상, 상세 사유는 넓은 화면에서만 표시(좁은 화면 잘림 방지)
@@ -766,21 +763,6 @@
       <span class="hospital-floor-name" title="${esc(shortName)}">${esc(shortName)}<span class="floor-ops-floor-state" data-ops-floor-status="${esc(g.id)}" role="group" aria-label="${esc(shortName)} TV별 송출 상태">${dots}</span></span>
       <span class="hospital-floor-chevron" aria-hidden="true">›</span>
     </button>`;
-  }
-  function floorAreaSelector(floorGroups){
-    const general=floorGroups.filter(g=>floorAreaKey(g)==='general');
-    const minish=floorGroups.filter(g=>floorAreaKey(g)==='minish');
-    const card=(key,title,desc,groups)=>`<button type="button" class="hospital-area-card area-${key}" data-staff-select-area="${key}">
-      <span class="hospital-area-card-copy"><small>진료 영역</small><b>${title}</b><em>${desc}</em></span>
-      <span class="hospital-area-card-meta"><strong>${groups.length}</strong><small>개 층</small><i aria-hidden="true">→</i></span>
-    </button>`;
-    return `<div class="hospital-area-select">
-      <div class="hospital-area-select-head"><span>영상 안내</span><h2>어느 진료 영역을 관리할까요?</h2><p>진료 구역을 선택하면 해당 층을 볼 수 있습니다.</p></div>
-      <div class="hospital-area-select-grid">
-        ${card('general','일반진료층','일반 진료 · 예방 · 기초 · 공용 공간',general)}
-        ${card('minish','미니쉬층','미니쉬 진료 · 상담 · 라운지',minish)}
-      </div>
-    </div>`;
   }
   function staffFloorMarker(r){
     if(!roomMapPlaced(r))return '';
@@ -816,43 +798,6 @@
       </div>`:`<div class="floor-plan-empty floor-plan-empty-action hospital-floor-empty"><b>등록된 도면이 없습니다.</b><p>도면 편집에서 이 층의 도면을 추가하세요.</p><button type="button" class="btn small" data-ops-layout-open>도면 등록</button></div>`}
       ${unplaced.length?`<div class="building-plan-foot"><span>위치 미설정 ${unplaced.length}</span></div>`:''}
     </section>`;
-  }
-  function buildingFloorRail(floorGroups){
-    const byNo=new Map(floorGroups.map(g=>[floorNumber(g),g]));
-    const max=Math.max(14,...floorGroups.map(floorNumber));
-    const min=Math.min(1,...floorGroups.map(floorNumber));
-    const nums=[]; for(let n=max;n>=min;n--) nums.push(n);
-    return `<div class="hospital-building-floor-rail">${nums.map(n=>{
-      const g=byNo.get(n),selected=g&&selectedFloorId===g.id;
-      return `<button type="button" class="${selected?'is-selected':''} ${g?'':'is-empty'}" ${g?`data-staff-select-floor="${g.id}"`:'disabled'}><span>${n}F</span></button>`;
-    }).join('')}</div>`;
-  }
-  // v2.34.24 · 14층 건물 이미지 전용 층 zone
-  // 옥상은 제외하고, 실제 TV가 보이는 중앙 실내 단면만 선택 영역으로 사용한다.
-  const BUILDING_FLOOR_SHAPES={
-    14:{top:9.6,left:30.4,width:41.7,height:5.7,points:'0,8 97,0 100,92 2,100'},
-    13:{top:15.3,left:30.4,width:41.7,height:6.9,points:'0,6 98,0 100,94 2,100'},
-    12:{top:22.2,left:30.4,width:41.7,height:5.6,points:'0,5 98,0 100,95 2,100'},
-    11:{top:27.8,left:30.4,width:41.7,height:6.5,points:'0,5 98,0 100,95 2,100'},
-    10:{top:34.3,left:30.4,width:41.7,height:6.0,points:'0,4 98,0 100,96 2,100'},
-    9:{top:40.3,left:30.4,width:41.7,height:5.8,points:'0,4 98,0 100,96 2,100'},
-    8:{top:46.1,left:30.4,width:41.7,height:5.9,points:'0,4 98,0 100,96 2,100'},
-    7:{top:52.0,left:30.4,width:41.7,height:5.9,points:'0,3 99,0 100,97 2,100'},
-    6:{top:57.9,left:30.4,width:41.7,height:5.8,points:'0,3 99,0 100,97 2,100'},
-    5:{top:63.7,left:30.4,width:41.7,height:5.9,points:'0,3 99,0 100,97 2,100'},
-    4:{top:69.6,left:30.4,width:41.7,height:5.8,points:'0,2 99,0 100,98 2,100'},
-    3:{top:75.4,left:30.4,width:41.7,height:6.0,points:'0,2 99,0 100,98 2,100'},
-    2:{top:81.4,left:30.4,width:41.7,height:4.7,points:'0,2 99,0 100,98 2,100'},
-    1:{top:86.1,left:28.7,width:45.2,height:7.8,points:'0,1 100,0 100,98 0,100'}
-  };
-  function buildingFloorHitZones(floorGroups){
-    const byNo=new Map(floorGroups.map(g=>[floorNumber(g),g]));
-    return Object.entries(BUILDING_FLOOR_SHAPES).map(([floor,shape])=>{
-      const g=byNo.get(Number(floor)); if(!g)return '';
-      const selected=selectedFloorId===g.id;
-      const polygon=shape.points.split(' ').map(pair=>pair.split(',').map(v=>`${v}%`).join(' ')).join(',');
-      return `<button type="button" class="hospital-building-floor-hit${selected?' is-selected':''}" data-staff-select-floor="${g.id}" aria-label="${floor}층 선택" style="top:${shape.top}%;left:${shape.left}%;width:${shape.width}%;height:${shape.height}%;clip-path:polygon(${polygon})"></button>`;
-    }).join('');
   }
   // 상태 요약 칩: TV 수 + 0이 아닌 분류만 (정상 송출은 항상 표시)
   function tvCountChips(c){
@@ -1299,7 +1244,7 @@
       <div class="floor-meta-editor-body">
         <div class="floor-meta-grid">
           <label class="field"><span>층 이름</span><input data-floor-meta-name="${g.id}" maxlength="60" value="${esc(g.name||'')}"></label>
-          <label class="field"><span>운영 성격</span><select data-floor-meta-care="${g.id}">${[['general','일반진료'],['minish','MINISH'],['common','공용'],['support','지원'],['other','기타']].map(([v,l])=>`<option value="${v}" ${g.care_type===v?'selected':''}>${l}</option>`).join('')}</select></label>
+          <label class="field"><span>운영 성격</span><select data-floor-meta-care="${g.id}">${catalogEntries('floor_types',g.care_type).map(([v,l])=>`<option value="${esc(v)}" ${g.care_type===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
           <label class="field"><span>역할</span><input data-floor-meta-role="${g.id}" maxlength="60" value="${esc(g.role_label||'')}" placeholder="예: 전문성"></label>
           <label class="field"><span>주요 대상</span><input data-floor-meta-audience="${g.id}" maxlength="120" value="${esc(g.target_audience||'')}" placeholder="예: 진료 고객"></label>
           <label class="field floor-meta-wide"><span>층 설명</span><textarea data-floor-meta-intro="${g.id}" rows="2" placeholder="이 층의 목적을 짧게 입력">${esc(g.content_intro||'')}</textarea></label>
@@ -1345,7 +1290,7 @@
       ${floorMetaEditorMarkup(current)}
       ${layoutEditMode==='space'?`<div class="floor-layout-space-create">
         <label><span>공간명</span><input id="staffSpaceName" maxlength="40" placeholder="예: 진료실 1" value="${editing?esc(editing.name):''}"></label>
-        <label><span>유형</span><select id="staffSpaceType">${FLOOR_SPACE_TYPES.map(([v,l])=>`<option value="${v}" ${editing?.space_type===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label><span>유형</span><select id="staffSpaceType">${catalogEntries('space_types',editing?.space_type).map(([v,l])=>`<option value="${esc(v)}" ${editing?.space_type===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
         ${!editing?`<label><span>함께 추가할 TV</span><select id="staffCombinedTvCount"><option value="0" ${combinedCreateMode==='space'?'selected':''}>공간만</option>${[1,2,3,4,5,6].map(n=>`<option value="${n}" ${combinedCreateMode!=='space'&&n===1?'selected':''}>${n}대 · 이름 자동 생성</option>`).join('')}</select></label>`:''}
         <div class="floor-layout-space-instruction"><b>${editing?'도면 빈 곳에서 새 영역을 드래그하세요':'공간 이름을 입력하고 도면에서 영역을 그리세요'}</b><span>${editing?'기존 TV 위치는 유지됩니다.':'공간을 만든 뒤 TV를 함께 선택했다면 도면을 클릭해 위치를 차례대로 지정합니다. 이름은 공간명 + TV 번호로 자동 생성됩니다.'}</span></div>
         <button class="btn small" id="staffCancelSpaceRedraw" type="button">취소</button>
@@ -1361,7 +1306,7 @@
       </div>
       ${placed.length?`<div class="floor-layout-placed"><div class="floor-layout-placed-head"><b>도면에 배치된 TV</b><small>도면의 점을 끌어서 바로 이동할 수 있습니다.</small></div>${placed.map(r=>`<div class="floor-layout-placed-row"><span><b>${esc(r.name)}</b><small>${esc(spaceName(r.floor_space_id))}</small></span><label class="display-purpose-field"><span>영상을 보여주는 이유</span><input maxlength="120" data-display-purpose="${r.id}" value="${esc(r.display_note||'')}" placeholder="예: 상담 대기 고객에게 브랜드·사례 영상 노출"><button type="button" class="text-action" data-save-display-purpose="${r.id}">저장</button></label><button type="button" class="text-action danger-text" data-unplace-display="${r.id}">위치 해제</button></div>`).join('')}</div>`:''}
       <div class="floor-space-list-head"><div><b>공간 목록</b><small>도면의 공간을 누르면 이름·유형을 수정하고 영역을 다시 그릴 수 있습니다.</small></div></div>
-      <div class="floor-space-list">${state.floorSpaces.filter(x=>x.group_id===current.id).sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||(Number(a.x_pct||0)-Number(b.x_pct||0))).map(x=>{const linked=rooms.filter(r=>r.floor_space_id===x.id);return `<div class="floor-space-manage-row ${x.id===spaceRedrawId?'is-editing':''}"><div class="floor-space-manage-head"><span><b>${esc(x.name)}</b><small>${esc(FLOOR_SPACE_TYPES.find(([v])=>v===x.space_type)?.[1]||'기타')} · TV ${linked.length}개${linked.length?` · ${linked.map(r=>esc(r.name)).join(', ')}`:''}</small></span><div class="floor-space-list-actions"><button class="text-action" type="button" data-staff-redraw-space="${x.id}">다시 그리기</button><button class="text-action danger-text" type="button" data-staff-delete-space="${x.id}">삭제</button></div></div><div class="floor-space-content-fields"><label><span>지금 이 공간은</span><input maxlength="160" data-space-patient-context="${x.id}" value="${esc(x.patient_context_note||'')}" placeholder="예: 접수 직후, 문진과 이동 안내가 필요한 고객"></label><label><span>왜 이 영상이 나오나요?</span><input maxlength="240" data-space-content-reason="${x.id}" value="${esc(x.content_reason||'')}" placeholder="예: 첫 방문 고객이 다음 행동을 바로 이해하도록 안내"></label><button type="button" class="text-action" data-save-space-content="${x.id}">문구 저장</button></div></div>`;}).join('')||'<span class="muted">지정한 공간이 없습니다.</span>'}</div>
+      <div class="floor-space-list">${state.floorSpaces.filter(x=>x.group_id===current.id).sort((a,b)=>(Number(a.sort_order||0)-Number(b.sort_order||0))||(Number(a.x_pct||0)-Number(b.x_pct||0))).map(x=>{const linked=rooms.filter(r=>r.floor_space_id===x.id);return `<div class="floor-space-manage-row ${x.id===spaceRedrawId?'is-editing':''}"><div class="floor-space-manage-head"><span><b>${esc(x.name)}</b><small>${esc(Catalog.label(catalogConfig(),'space_types',x.space_type,'기타'))} · TV ${linked.length}개${linked.length?` · ${linked.map(r=>esc(r.name)).join(', ')}`:''}</small></span><div class="floor-space-list-actions"><button class="text-action" type="button" data-staff-redraw-space="${x.id}">다시 그리기</button><button class="text-action danger-text" type="button" data-staff-delete-space="${x.id}">삭제</button></div></div><div class="floor-space-content-fields"><label><span>지금 이 공간은</span><input maxlength="160" data-space-patient-context="${x.id}" value="${esc(x.patient_context_note||'')}" placeholder="예: 접수 직후, 문진과 이동 안내가 필요한 고객"></label><label><span>왜 이 영상이 나오나요?</span><input maxlength="240" data-space-content-reason="${x.id}" value="${esc(x.content_reason||'')}" placeholder="예: 첫 방문 고객이 다음 행동을 바로 이해하도록 안내"></label><button type="button" class="text-action" data-save-space-content="${x.id}">문구 저장</button></div></div>`;}).join('')||'<span class="muted">지정한 공간이 없습니다.</span>'}</div>
     </div>`;
   }
   function operationsLayoutEditorMarkup(){
@@ -1873,10 +1818,65 @@
     config.emergency_video_id=qs('#staffEmergencyVideo')?.value||null;
     const {error}=await db.rpc('hospital_save_operating_config',{p_site:targetSiteId,p_config:config});if(error)return toast(error.message,'error');toast('운영시간을 저장했습니다.');await load();
   }
-  function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page"><div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div></div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
+  const CATALOG_SECTIONS=[['treatments','진료 항목','맞춤 영상 선택에 사용합니다.'],['floor_types','층 유형','층의 운영 성격을 정합니다.'],['space_types','공간 유형','도면에서 공간을 등록할 때 사용합니다.']];
+  const catalogAvailable=()=>dbFeature('site_catalog_v1')&&!!catalogConfig();
+  function catalogEditorMarkup(){
+    if(!catalogAvailable())return `<div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원별 분류 및 로고</b><small>DB 업데이트 후 사용할 수 있습니다.</small></div></div></div>`;
+    if(!catalogDirty&&!catalogSaving)catalogDraft=Catalog.profile(catalogConfig());
+    const cfg=catalogDraft||Catalog.profile(catalogConfig());
+    return `<div class="hospital-admin-block hospital-settings-card site-catalog-card" id="siteCatalogEditor"><div class="hospital-admin-block-head"><div><b>병원별 분류 및 로고</b><small>이 병원에만 적용됩니다. 다른 병원이나 기존 송출 영상에는 영향을 주지 않습니다.</small></div></div>
+      <div class="site-logo-editor"><div class="site-logo-preview">${Catalog.validLogo(cfg.logo)?`<img src="${esc(cfg.logo)}" alt="병원 로고">`:'<span>로고 없음</span>'}</div><div><b>병원 로고</b><p class="muted">PNG · JPG · WebP, 최대 50KB. 관리자 화면에 표시합니다.</p><div class="inline"><label class="btn small site-logo-upload"><input type="file" id="siteLogoFile" accept="image/png,image/jpeg,image/webp"><span>이미지 선택</span></label><button type="button" class="btn small" id="siteLogoRemove" ${cfg.logo?'':'disabled'}>삭제</button></div></div></div>
+      ${CATALOG_SECTIONS.map(([kind,title,note])=>`<details class="site-catalog-section" ${kind==='treatments'?'open':''} data-catalog-section="${kind}"><summary><span><b>${title}</b><small>${note}</small></span><span>${cfg[kind].filter(e=>e.active).length}개 사용 중</span></summary><div class="site-catalog-rows">${cfg[kind].map((e,i)=>`<div class="site-catalog-row ${e.active?'':'is-archived'}"><label class="field"><span>표시 이름</span><input type="text" maxlength="80" value="${esc(e.label)}" data-catalog-label="${kind}:${i}" aria-label="${title} 이름"></label><span class="site-catalog-code" title="${esc(e.code)}">${esc(e.code)}</span><button type="button" class="btn small ${e.active?'':'primary'}" data-catalog-toggle="${kind}:${i}" ${kind!=='treatments'&&e.code==='other'?'disabled title="기타 유형은 유지해야 합니다"':''}>${e.active?'사용 중지':'다시 사용'}</button></div>`).join('')}<div class="site-catalog-add"><label class="field"><span>새 항목 이름</span><input maxlength="80" data-catalog-new-label="${kind}" placeholder="예: ${kind==='treatments'?'물리치료':kind==='floor_types'?'재활치료층':'검사실'}"></label><label class="field"><span>식별 코드 (선택)</span><input maxlength="48" data-catalog-new-code="${kind}" placeholder="자동 생성"></label><button type="button" class="btn small" data-catalog-add="${kind}">추가</button></div></div></details>`).join('')}
+      <p class="muted site-catalog-note">사용 중지한 항목은 새 설정에서 숨겨집니다. 기존 영상·재생목록·진료 기록의 연결은 유지됩니다. 식별 코드는 저장 후 변경하지 않습니다.</p><div class="inline site-catalog-actions"><button type="button" class="btn primary" id="siteCatalogSave" ${catalogDirty&&!catalogSaving?'':'disabled'}>${catalogSaving?'저장 중…':'분류 및 로고 저장'}</button><button type="button" class="btn" id="siteCatalogCancel" ${catalogDirty&&!catalogSaving?'':'disabled'}>변경 취소</button><span class="muted" id="siteCatalogStatus" role="status">${catalogDirty?'저장하지 않은 변경 사항이 있습니다.':'저장된 설정입니다.'}</span></div></div>`;
+  }
+  function refreshCatalogEditor(){
+    const el=qs('#siteCatalogEditor');if(!el)return;
+    const opened=new Set(qsa('[data-catalog-section][open]',el).map(x=>x.dataset.catalogSection));
+    el.outerHTML=catalogEditorMarkup();
+    qsa('[data-catalog-section]').forEach(x=>x.open=opened.has(x.dataset.catalogSection));
+    bindCatalogEditor();
+  }
+  function setCatalogDirty(){
+    catalogDirty=true;
+    const save=qs('#siteCatalogSave'),cancel=qs('#siteCatalogCancel'),status=qs('#siteCatalogStatus');
+    if(save)save.disabled=false;if(cancel)cancel.disabled=false;if(status)status.textContent='저장하지 않은 변경 사항이 있습니다.';
+  }
+  function bindCatalogEditor(){
+    const root=qs('#siteCatalogEditor');if(!root)return;
+    const get=(value)=>{const [kind,i]=String(value).split(':');return catalogDraft?.[kind]?.[Number(i)];};
+    qsa('[data-catalog-label]',root).forEach(el=>el.addEventListener('input',()=>{const item=get(el.dataset.catalogLabel);if(item){item.label=el.value;setCatalogDirty();}}));
+    qsa('[data-catalog-toggle]',root).forEach(b=>b.addEventListener('click',()=>{const item=get(b.dataset.catalogToggle);if(!item)return;item.active=!item.active;setCatalogDirty();refreshCatalogEditor();}));
+    qsa('[data-catalog-add]',root).forEach(b=>b.addEventListener('click',()=>{
+      const k=b.dataset.catalogAdd,label=(qs(`[data-catalog-new-label="${k}"]`)?.value||'').trim(),typed=(qs(`[data-catalog-new-code="${k}"]`)?.value||'').trim();
+      if(!label)return toast('항목 이름을 입력하세요.','error');
+      const code=typed||'custom_'+crypto.randomUUID().replace(/-/g,'').slice(0,16);
+      if(!Catalog.validCode(code)||catalogDraft[k].some(e=>e.code===code))return toast('식별 코드가 올바르지 않거나 이미 등록되어 있습니다.','error');
+      if(catalogDraft[k].length>=150)return toast('항목은 최대 150개까지 등록할 수 있습니다.','error');
+      catalogDraft[k].push({code,label,active:true});setCatalogDirty();refreshCatalogEditor();
+    }));
+    qs('#siteLogoFile')?.addEventListener('change',async e=>{
+      const file=e.target.files?.[0];if(!file)return;
+      if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>51200){e.target.value='';return toast('50KB 이하 PNG/JPG/WebP 이미지를 선택하세요.','error');}
+      try{const url=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(fr.result);fr.onerror=reject;fr.readAsDataURL(file);});if(!Catalog.validLogo(url))throw new Error('지원하지 않는 이미지입니다.');
+        // Decode locally before storing to reject corrupt image data.
+        const image=new Image();image.src=url;await image.decode();catalogDraft.logo=url;setCatalogDirty();refreshCatalogEditor();
+      }catch(err){toast(err.message||'이미지를 읽지 못했습니다.','error');}
+    });
+    qs('#siteLogoRemove')?.addEventListener('click',()=>{catalogDraft.logo=null;setCatalogDirty();refreshCatalogEditor();});
+    qs('#siteCatalogCancel')?.addEventListener('click',()=>{catalogDirty=false;catalogDraft=Catalog.profile(catalogConfig());refreshCatalogEditor();});
+    qs('#siteCatalogSave')?.addEventListener('click',async()=>{
+      if(catalogSaving||!catalogDirty||!catalogAvailable())return;
+      const draft=Catalog.copy(catalogDraft),errorText=Catalog.validate(draft);if(errorText)return toast(errorText,'error');
+      catalogSaving=true;root.querySelectorAll('button,input').forEach(el=>el.disabled=true);
+      try{const {data,error}=await db.rpc('hospital_save_site_catalog',{p_site:targetSiteId,p_revision:draft.revision,p_catalog:draft});if(error)throw error;state.site.catalog_config=data;catalogDraft=Catalog.profile(data);catalogDirty=false;toast('병원별 설정을 저장했습니다.');await load();}
+      catch(err){toast(err.message||'설정을 저장하지 못했습니다.','error');}
+      finally{catalogSaving=false;if(qs('#siteCatalogEditor'))refreshCatalogEditor();}
+    });
+  }
+  function hospitalSettingsPageMarkup(){const site=state.site||{};const custom=Object.values(state.floorplanAssets||{}).filter(x=>x?.key).length,placed=state.rooms.filter(roomMapPlaced).length,total=state.rooms.length;return `<section class="hospital-admin-settings-page"><div class="hospital-settings-primary"><div class="hospital-settings-intro"><span class="eyebrow">ESSENTIAL</span><h2>기본 운영</h2><p>병원 이름과 운영시간처럼 자주 확인하는 항목만 먼저 보여줍니다.</p></div><div class="hospital-admin-block hospital-settings-card"><div class="hospital-admin-block-head"><div><b>병원 정보</b><small>관리 화면에 표시되는 병원명과 건물명입니다.</small></div></div><div class="grid-2"><label class="field"><span>병원명</span><input id="staffSiteName" maxlength="60" value="${esc(site.name||'')}"></label><label class="field"><span>건물명</span><input id="staffBuildingLabel" maxlength="60" value="${esc(site.building_label||'')}"></label></div><button id="staffSaveSiteIdentity" class="btn primary" type="button">병원 정보 저장</button></div><div class="hospital-settings-card">${operatingSettingsMarkup()}</div>${catalogEditorMarkup()}</div><div class="hospital-settings-layout-note"><b>도면 · 공간 · TV 위치 변경</b><p>이제 송출 관리에서 층을 선택한 뒤 ‘배치 편집’을 누르세요. 병원 전체 설정과 송출 배치를 분리했습니다.</p><button type="button" class="btn small" data-ops-go-layout>송출 관리에서 배치 편집</button></div></section>`;}
   function hospitalVideosPageMarkup(){
     return `<section class="hospital-content-page hospital-content-media unified-hospital-page" id="unifiedMediaEditor">
-      <header class="unified-page-heading"><div><h1>${esc(state.site?.name||'병원')}</h1><p>TV 송출 현황과 재생목록, 공간 설정을 관리합니다.</p></div></header>${dbVersionBanner()}
+      <header class="unified-page-heading"><div class="site-heading-identity">${Catalog.validLogo(catalogConfig()?.logo)?`<img class="site-heading-logo" src="${esc(catalogConfig().logo)}" alt="병원 로고">`:''}<div><h1>${esc(state.site?.name||'병원')}</h1><p>TV 송출 현황과 재생목록, 공간 설정을 관리합니다.</p></div></div></header>${dbVersionBanner()}
       <details class="unified-secondary-panel unified-tv-overview-first" id="unifiedTvOperations" ${tvOperationsExpanded?'open':''}><summary><span><b>전체 TV 상태</b><small data-tv-summary-line>${esc(tvSummaryLine(tvCounts(state.rooms)))}</small></span><span aria-hidden="true" class="unified-panel-chevron">▾</span></summary><div class="unified-secondary-content"><div class="hospital-status-toolbar"><button type="button" id="staffStatusRefresh" class="btn small">상태 새로고침</button><button type="button" id="staffReloadAllPlayers" class="btn small danger-outline">전체 플레이어 새로고침</button></div>${hospitalOperationsSummary()}</div></details>
       <div class="unified-floorplan-primary" id="unifiedFloorplanPrimary" aria-label="층별 관리 및 도면">${staffBuildingOverview(groupedRooms())}</div>
       <section id="signagePlaylistManagement" class="signage-playlist-management" aria-label="재생목록 관리">
@@ -1998,6 +1998,7 @@
   }
   function bindHospitalAdminSettings(){
     const details=qs('.hospital-admin-settings');
+    bindCatalogEditor();
     qs('#staffSaveSiteIdentity')?.addEventListener('click',saveHospitalIdentity);
     qs('#staffSaveOperating')?.addEventListener('click',saveOperatingConfig);
     qs('#staffCreateFloor')?.addEventListener('click',createHospitalFloor);
@@ -2057,7 +2058,7 @@
   function quickPanel(r){
     return `<div class="quick-room-panel hidden" data-quick-panel="${r.id}">
       <div class="quick-room-head"><b>맞춤 영상</b><button class="text-btn dark" data-close-quick="${r.id}">닫기</button></div>
-      <div class="quick-treatment-grid">${TREATMENTS.map(([v,l])=>`<button class="quick-treatment ${r.session_treatment===v?'on':''}" data-quick-treatment="${v}" data-room="${r.id}">${l}</button>`).join('')}</div>
+      <div class="quick-treatment-grid">${!dbFeature('site_catalog_v1')?'<small class="muted">진료 항목 선택은 병원별 설정 DB 업데이트 후 가능합니다.</small>':''}${(dbFeature('site_catalog_v1')?catalogEntries('treatments'):[]).map(([v,l])=>`<button class="quick-treatment ${r.session_treatment===v?'on':''}" data-quick-treatment="${esc(v)}" data-room="${esc(r.id)}">${esc(l)}</button>`).join('')}</div>
       <details class="quick-detail"><summary>연령·성별도 설정</summary><div class="quick-detail-grid"><label class="field"><span>연령</span><select data-quick-age="${r.id}">${AGE_OPTIONS.map(([v,l])=>`<option value="${v}" ${r.session_age_group===v?'selected':''}>${l}</option>`).join('')}</select></label><label class="field"><span>성별</span><select data-quick-gender="${r.id}">${GENDER_OPTIONS.map(([v,l])=>`<option value="${v}" ${r.session_gender===v?'selected':''}>${l}</option>`).join('')}</select></label></div><p>연령·성별을 선택한 뒤 진료유형을 누르면 함께 적용됩니다.</p></details>
     </div>`;
   }
@@ -2108,7 +2109,7 @@
       renderPreservingUi(false);requestAnimationFrame(()=>qs('#hospitalLayoutWorkspace')?.scrollIntoView({behavior:'smooth',block:'start'}));
     });
     qs('#unifiedTvOperations')?.addEventListener('toggle',event=>{tvOperationsExpanded=event.currentTarget.open;});
-    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#staffReloadAllPlayers')?.addEventListener('click',event=>{void reloadAllSitePlayers(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{qs('#unifiedHospitalSettings')?.setAttribute('open','');qs('#unifiedHospitalSettings')?.scrollIntoView({behavior:'smooth',block:'start'});}));qsa('[data-staff-select-area]').forEach(b=>b.addEventListener('click',()=>{selectedFloorArea=b.dataset.staffSelectArea||null;selectedFloorId=null;renderPreservingUi(false);}));qs('[data-staff-change-area]')?.addEventListener('click',()=>{selectedFloorArea=null;selectedFloorId=null;renderPreservingUi(false);});qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{
+    qs('#staffStatusRefresh')?.addEventListener('click',event=>{void refreshVisibleStatuses(event.currentTarget);});qs('#staffReloadAllPlayers')?.addEventListener('click',event=>{void reloadAllSitePlayers(event.currentTarget);});qs('#hospitalBroadcastStart')?.addEventListener('click',()=>setHospitalBroadcast(true));qs('#hospitalBroadcastStop')?.addEventListener('click',()=>setHospitalBroadcast(false));qsa('[data-staff-open-settings]').forEach(b=>b.addEventListener('click',()=>{qs('#unifiedHospitalSettings')?.setAttribute('open','');qs('#unifiedHospitalSettings')?.scrollIntoView({behavior:'smooth',block:'start'});}));qsa('[data-staff-select-floor]').forEach(b=>{const open=()=>{
       const id=b.dataset.staffSelectFloor;
       const selectedGroup=state.groups.find(g=>String(g.id)===String(id));
       const physicalFloor=Number(selectedGroup?.floor_number||0);

@@ -38,7 +38,7 @@ for(const file of ['player.html','hospital.html','admin.html','index.html']){
    const relative=attr[1].split(/[?#]/)[0].replace(/^\/+/, '');
    if(!relative||!fs.existsSync(path.join(root,relative))||!fs.statSync(path.join(root,relative)).isFile())errors.push(`${file}: missing local asset ${relative}`);
  }
- const versions=[...txt.matchAll(/v=(2\.35\.\d+(?:-layout\d+)?)/g)].map(m=>m[1]);
+ const versions=[...txt.matchAll(/v=(\d+\.\d+\.\d+(?:-layout\d+)?)/g)].map(m=>m[1]);
  if(!versions.length||versions.some(x=>x!==version))errors.push(`${file}: ${versions.join(', ')||'missing'}`);
  const dataset=[...txt.matchAll(/data-(?:player-)?version="([^"]+)"/g)].map(m=>m[1]);
  if(dataset.some(x=>x!==version))errors.push(`${file} dataset: ${dataset.join(', ')}`);
@@ -60,5 +60,6 @@ if(!fs.existsSync(ignorePath)){
   if(rules.includes('api/')||rules.includes('api/_private/')) errors.push('api private server resources excluded');
 }
 
+for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
 if(errors.length){console.error('Deployment consistency FAILED:\n'+errors.join('\n'));process.exit(1);}
 console.log(`Deployment consistency OK: ${version}`);

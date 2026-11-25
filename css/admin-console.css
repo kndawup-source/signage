@@ -874,3 +874,36 @@
   .hospital-video-upload-progress progress{width:100%}
   }
 }
+
+@layer signage-admin {
+  body.hospital-page .site-heading-identity {display:flex;align-items:center;gap:16px;min-width:0;}
+  body.hospital-page .site-heading-logo {width:72px;height:56px;object-fit:contain;flex:none;border:1px solid var(--cs-border);border-radius:10px;padding:5px;background:#fff;}
+  body.hospital-page .site-catalog-card {display:grid;gap:16px;min-width:0;}
+  body.hospital-page .site-logo-editor {display:flex;align-items:center;gap:16px;padding:16px;border:1px solid var(--cs-border);border-radius:10px;min-width:0;}
+  body.hospital-page .site-logo-preview {width:100px;height:72px;flex:none;display:grid;place-items:center;border:1px solid var(--cs-border);border-radius:8px;color:var(--cs-subtle);background:#fff;overflow:hidden;font-size:12px;}
+  body.hospital-page .site-logo-preview img {width:100%;height:100%;object-fit:contain;padding:6px;}
+  body.hospital-page .site-logo-editor p {margin:4px 0 10px;}
+  body.hospital-page .site-logo-upload {position:relative;overflow:hidden;cursor:pointer;}
+  body.hospital-page .site-logo-upload input {position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;}
+  body.hospital-page .site-catalog-section {border:1px solid var(--cs-border);border-radius:10px;background:#fff;min-width:0;}
+  body.hospital-page .site-catalog-section summary {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;cursor:pointer;color:var(--cs-text);}
+  body.hospital-page .site-catalog-section summary span:first-child {display:grid;gap:3px;min-width:0;}
+  body.hospital-page .site-catalog-section summary small,body.hospital-page .site-catalog-section summary span:last-child {color:var(--cs-subtle);font-size:12px;}
+  body.hospital-page .site-catalog-rows {display:grid;gap:8px;padding:0 16px 16px;}
+  body.hospital-page :is(.site-catalog-row,.site-catalog-add) {display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr) auto;gap:12px;align-items:end;padding:10px 0;border-top:1px solid var(--cs-border);}
+  body.hospital-page .site-catalog-row .field,body.hospital-page .site-catalog-add .field {margin:0;min-width:0;}
+  body.hospital-page .site-catalog-code {font-size:12px;color:var(--cs-subtle);overflow-wrap:anywhere;align-self:center;padding-top:16px;}
+  body.hospital-page .site-catalog-row.is-archived {opacity:.72;}
+  body.hospital-page .site-catalog-note {font-size:13px;margin:0;line-height:1.65;}
+  body.hospital-page .site-catalog-actions {display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+  @media(max-width:600px){
+    body.hospital-page .site-heading-logo{width:52px;height:44px;}
+    body.hospital-page .site-logo-editor{padding:12px;gap:10px;}
+    body.hospital-page .site-logo-preview{width:68px;height:56px;}
+    body.hospital-page .site-catalog-section summary{padding:12px;}
+    body.hospital-page .site-catalog-rows{padding:0 12px 12px;}
+    body.hospital-page :is(.site-catalog-row,.site-catalog-add){grid-template-columns:minmax(0,1fr) auto;gap:8px;}
+    body.hospital-page .site-catalog-row .field,body.hospital-page .site-catalog-add .field:first-child{grid-column:1/-1;}
+    body.hospital-page .site-catalog-code{padding-top:0;}
+  }
+}

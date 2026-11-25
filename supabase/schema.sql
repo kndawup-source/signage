@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Clinic Signage v2.33.0 · Canonical full schema
--- 신규/기존 환경 모두 이 파일 하나를 재실행할 수 있는 canonical 기준본.
+-- 신규 빈 DB 전용 canonical 기준본. 기존 운영 DB에는 버전별 마이그레이션만 실행하세요.
 -- 영상 파일 자체는 Supabase Storage에 저장하지 않는다.
 -- =====================================================================
 
@@ -194,7 +194,7 @@ create table if not exists public.app_settings (
 );
 alter table public.app_settings add column if not exists emergency_video_id uuid;
 alter table public.app_settings add column if not exists disk_warning_gb int not null default 20;
-alter table public.app_settings add column if not exists site_name text not null default '미니쉬치과병원';
+alter table public.app_settings add column if not exists site_name text not null default 'CLINIC SIGNAGE';
 alter table public.app_settings add column if not exists building_label text not null default 'MAIN BUILDING';
 alter table public.app_settings add column if not exists floorplan_assets jsonb not null default '{}'::jsonb;
 insert into public.app_settings(id) values(1) on conflict(id) do nothing;
@@ -1814,7 +1814,7 @@ create table if not exists public.sites (
   updated_at timestamptz not null default clock_timestamp()
 );
 insert into public.sites(code,name,building_label)
-select 'minish',coalesce(nullif((select site_name from public.app_settings where id=1),''),'미니쉬치과병원'),coalesce(nullif((select building_label from public.app_settings where id=1),''),'MAIN BUILDING')
+select 'initial',coalesce(nullif((select site_name from public.app_settings where id=1),''),'CLINIC SIGNAGE'),coalesce(nullif((select building_label from public.app_settings where id=1),''),'MAIN BUILDING')
 where not exists(select 1 from public.sites);
 
 create or replace function public.default_site_id()
@@ -4254,66 +4254,7 @@ create unique index if not exists signage_groups_site_floor_uidx
   on public.signage_groups(site_id,floor_number)
   where kind='floor' and floor_number is not null;
 
--- Seed the requested MINISH content strategy as editable DB data.
-with cfg(floor_number,name,content_intro,content_topics,role_label,signage_purpose,target_audience,waiting_area_note,signage_reason,care_type) as (
-  values
-    (1,'초진 고객 / 닥터미니쉬 오프라인 / 디스플레이 공간','처음 온 고객이 병원과 공간을 이해하는 층',array['차량 입·출차 / 발렛 안내','미카 소개 · 이동 · 충전','닥터미니쉬 오프라인 공간 안내','초진 고객 동선 안내']::text[],'첫 안내','첫 방문 고객의 이동과 공간 이해','초진 고객','1F 진입·이동 구간','처음 방문한 고객이 병원과 공간을 빠르게 이해하도록 안내','common'),
-    (2,'재진 고객 / 대기 공간','다시 방문한 고객이 기다리며 필요한 정보를 보는 층',array['치료 전후 사례','관리 방법','재진 고객 안내','FAQ']::text[],'이해','재진 고객의 치료 이해와 대기 경험','재진 고객','2F 대기 공간','대기 시간에 필요한 치료 정보와 관리 정보를 제공','common'),
-    (4,'일반교정과','교정 고객에게 필요한 정보',array['교정 과정','치료 사례','관리 방법','자주 묻는 질문']::text[],'교정 안내','교정 치료 과정과 관리 안내','교정 고객',null,'교정 고객이 치료 과정과 관리 방법을 이해하도록 안내','general'),
-    (5,'기공소','치료 결과를 만드는 과정',array['기공 제작 과정','정밀 제작','디지털 제작 과정','기공팀 소개']::text[],'제작 과정','치료 결과가 만들어지는 제작 과정 소개','병원 방문 고객 / 관계자',null,'기공 제작 과정을 보여주어 치료 결과에 대한 이해를 높임','support'),
-    (6,'기공소','기공 기술과 완성도',array['실제 제작 과정','품질 관리','재료 / 정밀도','기공 기술']::text[],'기술 신뢰','기공 기술과 품질 관리에 대한 신뢰 형성','병원 방문 고객 / 관계자',null,'정밀도와 품질 관리 과정을 보여주어 기술 신뢰를 형성','support'),
-    (7,'예방과','치료 이후까지 관리',array['예방 관리','구강 관리','정기 검진','유지 관리']::text[],'예방','치료 이후의 예방과 유지 관리 안내','예방·유지관리 고객',null,'치료 이후에도 지속적인 관리가 필요함을 안내','general'),
-    (8,'미니쉬 진료층','현재 고객에게 필요한 영상을 맞춤 송출',array['현재 치료 관련 영상','미니쉬 전후 사례','치료 과정','치료 후 관리']::text[],'고객 맞춤','현재 치료 단계에 맞는 개인화 영상 송출','미니쉬 진료 고객',null,'현재 고객의 치료 내용에 맞춰 필요한 영상을 송출','minish'),
-    (9,'미니쉬 진료층','현재 고객에게 필요한 영상을 맞춤 송출',array['현재 치료 관련 영상','미니쉬 전후 사례','치료 과정','치료 후 관리']::text[],'고객 맞춤','현재 치료 단계에 맞는 개인화 영상 송출','미니쉬 진료 고객',null,'현재 고객의 치료 내용에 맞춰 필요한 영상을 송출','minish'),
-    (10,'미니쉬 진료층','현재 고객에게 필요한 영상을 맞춤 송출',array['현재 치료 관련 영상','미니쉬 전후 사례','치료 과정','치료 후 관리']::text[],'고객 맞춤','현재 치료 단계에 맞는 개인화 영상 송출','미니쉬 진료 고객',null,'현재 고객의 치료 내용에 맞춰 필요한 영상을 송출','minish'),
-    (13,'컨퍼런스홀','병원의 전문성과 활동',array['세미나','학술 활동','의료진 교육','국내외 협업']::text[],'전문성','병원의 학술·교육 활동과 전문성 전달','세미나·교육·방문 고객',null,'학술 활동과 협업을 통해 병원의 전문성을 전달','support'),
-    (14,'미니쉬 라운지','치료 경험을 마무리하는 공간',array['브랜드 콘텐츠','고객 스토리','라이프스타일 콘텐츠','미니쉬 경험']::text[],'경험 확장','치료 이후 브랜드 경험 확장','라운지 이용 고객','14F 라운지','치료 경험을 브랜드와 라이프스타일 경험으로 자연스럽게 확장','common')
-), target as (
-  select id from public.sites where code='minish' limit 1
-)
-update public.signage_groups g
-set name=cfg.name, content_intro=cfg.content_intro, content_topics=cfg.content_topics,
-    role_label=cfg.role_label, signage_purpose=cfg.signage_purpose,
-    target_audience=cfg.target_audience, waiting_area_note=cfg.waiting_area_note,
-    signage_reason=cfg.signage_reason, care_type=cfg.care_type
-from cfg,target
-where g.site_id=target.id and g.kind='floor' and g.floor_number=cfg.floor_number
-  and not exists(select 1 from public.schema_version sv where sv.version='2.34.49');
-
-with cfg(floor_number,name,content_intro,content_topics,role_label,signage_purpose,target_audience,waiting_area_note,signage_reason,care_type) as (
-  values
-    (1,'초진 고객 / 닥터미니쉬 오프라인 / 디스플레이 공간','처음 온 고객이 병원과 공간을 이해하는 층',array['차량 입·출차 / 발렛 안내','미카 소개 · 이동 · 충전','닥터미니쉬 오프라인 공간 안내','초진 고객 동선 안내']::text[],'첫 안내','첫 방문 고객의 이동과 공간 이해','초진 고객','1F 진입·이동 구간','처음 방문한 고객이 병원과 공간을 빠르게 이해하도록 안내','common'),
-    (2,'재진 고객 / 대기 공간','다시 방문한 고객이 기다리며 필요한 정보를 보는 층',array['치료 전후 사례','관리 방법','재진 고객 안내','FAQ']::text[],'이해','재진 고객의 치료 이해와 대기 경험','재진 고객','2F 대기 공간','대기 시간에 필요한 치료 정보와 관리 정보를 제공','common'),
-    (4,'일반교정과','교정 고객에게 필요한 정보',array['교정 과정','치료 사례','관리 방법','자주 묻는 질문']::text[],'교정 안내','교정 치료 과정과 관리 안내','교정 고객',null,'교정 고객이 치료 과정과 관리 방법을 이해하도록 안내','general'),
-    (5,'기공소','치료 결과를 만드는 과정',array['기공 제작 과정','정밀 제작','디지털 제작 과정','기공팀 소개']::text[],'제작 과정','치료 결과가 만들어지는 제작 과정 소개','병원 방문 고객 / 관계자',null,'기공 제작 과정을 보여주어 치료 결과에 대한 이해를 높임','support'),
-    (6,'기공소','기공 기술과 완성도',array['실제 제작 과정','품질 관리','재료 / 정밀도','기공 기술']::text[],'기술 신뢰','기공 기술과 품질 관리에 대한 신뢰 형성','병원 방문 고객 / 관계자',null,'정밀도와 품질 관리 과정을 보여주어 기술 신뢰를 형성','support'),
-    (7,'예방과','치료 이후까지 관리',array['예방 관리','구강 관리','정기 검진','유지 관리']::text[],'예방','치료 이후의 예방과 유지 관리 안내','예방·유지관리 고객',null,'치료 이후에도 지속적인 관리가 필요함을 안내','general'),
-    (8,'미니쉬 진료층','현재 고객에게 필요한 영상을 맞춤 송출',array['현재 치료 관련 영상','미니쉬 전후 사례','치료 과정','치료 후 관리']::text[],'고객 맞춤','현재 치료 단계에 맞는 개인화 영상 송출','미니쉬 진료 고객',null,'현재 고객의 치료 내용에 맞춰 필요한 영상을 송출','minish'),
-    (9,'미니쉬 진료층','현재 고객에게 필요한 영상을 맞춤 송출',array['현재 치료 관련 영상','미니쉬 전후 사례','치료 과정','치료 후 관리']::text[],'고객 맞춤','현재 치료 단계에 맞는 개인화 영상 송출','미니쉬 진료 고객',null,'현재 고객의 치료 내용에 맞춰 필요한 영상을 송출','minish'),
-    (10,'미니쉬 진료층','현재 고객에게 필요한 영상을 맞춤 송출',array['현재 치료 관련 영상','미니쉬 전후 사례','치료 과정','치료 후 관리']::text[],'고객 맞춤','현재 치료 단계에 맞는 개인화 영상 송출','미니쉬 진료 고객',null,'현재 고객의 치료 내용에 맞춰 필요한 영상을 송출','minish'),
-    (13,'컨퍼런스홀','병원의 전문성과 활동',array['세미나','학술 활동','의료진 교육','국내외 협업']::text[],'전문성','병원의 학술·교육 활동과 전문성 전달','세미나·교육·방문 고객',null,'학술 활동과 협업을 통해 병원의 전문성을 전달','support'),
-    (14,'미니쉬 라운지','치료 경험을 마무리하는 공간',array['브랜드 콘텐츠','고객 스토리','라이프스타일 콘텐츠','미니쉬 경험']::text[],'경험 확장','치료 이후 브랜드 경험 확장','라운지 이용 고객','14F 라운지','치료 경험을 브랜드와 라이프스타일 경험으로 자연스럽게 확장','common')
-), target as (select id from public.sites where code='minish' limit 1)
-insert into public.signage_groups(site_id,name,kind,floor_number,care_type,content_intro,content_topics,role_label,signage_purpose,target_audience,waiting_area_note,signage_reason,sort_order)
-select target.id,cfg.name,'floor',cfg.floor_number,cfg.care_type,cfg.content_intro,cfg.content_topics,cfg.role_label,cfg.signage_purpose,cfg.target_audience,cfg.waiting_area_note,cfg.signage_reason,100-cfg.floor_number
-from cfg,target
-where not exists(select 1 from public.signage_groups g where g.site_id=target.id and g.kind='floor' and g.floor_number=cfg.floor_number)
-on conflict do nothing;
-
-with target as (select id from public.sites where code='minish' limit 1)
-update public.signage_groups g
-set content_intro='짧은 대기 시간에 신뢰를 쌓는 콘텐츠',
-    content_topics=array['미니쉬 전후 영상','셀럽 직접 작성 편지','실제 고객 메시지','브랜드 필름']::text[],
-    role_label='신뢰', signage_purpose='이동 대기 시간의 브랜드 신뢰 형성',
-    target_audience='병원 내 이동 고객', signage_reason='짧은 이동 대기 시간에도 신뢰를 쌓는 콘텐츠를 송출'
-from target where g.site_id=target.id and g.kind='zone' and lower(g.name)=lower('엘리베이터 앞')
-  and not exists(select 1 from public.schema_version sv where sv.version='2.34.49');
-
-with target as (select id from public.sites where code='minish' limit 1)
-insert into public.signage_groups(site_id,name,kind,floor_number,care_type,content_intro,content_topics,role_label,signage_purpose,target_audience,signage_reason,sort_order)
-select target.id,'엘리베이터 앞','zone',null,'common','짧은 대기 시간에 신뢰를 쌓는 콘텐츠',array['미니쉬 전후 영상','셀럽 직접 작성 편지','실제 고객 메시지','브랜드 필름']::text[],'신뢰','이동 대기 시간의 브랜드 신뢰 형성','병원 내 이동 고객','짧은 이동 대기 시간에도 신뢰를 쌓는 콘텐츠를 송출',1000
-from target
-where not exists(select 1 from public.signage_groups g where g.site_id=target.id and g.kind='zone' and lower(g.name)=lower('엘리베이터 앞'));
+-- Customer-specific demo data is not installed in new databases.
 
 create or replace function public.hospital_reception_state(p_site uuid)
 returns jsonb language plpgsql stable security definer set search_path=public as $$
@@ -4439,23 +4380,9 @@ commit;
 begin;
 
 -- A hospital floor must exist independently from whether a content strategy was configured.
--- MINISH is a 14-floor building: guarantee exactly one canonical floor row for 1F..14F.
-with target as (
-  select id from public.sites where code='minish' limit 1
-), floors as (
-  select generate_series(1,14)::smallint as floor_number
-)
-insert into public.signage_groups(site_id,name,kind,floor_number,care_type,sort_order)
-select t.id, f.floor_number::text||'층', 'floor', f.floor_number, 'other', 100-f.floor_number
-from target t cross join floors f
-where not exists (
-  select 1 from public.signage_groups g
-  where g.site_id=t.id and g.kind='floor' and g.floor_number=f.floor_number
-)
-on conflict do nothing;
 
--- Keep requested editable names/content only where strategy was explicitly defined.
--- Missing floors (3F/11F/12F) deliberately keep neutral DB names until edited by admin.
+
+-- Floor metadata is configured per hospital; no demonstration floors are inserted.
 
 -- Position saving must canonicalize the display to the selected physical floor in the same statement.
 drop function if exists public.staff_set_display_setup(uuid,text,numeric,numeric,text,uuid);
@@ -4976,15 +4903,7 @@ end $$;
 revoke all on function public.hospital_update_floor_meta(uuid,uuid,text,text,text,text[],text,text,text,text,text,uuid) from public;
 grant execute on function public.hospital_update_floor_meta(uuid,uuid,text,text,text,text[],text,text,text,text,text,uuid) to anon,authenticated;
 
--- Only repair the known regression state. Never overwrite a real custom floor name.
-with target as (select id from public.sites where code='minish' limit 1)
-update public.signage_groups g
-set name=case g.floor_number when 11 then '의국·사무' when 12 then '사무공간' else g.name end
-from target t
-where g.site_id=t.id and g.kind='floor' and g.floor_number in (11,12)
-  and lower(regexp_replace(btrim(coalesce(g.name,'')),'[[:space:]_./-]+','','g')) in (
-    'ev','e/v','엘리베이터','11층','11f','11','12층','12f','12'
-  );
+
 
 insert into public.schema_version(version,applied_at) values('2.34.71',clock_timestamp())
 on conflict(version) do update set applied_at=excluded.applied_at;
@@ -8576,5 +8495,230 @@ returns jsonb language sql stable security definer set search_path=public as $$
 $$;
 insert into public.schema_version(version,applied_at) values('2.35.87',clock_timestamp())
 on conflict(version) do update set applied_at=excluded.applied_at;
+notify pgrst,'reload schema';
+commit;
+
+
+-- Clinic Signage v2.36.0 | tenant-specific catalogs and onboarding
+-- Existing TV keys, playlists, sessions and media are not changed. Run after 2.35.87.
+begin;
+select pg_advisory_xact_lock(23600);
+do $$ begin
+  if not exists(select 1 from public.schema_version where version='2.35.87') then
+    raise exception '먼저 v2.35.86 및 v2.35.87 마이그레이션을 적용하세요.';
+  end if;
+  if to_regprocedure('public.app_db_version()') is null or to_regprocedure('public.can_manage_site(uuid)') is null or to_regprocedure('public.admin_create_site(text,text,text)') is null or to_regprocedure('public.admin_set_site_staff_pin(uuid,text)') is null or to_regprocedure('public.hospital_create_floor(uuid,smallint,text)') is null then
+    raise exception '2.35.87 필수 DB 함수가 없습니다. 이전 마이그레이션을 확인하세요.';
+  end if;
+  if not coalesce((public.app_db_version()->'features') ? 'pairing_v3',false) then raise exception '2.35.87 연결 기능이 없습니다. 이전 마이그레이션을 확인하세요.'; end if;
+end $$;
+alter table public.sites add column if not exists catalog_config jsonb;
+-- Retain existing choices and referenced codes, including historical custom values.
+-- Only the existing branded site or a site with its own legacy references gets the legacy branded entry.
+with refs as (
+  select site_id,session_treatment as code from public.rooms where session_treatment is not null
+  union select site_id,treatment from public.patient_sessions where treatment is not null
+  union select site_id,unnest(target_treatment) from public.playlists where site_id is not null
+  union select site_id,unnest(target_treatment) from public.videos where site_id is not null
+), initial as (
+  select s.id, '{"revision":1,"treatments":[{"code":"general","label":"일반 진료","active":true},{"code":"checkup","label":"검진","active":true},{"code":"aftercare","label":"치료 후 관리","active":true}],"floor_types":[{"code":"general","label":"일반진료","active":true},{"code":"common","label":"공용","active":true},{"code":"support","label":"지원","active":true},{"code":"other","label":"기타","active":true}],"space_types":[{"code":"treatment","label":"진료실","active":true},{"code":"consultation","label":"상담실","active":true},{"code":"waiting","label":"대기","active":true},{"code":"lounge","label":"라운지","active":true},{"code":"reception","label":"접수/안내","active":true},{"code":"lobby","label":"로비","active":true},{"code":"staff","label":"스탭","active":true},{"code":"support","label":"지원","active":true},{"code":"public","label":"공용","active":true},{"code":"other","label":"기타","active":true}],"logo":null}'::jsonb || jsonb_build_object(
+    'treatments',coalesce((select jsonb_agg(x order by ord) from jsonb_array_elements('[{"code":"minish","label":"미니쉬","active":true},{"code":"implant","label":"임플란트","active":true},{"code":"whitening","label":"미백","active":true},{"code":"orthodontics","label":"교정","active":true},{"code":"checkup","label":"검진","active":true},{"code":"aftercare","label":"수술 후 관리","active":true},{"code":"general","label":"일반 진료","active":true}]'::jsonb) with ordinality a(x,ord)
+      where x->>'code'<>'minish' or s.code='minish' or exists(select 1 from refs where site_id=s.id and code='minish')), '[]'::jsonb)
+      || coalesce((select jsonb_agg(jsonb_build_object('code',q.code,'label',q.code,'active',true) order by q.code) from
+          (select distinct code from refs where site_id=s.id and nullif(btrim(code),'') is not null and not exists(select 1 from jsonb_array_elements('[{"code":"minish","label":"미니쉬","active":true},{"code":"implant","label":"임플란트","active":true},{"code":"whitening","label":"미백","active":true},{"code":"orthodontics","label":"교정","active":true},{"code":"checkup","label":"검진","active":true},{"code":"aftercare","label":"수술 후 관리","active":true},{"code":"general","label":"일반 진료","active":true}]'::jsonb) a where a->>'code'=refs.code)) q),'[]'::jsonb),
+    'floor_types',case when s.code='minish' or exists(select 1 from public.signage_groups g where g.site_id=s.id and g.care_type='minish') then '[{"code":"general","label":"일반진료","active":true},{"code":"minish","label":"MINISH","active":true},{"code":"common","label":"공용","active":true},{"code":"support","label":"지원","active":true},{"code":"other","label":"기타","active":true}]'::jsonb else '[{"code":"general","label":"일반진료","active":true},{"code":"common","label":"공용","active":true},{"code":"support","label":"지원","active":true},{"code":"other","label":"기타","active":true}]'::jsonb end
+  ) as cfg from public.sites s where s.catalog_config is null
+) update public.sites s set catalog_config=i.cfg from initial i where s.id=i.id;
+alter table public.sites alter column catalog_config set default '{"revision":1,"treatments":[{"code":"general","label":"일반 진료","active":true},{"code":"checkup","label":"검진","active":true},{"code":"aftercare","label":"치료 후 관리","active":true}],"floor_types":[{"code":"general","label":"일반진료","active":true},{"code":"common","label":"공용","active":true},{"code":"support","label":"지원","active":true},{"code":"other","label":"기타","active":true}],"space_types":[{"code":"treatment","label":"진료실","active":true},{"code":"consultation","label":"상담실","active":true},{"code":"waiting","label":"대기","active":true},{"code":"lounge","label":"라운지","active":true},{"code":"reception","label":"접수/안내","active":true},{"code":"lobby","label":"로비","active":true},{"code":"staff","label":"스탭","active":true},{"code":"support","label":"지원","active":true},{"code":"public","label":"공용","active":true},{"code":"other","label":"기타","active":true}],"logo":null}'::jsonb;
+alter table public.sites alter column catalog_config set not null;
+
+-- Codes are stable identifiers: disabling a code retains historical labels and references.
+create or replace function public.site_catalog_has_code(p_site uuid,p_kind text,p_code text,p_active boolean default false)
+returns boolean language sql stable security definer set search_path=public as $$
+  select coalesce(exists(select 1 from public.sites s cross join lateral jsonb_array_elements(s.catalog_config->p_kind) e
+    where s.id=p_site and e->>'code'=p_code and (not p_active or e->'active'='true'::jsonb)),false)
+$$;
+revoke all on function public.site_catalog_has_code(uuid,text,text,boolean) from public,anon,authenticated;
+
+create or replace function public.hospital_save_site_catalog(p_site uuid,p_revision integer,p_catalog jsonb)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare old_cfg jsonb; cfg jsonb; category text; item jsonb; old_item jsonb; arr jsonb; code text; label text; seen text[]; logo text; next_revision integer;
+begin
+  if not public.can_manage_site(p_site) then raise exception 'not allowed' using errcode='42501'; end if;
+  select catalog_config into old_cfg from public.sites where id=p_site for update;
+  if not found then raise exception '병원을 찾을 수 없습니다.'; end if;
+  if p_revision is distinct from (old_cfg->>'revision')::integer then raise exception '다른 관리자가 설정을 변경했습니다. 새로고침 후 다시 시도하세요.' using errcode='40001'; end if;
+  if jsonb_typeof(p_catalog) is distinct from 'object' or octet_length(p_catalog::text)>300000 then raise exception '설정 형식 또는 용량이 올바르지 않습니다.'; end if;
+  cfg:='{}'::jsonb;
+  foreach category in array array['treatments','floor_types','space_types'] loop
+    if jsonb_typeof(p_catalog->category) is distinct from 'array' then raise exception '분류 목록이 올바르지 않습니다.'; end if;
+    if jsonb_array_length(p_catalog->category)>150 then raise exception '분류는 최대 150개까지 등록할 수 있습니다.'; end if;
+    arr:='[]'::jsonb; seen:='{}'::text[];
+    for item in select value from jsonb_array_elements(p_catalog->category) loop
+      code:=item->>'code'; label:=btrim(coalesce(item->>'label',''));
+      if jsonb_typeof(item) is distinct from 'object' or jsonb_typeof(item->'code') is distinct from 'string' or jsonb_typeof(item->'label') is distinct from 'string' or code is null or code='' or code=any(seen) or jsonb_typeof(item->'active') is distinct from 'boolean' or label='' or length(label)>80 then raise exception '중복 또는 잘못된 분류 항목입니다.'; end if;
+      if not exists(select 1 from jsonb_array_elements(old_cfg->category) e where e->>'code'=code) and (code !~ '^[a-z][a-z0-9_-]{0,47}$' or code='veneer') then raise exception '분류 식별자는 영문 소문자·숫자·하이픈·밑줄만 사용할 수 있습니다.'; end if;
+      seen:=array_append(seen,code);
+      arr:=arr||jsonb_build_array(jsonb_build_object('code',code,'label',label,'active',item->'active'));
+    end loop;
+    -- Never physically remove existing codes. Old media/session tags still resolve.
+    for old_item in select value from jsonb_array_elements(old_cfg->category) loop
+      if not (old_item->>'code'=any(seen)) then arr:=arr||jsonb_build_array(old_item||'{"active":false}'::jsonb); end if;
+    end loop;
+    if category in ('floor_types','space_types') and not exists(select 1 from jsonb_array_elements(arr) e where e->>'code'='other' and e->'active'='true'::jsonb) then raise exception '기타 분류는 항상 사용 가능해야 합니다.'; end if;
+    if not exists(select 1 from jsonb_array_elements(arr) e where e->'active'='true'::jsonb) then raise exception '한 개 이상의 사용 중인 분류가 필요합니다.'; end if;
+    if jsonb_array_length(arr)>150 then raise exception '보관 항목을 포함해 최대 150개입니다.'; end if;
+    cfg:=jsonb_set(cfg,array[category],arr,true);
+  end loop;
+  logo:=nullif(p_catalog->>'logo','');
+  if logo is not null and (length(logo)>68300 or logo !~ '^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$') then raise exception '로고는 50KB 이하 PNG/JPG/WebP 이미지여야 합니다.'; end if;
+  next_revision:=(old_cfg->>'revision')::integer+1;
+  cfg:=cfg||jsonb_build_object('revision',next_revision,'logo',logo);
+  update public.sites set catalog_config=cfg,updated_at=clock_timestamp() where id=p_site;
+  return cfg;
+end $$;
+revoke all on function public.hospital_save_site_catalog(uuid,integer,jsonb) from public,anon,authenticated;
+grant execute on function public.hospital_save_site_catalog(uuid,integer,jsonb) to anon,authenticated;
+
+-- Replace closed enums with site catalog validation. Other is the required default.
+alter table public.signage_groups drop constraint if exists signage_groups_care_type_check;
+alter table public.floor_spaces drop constraint if exists floor_spaces_space_type_check;
+create or replace function public.enforce_site_catalog_type()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare category text; code text;
+begin
+  if tg_table_name='signage_groups' then category:='floor_types'; code:=new.care_type;
+  else category:='space_types'; code:=new.space_type; end if;
+  -- Existing inactive codes may still be retained/restored, but a code from another hospital is invalid.
+  if not public.site_catalog_has_code(new.site_id,category,code,false) then raise exception '이 병원에 등록되지 않은 분류입니다.' using errcode='23514'; end if;
+  return new;
+end $$;
+revoke all on function public.enforce_site_catalog_type() from public,anon,authenticated;
+drop trigger if exists signage_groups_site_catalog_guard on public.signage_groups;
+create trigger signage_groups_site_catalog_guard before insert or update of site_id,care_type on public.signage_groups for each row execute function public.enforce_site_catalog_type();
+drop trigger if exists floor_spaces_site_catalog_guard on public.floor_spaces;
+create trigger floor_spaces_site_catalog_guard before insert or update of site_id,space_type on public.floor_spaces for each row execute function public.enforce_site_catalog_type();
+
+create or replace function public.hospital_update_floor_meta(
+  p_site uuid,
+  p_group uuid,
+  p_name text,
+  p_care text default 'other',
+  p_intro text default null,
+  p_topics text[] default '{}',
+  p_role text default null,
+  p_purpose text default null,
+  p_audience text default null,
+  p_waiting text default null,
+  p_reason text default null,
+  p_playlist uuid default null
+)
+returns void
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  v_name text:=nullif(btrim(coalesce(p_name,'')),'');
+  v_care text:=coalesce(nullif(btrim(p_care),''),'other');
+begin
+  if not public.can_manage_site(p_site) then raise exception 'not allowed'; end if;
+  if v_name is null then raise exception '층 이름을 입력하세요'; end if;
+  if not public.site_catalog_has_code(p_site,'floor_types',v_care,true) and not exists(select 1 from public.signage_groups where id=p_group and site_id=p_site and care_type=v_care) then raise exception '이 병원에서 사용 가능한 층 유형을 선택하세요.'; end if;
+  if p_playlist is not null and not exists(
+    select 1 from public.playlists p where p.id=p_playlist and p.active and (p.site_id is null or p.site_id=p_site)
+  ) then raise exception '사용할 수 없는 플레이리스트입니다'; end if;
+
+  update public.signage_groups g
+  set name=v_name,
+      care_type=v_care,
+      content_intro=nullif(btrim(coalesce(p_intro,'')),''),
+      content_topics=coalesce(p_topics,'{}'::text[]),
+      role_label=nullif(btrim(coalesce(p_role,'')),''),
+      signage_purpose=nullif(btrim(coalesce(p_purpose,'')),''),
+      target_audience=nullif(btrim(coalesce(p_audience,'')),''),
+      waiting_area_note=nullif(btrim(coalesce(p_waiting,'')),''),
+      signage_reason=nullif(btrim(coalesce(p_reason,'')),''),
+      default_playlist_id=p_playlist
+  where g.id=p_group and g.site_id=p_site and g.kind='floor';
+  if not found then raise exception '층 정보를 찾을 수 없습니다'; end if;
+end $$;
+
+create or replace function public.staff_quick_set_room(p_room uuid,p_treatment text,p_age_group text default null,p_gender text default null)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_mode text; v_site uuid:=public.manageable_room_site(p_room);
+begin
+  if not public.is_member() or v_site is null or not public.staff_can_remote_control_room(p_room) then raise exception 'not allowed'; end if;
+  if not public.site_catalog_has_code(v_site,'treatments',p_treatment,true) then raise exception '이 병원에서 사용 가능한 진료 항목을 선택하세요.'; end if;
+  select room_mode into v_mode from public.rooms where id=p_room and site_id=v_site for update;
+  if not found then raise exception '진료실을 찾을 수 없습니다'; end if;
+  if v_mode not in ('treatment','consultation') then raise exception '맞춤 송출이 가능한 공간이 아닙니다'; end if;
+  if exists(select 1 from public.patient_sessions where site_id=v_site and room_id=p_room and status in ('assigned','in_progress')) then raise exception '등록 환자가 배정된 진료실입니다. 환자 관리에서 변경하세요'; end if;
+  update public.rooms set session_age_group=nullif(trim(coalesce(p_age_group,'')),''),session_gender=nullif(trim(coalesce(p_gender,'')),''),session_treatment=p_treatment,
+    session_tags=array_remove(array[nullif(trim(coalesce(p_age_group,'')),''),nullif(trim(coalesce(p_gender,'')),''),p_treatment]::text[],null),session_started_at=clock_timestamp()
+  where id=p_room and site_id=v_site;
+end $$;
+
+create or replace function public.staff_create_patient(p_label text,p_age_group text,p_gender text,p_treatment text)
+returns uuid language plpgsql security definer set search_path=public as $$
+declare v_id uuid; v_queue bigint; v_site uuid;
+begin
+  if not public.is_member() then raise exception 'not allowed'; end if;
+  v_site:=coalesce(public.pin_session_site_id(),public.default_site_id());
+  if v_site is null or not public.can_manage_site(v_site) then raise exception '병원을 지정하세요.'; end if;
+  if not public.site_catalog_has_code(v_site,'treatments',p_treatment,true) then raise exception '이 병원에서 사용 가능한 진료 항목을 선택하세요.'; end if;
+  insert into public.patient_sessions(site_id,label,age_group,gender,treatment)
+  values(v_site,nullif(trim(coalesce(p_label,'')),''),nullif(trim(coalesce(p_age_group,'')),''),nullif(trim(coalesce(p_gender,'')),''),p_treatment)
+  returning id,queue_no into v_id,v_queue;
+  update public.patient_sessions set label=coalesce(label,'대기 '||lpad(v_queue::text,3,'0')) where id=v_id;
+  return v_id;
+end $$;
+
+CREATE OR REPLACE FUNCTION public.admin_import_site_config(p_config jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_site uuid; g jsonb; r jsonb; sp jsonb; v_groups int:=0; v_rooms int:=0; v_spaces int:=0;
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  v_site:=coalesce(nullif(p_config#>>'{site,id}','')::uuid,public.default_site_id());
+  if not exists(select 1 from public.sites where id=v_site) then raise exception 'site not found'; end if;
+  if jsonb_typeof(p_config#>'{site,catalog_config}')='object' then
+    perform public.hospital_save_site_catalog(v_site,(select (catalog_config->>'revision')::integer from public.sites where id=v_site),p_config#>'{site,catalog_config}');
+  end if;
+  update public.sites set name=coalesce(nullif(p_config#>>'{site,name}',''),name),building_label=coalesce(nullif(p_config#>>'{site,building_label}',''),building_label),updated_at=clock_timestamp() where id=v_site;
+  if jsonb_typeof(p_config->'settings')='object' then insert into public.site_settings(site_id,floorplan_assets,operating_config,updated_at) values(v_site,coalesce(p_config#>'{settings,floorplan_assets}','{}'::jsonb),coalesce(p_config#>'{settings,operating_config}','{}'::jsonb),clock_timestamp()) on conflict(site_id) do update set floorplan_assets=excluded.floorplan_assets,operating_config=excluded.operating_config,updated_at=clock_timestamp(); end if;
+  if jsonb_typeof(p_config->'groups')='array' then for g in select * from jsonb_array_elements(p_config->'groups') loop update public.signage_groups set name=coalesce(nullif(g->>'name',''),name),kind=coalesce(nullif(g->>'kind',''),kind),floor_number=coalesce((g->>'floor_number')::smallint,floor_number),care_type=coalesce(nullif(g->>'care_type',''),care_type),signage_purpose=g->>'signage_purpose',target_audience=g->>'target_audience',waiting_area_note=g->>'waiting_area_note',signage_reason=g->>'signage_reason',content_intro=g->>'content_intro',content_topics=coalesce(array(select jsonb_array_elements_text(coalesce(g->'content_topics','[]'::jsonb))),'{}'::text[]),role_label=g->>'role_label',default_playlist_id=nullif(g->>'default_playlist_id','')::uuid,sort_order=coalesce((g->>'sort_order')::int,sort_order) where id=(g->>'id')::uuid and site_id=v_site; if found then v_groups:=v_groups+1; end if; end loop; end if;
+  if jsonb_typeof(p_config->'rooms')='array' then for r in select * from jsonb_array_elements(p_config->'rooms') loop update public.rooms set name=coalesce(nullif(r->>'name',''),name),group_id=nullif(r->>'group_id','')::uuid,room_mode=coalesce(nullif(r->>'room_mode',''),room_mode),map_x_pct=nullif(r->>'map_x_pct','')::numeric,map_y_pct=nullif(r->>'map_y_pct','')::numeric,display_control_mode=coalesce(nullif(r->>'display_control_mode',''),display_control_mode),display_note=r->>'display_note' where id=(r->>'id')::uuid and site_id=v_site; if found then v_rooms:=v_rooms+1; end if; end loop; end if;
+  if jsonb_typeof(p_config->'spaces')='array' then delete from public.floor_spaces where site_id=v_site; for sp in select * from jsonb_array_elements(p_config->'spaces') loop insert into public.floor_spaces(id,site_id,group_id,name,space_type,x_pct,y_pct,width_pct,height_pct,sort_order) values(coalesce(nullif(sp->>'id','')::uuid,gen_random_uuid()),v_site,nullif(sp->>'group_id','')::uuid,coalesce(nullif(sp->>'name',''),'공간'),coalesce(nullif(sp->>'space_type',''),'other'),coalesce((sp->>'x_pct')::numeric,0),coalesce((sp->>'y_pct')::numeric,0),coalesce((sp->>'width_pct')::numeric,10),coalesce((sp->>'height_pct')::numeric,10),coalesce((sp->>'sort_order')::int,0)); v_spaces:=v_spaces+1; end loop; end if;
+  perform public.audit_event(v_site,'restore','site_config',v_site::text,'사이트 설정 백업 복원',null,jsonb_build_object('groups',v_groups,'rooms',v_rooms,'spaces',v_spaces));
+  return jsonb_build_object('ok',true,'groups',v_groups,'rooms',v_rooms,'spaces',v_spaces);
+end $function$;
+
+-- One transaction: no partially-created hospital if PIN or optional floor setup fails.
+create or replace function public.admin_onboard_site(p_name text,p_code text,p_pin text,p_building text default 'MAIN BUILDING',p_floors integer default 1)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare result jsonb; v_site uuid; n integer;
+begin
+  if not public.is_admin() then raise exception 'ADMIN_REQUIRED' using errcode='42501'; end if;
+  if p_pin is null or p_pin !~ '^[0-9]{4,6}$' then raise exception '병원 관리자 PIN은 4~6자리 숫자여야 합니다.'; end if;
+  if p_floors is null or p_floors<0 or p_floors>30 then raise exception '초기 층 수는 0~30이어야 합니다.'; end if;
+  result:=public.admin_create_site(p_name,p_code,p_building);
+  if result->>'ok'<>'true' or result->>'existing'='true' then return result; end if;
+  v_site:=(result#>>'{site,id}')::uuid;
+  perform public.admin_set_site_staff_pin(v_site,p_pin);
+  for n in 1..p_floors loop perform public.hospital_create_floor(v_site,n::smallint,null); end loop;
+  return result||jsonb_build_object('floor_count',p_floors);
+end $$;
+revoke all on function public.admin_onboard_site(text,text,text,text,integer) from public,anon,authenticated;
+grant execute on function public.admin_onboard_site(text,text,text,text,integer) to anon,authenticated;
+
+create or replace function public.app_db_version()
+returns jsonb language sql stable security definer set search_path=public as $$
+  select jsonb_build_object('version','2.36.0','features',jsonb_build_array('pairing_v2','display_key_reset','pairing_v3','site_catalog_v1'))
+$$;
+insert into public.schema_version(version,applied_at) values('2.36.0',clock_timestamp()) on conflict(version) do update set applied_at=excluded.applied_at;
 notify pgrst,'reload schema';
 commit;

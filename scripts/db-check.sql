@@ -1,4 +1,4 @@
--- Clinic Signage 운영 DB 점검 (v2.35.87 기준, 읽기 전용) — 결과가 0행이면 운영 DB = 저장소 schema.sql
+-- Clinic Signage 운영 DB 점검 (v2.36.0 기준, 읽기 전용) — 결과가 0행이면 운영 DB = 저장소 schema.sql
 with expected(kind,name,val) as (values
 ('col','app_settings.building_label','text/NO/''MAIN BUILDING''::text'),
 ('col','app_settings.disk_warning_gb','integer/NO/20'),
@@ -501,7 +501,7 @@ with expected(kind,name,val) as (values
 ('func','admin_delete_tag(p_name text)','32a1d62adcc2442479ad5863ae0bade3/void'),
 ('func','admin_delete_video(p_id uuid)','96ab007b010b5c0f07cf28c4df117a58/void'),
 ('func','admin_export_site_config(p_site uuid)','43b7371d035790fdaa3738d52abda75d/jsonb'),
-('func','admin_import_site_config(p_config jsonb)','e5ec9fc651d61775b6ff1c1bea8ed3e0/jsonb'),
+('func','admin_import_site_config(p_config jsonb)','bf6ad7dcd3b185274e91b6d9de740f75/jsonb'),
 ('func','admin_playback_today(p_site uuid)','d1208e5ee9cf3059ac85b6786f0c15f6/jsonb'),
 ('func','admin_prune_player_events(p_days integer)','722e990c6abc0f6843dad094941e2f4b/bigint'),
 ('func','admin_prune_signage_logs(p_event_days integer, p_daily_days integer)','3c94af515af4262a2ba0922cc0631de4/jsonb'),
@@ -522,7 +522,7 @@ with expected(kind,name,val) as (values
 ('func','admin_stop_broadcast(p_resume text)','308edc974227a693ffe3fc3498d3839a/void'),
 ('func','admin_sync_local_videos(p_files jsonb)','9f2e63143b68b4118efccc333ea119f2/void'),
 ('func','admin_undo_control(p_history bigint)','b635ae649aca5dc99067c34f404b68c6/void'),
-('func','app_db_version()','f07f409ba051c68076ccd17749324e56/jsonb'),
+('func','app_db_version()','0b5ca8a48e27355b7ff3daa030c67a3b/jsonb'),
 ('func','apply_room_video_rules(p_room uuid, p_playlist jsonb)','9dfc8e33defbd0bb72198abdf4da22d8/jsonb'),
 ('func','audit_event(p_site uuid, p_action text, p_entity_type text, p_entity_id text, p_summary text, p_before jsonb, p_after jsonb)','60140f4a977acfe4e28d934ad0fe22dd/void'),
 ('func','audit_floor_space_change()','b223939ab80909887c5964004074a286/trigger'),
@@ -563,7 +563,7 @@ with expected(kind,name,val) as (values
 ('func','hospital_set_building_asset(p_site uuid, p_asset jsonb)','17c4bfe3f5b71409491082e142b911ba/void'),
 ('func','hospital_set_floorplan_assets(p_site uuid, p_assets jsonb)','b01bda3d845899db736f0d647d0c1667/void'),
 ('func','hospital_set_room_overlay_text(p_site uuid, p_room uuid, p_text text)','798d94f5e982bf809535b3d9b2fdf211/void'),
-('func','hospital_update_floor_meta(p_site uuid, p_group uuid, p_name text, p_care text, p_intro text, p_topics text[], p_role text, p_purpose text, p_audience text, p_waiting text, p_reason text, p_playlist uuid)','cc2426d4b3b40c0e644c68580c92994d/void'),
+('func','hospital_update_floor_meta(p_site uuid, p_group uuid, p_name text, p_care text, p_intro text, p_topics text[], p_role text, p_purpose text, p_audience text, p_waiting text, p_reason text, p_playlist uuid)','018722df0ac0f8f989d0262ca17f8530/void'),
 ('func','hospital_update_site_identity(p_site uuid, p_name text, p_building_label text)','ea791cadc640b69aba66dece90c2753b/void'),
 ('func','is_admin()','5a7e25bba647e3dc7c134b56dc874f38/boolean'),
 ('func','is_member()','f8a41cf68a8e617c037de09de5aea1c5/boolean'),
@@ -626,11 +626,11 @@ with expected(kind,name,val) as (values
 ('func','staff_clear_room_manual(p_room uuid)','130ddb40c6ed66bd3b09a3d086b42fd1/void'),
 ('func','staff_clear_room_video_rules(p_room uuid)','4deadf990d9a248cea5f7b9e7d69deb1/void'),
 ('func','staff_complete_patient(p_patient uuid)','eb4c0639f384c91e9d0dfbe6d0a82aee/void'),
-('func','staff_create_patient(p_label text, p_age_group text, p_gender text, p_treatment text)','92cb7dbb27759d604feb3c0c214a8306/uuid'),
+('func','staff_create_patient(p_label text, p_age_group text, p_gender text, p_treatment text)','ff6c7a7de86bca2ed6ada21ed3fa0eef/uuid'),
 ('func','staff_delete_site_playlist(p_id uuid)','51edea79b252f67640997a3b60f2aa5b/void'),
 ('func','staff_mark_manual_display_checked(p_room uuid, p_checked boolean)','72cd94bb693f58267d2a92435113ab44/void'),
 ('func','staff_quick_clear_room(p_room uuid)','aa7383c90951a09730143096fb826157/void'),
-('func','staff_quick_set_room(p_room uuid, p_treatment text, p_age_group text, p_gender text)','8eb6d75005bbd8ac8f81572d64481b7a/void'),
+('func','staff_quick_set_room(p_room uuid, p_treatment text, p_age_group text, p_gender text)','eaf44690dc60f20c2db075ab1205317c/void'),
 ('func','staff_reception_state()','f9e3ebdd8d759559d7518a99e9e1d6c0/jsonb'),
 ('func','staff_room_list()','d34fba9d5ef919a3331a2a6ee6e0abb7/TABLE(id uuid, name text, sort_order integer, default_tags text[], session_tags text[], session_started_at timestamp with time zone, session_timeout_min integer, session_expires_at timestamp with time zone, session_age_group text, session_gender text, session_treatment text, last_seen_at timestamp with time zone, group_id uuid, group_name text, group_kind text, room_mode text)'),
 ('func','staff_save_site_playlist(p_id uuid, p_name text, p_video_ids uuid[])','6985cff839af66a29dd319f8fae3ae1a/uuid'),
@@ -818,16 +818,29 @@ with expected(kind,name,val) as (values
 ('trigger','videos.videos_enqueue_media_gc','0df14c87d56499790b13b30c7a661af0'),
 ('trigger','videos.videos_notify_delete','ea4f5a0c92fec4db86b45faec876e62a'),
 ('trigger','videos.videos_notify_insert','7aa12293be14fe2e2084f3f3be52d043'),
-('trigger','videos.videos_notify_update','562b1681f23693233362e94b3a01fcb4')
+('trigger','videos.videos_notify_update','562b1681f23693233362e94b3a01fcb4'),
+('func','site_catalog_has_code(p_site uuid, p_kind text, p_code text, p_active boolean)','4ca9ed098d6c1dd46406fd3e11d526ba/boolean'),
+('exec','site_catalog_has_code(p_site uuid, p_kind text, p_code text, p_active boolean)','false/false'),
+('func','hospital_save_site_catalog(p_site uuid, p_revision integer, p_catalog jsonb)','775c45fb120d5f84f5f6f6ca91394f3a/jsonb'),
+('exec','hospital_save_site_catalog(p_site uuid, p_revision integer, p_catalog jsonb)','true/true'),
+('func','enforce_site_catalog_type()','6f45e73baab4166d40303686e9fada21/trigger'),
+('exec','enforce_site_catalog_type()','false/false'),
+('func','admin_onboard_site(p_name text, p_code text, p_pin text, p_building text, p_floors integer)','7aa3cedac669fd522d5b7d3338baee40/jsonb'),
+('exec','admin_onboard_site(p_name text, p_code text, p_pin text, p_building text, p_floors integer)','true/true'),
+('col','sites.catalog_config','jsonb/NO/catalog-v1-default'),
+('trigger','signage_groups.signage_groups_site_catalog_guard','catalog-guard-v1'),
+('trigger','floor_spaces.floor_spaces_site_catalog_guard','catalog-guard-v1'),
+('catalog','legacy-type-checks','removed')
 ),
 actual as (
 select 'func'::text as kind, p.proname||'('||pg_get_function_identity_arguments(p.oid)||')' as name, md5(regexp_replace(p.prosrc,'\s','','g'))||'/'||pg_get_function_result(p.oid) as val from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind='f' and not exists(select 1 from pg_depend d where d.objid=p.oid and d.deptype='e')
 union all select 'exec', p.proname||'('||pg_get_function_identity_arguments(p.oid)||')', (has_function_privilege('anon',p.oid,'execute'))::text||'/'||(has_function_privilege('authenticated',p.oid,'execute'))::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind='f' and not exists(select 1 from pg_depend d where d.objid=p.oid and d.deptype='e')
-union all select 'col', table_name||'.'||column_name, data_type||'/'||is_nullable||'/'||coalesce(column_default,'') from information_schema.columns where table_schema='public' and table_name in (select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r')
+union all select 'col', table_name||'.'||column_name, data_type||'/'||is_nullable||'/'||case when table_name='sites' and column_name='catalog_config' and column_default ~ '^''.*''::jsonb$' then case when substring(column_default from 2 for length(column_default)-9)::jsonb = '{"revision":1,"treatments":[{"code":"general","label":"일반 진료","active":true},{"code":"checkup","label":"검진","active":true},{"code":"aftercare","label":"치료 후 관리","active":true}],"floor_types":[{"code":"general","label":"일반진료","active":true},{"code":"common","label":"공용","active":true},{"code":"support","label":"지원","active":true},{"code":"other","label":"기타","active":true}],"space_types":[{"code":"treatment","label":"진료실","active":true},{"code":"consultation","label":"상담실","active":true},{"code":"waiting","label":"대기","active":true},{"code":"lounge","label":"라운지","active":true},{"code":"reception","label":"접수/안내","active":true},{"code":"lobby","label":"로비","active":true},{"code":"staff","label":"스탭","active":true},{"code":"support","label":"지원","active":true},{"code":"public","label":"공용","active":true},{"code":"other","label":"기타","active":true}],"logo":null}'::jsonb then 'catalog-v1-default' else coalesce(column_default,'') end else coalesce(column_default,'') end from information_schema.columns where table_schema='public' and table_name in (select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r')
 union all select 'policy', tablename||'.'||policyname, md5(coalesce(qual,'')||'|'||coalesce(with_check,'')||'|'||cmd) from pg_policies where schemaname='public'
 union all select 'index', indexname, md5(indexdef) from pg_indexes where schemaname='public'
-union all select 'trigger', tgrelid::regclass::text||'.'||tgname, md5(pg_get_triggerdef(t.oid)) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where not tgisinternal and n.nspname='public'
+union all select 'trigger', tgrelid::regclass::text||'.'||tgname, case when t.tgname in ('signage_groups_site_catalog_guard','floor_spaces_site_catalog_guard') then case when t.tgfoid=to_regprocedure('public.enforce_site_catalog_type()') and t.tgtype=23 and t.tgenabled='O' and t.tgnargs=0 and t.tgqual is null and (select array_agg(a.attname::text order by a.attname::text) from pg_attribute a where a.attrelid=t.tgrelid and a.attnum=any(t.tgattr::smallint[]))=case when t.tgname='signage_groups_site_catalog_guard' then array['care_type','site_id'] else array['site_id','space_type'] end then 'catalog-guard-v1' else md5(pg_get_triggerdef(t.oid)) end else md5(pg_get_triggerdef(t.oid)) end from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where not tgisinternal and n.nspname='public'
 union all select 'rls', c.relname, c.relrowsecurity::text from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r'
+union all select 'catalog','legacy-type-checks',case when exists(select 1 from pg_constraint where (conrelid='public.signage_groups'::regclass and conname='signage_groups_care_type_check') or (conrelid='public.floor_spaces'::regclass and conname='floor_spaces_space_type_check')) then 'present' else 'removed' end
 
 )
 select e.kind, e.name, case when a.name is null then '운영에 없음' else '내용 다름' end as problem
