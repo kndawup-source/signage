@@ -3,6 +3,8 @@
   const root=document.getElementById('playerRoot');
   const key=new URLSearchParams(location.search).get('key');
   if(!root||!key)return;
+  const revokedKey=`clinic-signage:revoked:${key}`;
+  try{if(localStorage.getItem(revokedKey)==='1')return;}catch(_){}
   const savedKey=`clinic-signage:last-state:${key}`;
   const positionKey=`clinic-signage:play-position:${key}`;
   const escAttr=(v)=>String(v??'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -53,6 +55,14 @@
   fetch(`${String(cfg.supabaseUrl).replace(/\/+$/,'')}/rest/v1/rpc/player_get_state_lite`,{
     method:'POST',cache:'no-store',headers:{apikey:cfg.supabaseAnonKey,Authorization:`Bearer ${cfg.supabaseAnonKey}`,'Content-Type':'application/json'},body:JSON.stringify({p_key:key})
   }).then(r=>r.ok?r.json():Promise.reject(new Error(`state_http_${r.status}`))).then(state=>{
+    if(state===null){
+      if(!window.__CLINIC_SIGNAGE_PLAYER_ACTIVE__){
+        try{localStorage.setItem(revokedKey,'1');[savedKey,`clinic-signage:offline-ready:${key}`,`clinic-signage:offline-cache-meta:${key}`].forEach(k=>localStorage.removeItem(k));}catch(_){}
+        root.querySelectorAll('video').forEach(el=>{try{el.pause();el.removeAttribute('src');el.load();}catch(_){}});
+        root.innerHTML='<div class="player-message">기기 연결이 해제되었습니다.</div>';
+      }
+      return;
+    }
     if(!state)return;
     try{localStorage.setItem(savedKey,JSON.stringify(state));}catch(_){}
     show(state);

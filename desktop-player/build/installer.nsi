@@ -11,7 +11,7 @@ SetCompressor /SOLID lzma
 RequestExecutionLevel user
 
 !ifndef VERSION
-  !define VERSION "1.1.0"
+  !define VERSION "1.2.1"
 !endif
 !ifndef SRCDIR
   !define SRCDIR "..\dist\win-unpacked"

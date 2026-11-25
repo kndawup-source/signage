@@ -49,6 +49,7 @@ if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 let mainWindow = null;
 let tray = null;
 let allowQuit = false;
+let confirmTimer=null, confirmBusy=false;
 let mode = 'player'; // 'player' | 'setup' | 'offline' | 'pairing'
 let retryTimer = null;
 let unresponsiveTimer = null;
@@ -139,7 +140,7 @@ function applyArgs(argv) {
     else if (typeof args.key === 'string') { cfg.playerUrl = normalizePlayerUrl(args.key, cfg.baseUrl); changed = true; }
   } catch (e) { log('명령줄 설정 무시:', e.message); }
   if (args['no-autostart']) { cfg.autoStart = false; changed = true; }
-  if (changed) writeConfig(cfg);
+  if (changed) { if(cfg.pendingPairing && (cfg.pendingPairing.playerUrl!==cfg.playerUrl || cfg.pendingPairing.baseUrl!==cfg.baseUrl)) delete cfg.pendingPairing; writeConfig(cfg); }
   return cfg;
 }
 
@@ -319,7 +320,7 @@ function showPlayer() {
   mode = 'player';
   fillTargetDisplay();
   setKiosk(true);
-  log('플레이어 로드', url);
+  log('플레이어 로드');
   mainWindow.loadURL(url).catch(() => {}); // 실패는 did-fail-load에서 처리
   updateTrayMenu();
 }
@@ -472,6 +473,7 @@ ipcMain.handle('setup:save', (event, input) => {
   const cfg = readConfig();
   saveCommonSettings(cfg, input);
   cfg.playerUrl = normalizePlayerUrl(input?.playerUrl, cfg.baseUrl);
+  delete cfg.pendingPairing;
   writeConfig(cfg);
   supabaseConfigCache = null;
   applyAutoStart(cfg.autoStart);
@@ -482,6 +484,7 @@ ipcMain.handle('setup:save', (event, input) => {
 ipcMain.handle('setup:pair', (event, input) => {
   guard(event);
   const cfg = readConfig();
+  delete cfg.pendingPairing;
   saveCommonSettings(cfg, input);
   writeConfig(cfg);
   supabaseConfigCache = null;
@@ -508,29 +511,60 @@ ipcMain.handle('pair:request', async (event) => {
   guard(event);
   try {
     const r = await rpc('pairing_request', { p_device_id: deviceId() });
-    return r && typeof r === 'object' ? r : { ok: false, error: 'bad_response' };
+    return r && typeof r === 'object' ? r : { ok: false, error: 'bad_response', retry_after_sec: 15 };
   } catch (e) {
     log('연결 코드 요청 실패', e.message);
     return { ok: false, error: e.message === 'server_not_ready' ? 'server_not_ready' : 'network' };
   }
 });
+/** 서버에 "기기에 저장 완료"를 알린다. 실패해도 이미 저장한 키로 송출은 계속하고, 몇 번 재시도한다. */
+async function confirmPairing() {
+  if (confirmBusy) return;
+  clearTimeout(confirmTimer);
+  const cfg=readConfig(), pending=cfg.pendingPairing;
+  if (!pending || pending.playerUrl!==cfg.playerUrl || pending.baseUrl!==cfg.baseUrl) return;
+  confirmBusy=true;
+  let terminal=false;
+  try {
+    const r=await rpc('pairing_confirm',{p_device_id:deviceId(),p_code:pending.code,p_player_key:pending.playerKey});
+    terminal=!!r?.ok || ['expired','not_delivered','key_mismatch','invalid'].includes(r?.error);
+    log(r?.ok?'연결 저장 확인 완료':'연결 저장 확인 응답',r?.error||'');
+  } catch(e){log('연결 저장 확인 실패',e.message);}
+  finally {
+    confirmBusy=false;
+    const latest=readConfig();
+    if (latest.pendingPairing?.id===pending.id && terminal) {
+      delete latest.pendingPairing;
+      try { writeConfig(latest); } catch(e){log('연결 확인 상태 저장 실패',e.message);}
+    }
+    if(readConfig().pendingPairing) confirmTimer=setTimeout(confirmPairing,15000);
+  }
+}
+
 ipcMain.handle('pair:poll', async (event, code) => {
   guard(event);
   if (!/^[0-9]{6}$/.test(String(code || ''))) return { ok: false, status: 'expired' };
-  try {
-    const r = await rpc('pairing_poll', { p_device_id: deviceId(), p_code: String(code) });
-    if (r?.status === 'paired' && UUID_RE.test(String(r.player_key || ''))) {
+  let r;
+  try { r = await rpc('pairing_poll', { p_device_id: deviceId(), p_code: String(code) }); }
+  catch (e) { return { ok: false, status: 'network' }; } // 같은 기기는 만료 전까지 다시 받을 수 있으므로 재시도하면 된다
+  if (r?.status === 'paired' && UUID_RE.test(String(r.player_key || ''))) {
+    // 1) 먼저 기기에 안전하게 저장 (임시 파일 → 이름 바꾸기)
+    try {
       const cfg = readConfig();
       cfg.playerUrl = normalizePlayerUrl(String(r.player_key), cfg.baseUrl);
+      cfg.pendingPairing={id:crypto.randomBytes(16).toString('hex'),code:String(code),playerKey:String(r.player_key),playerUrl:cfg.playerUrl,baseUrl:cfg.baseUrl};
       writeConfig(cfg);
-      log('연결 완료', r.site_name || '', r.room_name || '');
-      setTimeout(() => { startupHintShown = false; showPlayer(); }, 2500); // "연결됨" 화면을 잠깐 보여준 뒤 송출
-      return { ok: true, status: 'paired', room_name: r.room_name || '', site_name: r.site_name || '' };
+    } catch (e) {
+      log('연결 정보 저장 실패', e.message);
+      return { ok: false, status: 'network' }; // 저장 못 했으면 확인을 보내지 않는다 → 다음 poll에서 다시 받음
     }
-    return { ok: true, status: r?.status || 'pending', ttl_sec: r?.ttl_sec };
-  } catch (e) {
-    return { ok: false, status: 'network' };
+    log('연결 완료', r.site_name || '', r.room_name || '');
+    // 2) 저장이 끝난 뒤에만 서버에 확인
+    void confirmPairing();
+    setTimeout(() => { startupHintShown = false; showPlayer(); }, 2500); // "연결됨" 화면을 잠깐 보여준 뒤 송출
+    return { ok: true, status: 'paired', room_name: r.room_name || '', site_name: r.site_name || '' };
   }
+  return { ok: true, status: r?.status || 'pending', ttl_sec: r?.ttl_sec };
 });
 
 // ---- 앱 수명주기 -------------------------------------------------------------
@@ -556,6 +590,7 @@ app.whenReady().then(() => {
 
   blockerId = powerSaveBlocker.start('prevent-display-sleep');
   createWindow();
+  void confirmPairing();
   createTray();
   startHealthCheck();
   scheduleDailyReload();

@@ -41,6 +41,9 @@
   const UPDATE_MISMATCH_RETRY_MS=60*60*1000;
   const {blockedReleaseVersion,blockedReleaseAt}=(()=>{try{const q=new URL(location.href).searchParams,v=q.get('_player_release'),at=Number(q.get('_reload'))||0;return v&&/^\d+\.\d+\.\d+$/.test(v)?{blockedReleaseVersion:v,blockedReleaseAt:at}:{blockedReleaseVersion:null,blockedReleaseAt:0};}catch(_){return {blockedReleaseVersion:null,blockedReleaseAt:0};}})();
 
+  const revokedKey=`clinic-signage:revoked:${key||'none'}`;
+  let credentialRevoked=false;
+  try{credentialRevoked=localStorage.getItem(revokedKey)==='1';}catch(_){}
   let state = null;
   let index = 0;
   let lastStateSig = '';
@@ -359,6 +362,7 @@
     return true;
   }
   async function verifiedOfflineReadyState(){
+    if(credentialRevoked)return null;
     const cached=offlineReadyState();
     if(!cached?.playlist?.length||!('caches' in window))return null;
     try{
@@ -366,7 +370,7 @@
       const items=cacheablePlaylistItems(cached);
       if(!items.length||items.length!==cached.playlist.length)return null;
       for(const video of items){if(!(await cachedMediaIsComplete(cache,video)))return null;}
-      return cached;
+      return credentialRevoked?null:cached;
     }catch(_){return null;}
   }
   async function cacheOnePlaylistVideo(cache,v,token,forceRefresh=false){
@@ -588,6 +592,7 @@
     return 0;
   }
   function scheduleOfflinePlaylistCache(force=false){
+    if(credentialRevoked)return;
     if(PREVIEW)return;
     clearTimeout(offlineCacheTimer);
     const target=downloadTargetState();
@@ -656,7 +661,7 @@
   function current(){ const items=list(); return items.length?items[index%items.length]:null; }
   function mediaUrl(v){ return v?.url ? String(v.url) : ''; }
   function emergencyUrl(){ return mediaUrl(state?.emergency_video); }
-  function saveState(){ try{localStorage.setItem(savedKey,JSON.stringify(state));}catch(_){} }
+  function saveState(){ if(credentialRevoked)return;try{localStorage.setItem(savedKey,JSON.stringify(state));}catch(_){} }
   function updateServerClock(serverTime,requestStarted,requestEnded){ if(serverTime){const t=new Date(serverTime).getTime();const midpoint=(Number(requestStarted)+Number(requestEnded))/2;if(Number.isFinite(t)&&Number.isFinite(midpoint))serverClockOffsetMs=t-midpoint;} }
   function serverNow(){ return Date.now()+serverClockOffsetMs; }
 
@@ -675,6 +680,7 @@
     catch(_){location.reload();}
   }
   function updateAtSafePoint(){
+    if(credentialRevoked)return false;
     if(!updatePendingVersion)return false;
     const el=activeVideoEl?.();
     if(!el||el.ended||el.paused||!list().length||state?.room?.paused){reloadForUpdate();return true;}
@@ -692,6 +698,7 @@
     return m?m[1]:null;
   }
   async function checkForPlayerUpdate(force=false){
+    if(credentialRevoked)return;
     if(updateCheckBusy)return;
     const now=Date.now();if(!force&&now-lastUpdateCheckAt<UPDATE_CHECK_MS)return;
     updateCheckBusy=true;lastUpdateCheckAt=now;
@@ -731,6 +738,7 @@
   }
 
   function ensureSurface(){
+    if(credentialRevoked)return;
     if(slots.length===2 && slots.every(el=>el.isConnected))return;
     const existingA=qs('#screenVideoA'),existingB=qs('#screenVideoB');
     if(existingA&&existingB){
@@ -840,6 +848,7 @@
      Track each invocation to avoid an old timer touching a newer owner of the slot. */
   const playAttemptEpoch=new WeakMap();
   function playWithDeadline(el,timeoutMs=6000){
+    if(credentialRevoked)return Promise.resolve(false);
     if(!el)return Promise.resolve(false);
     const epoch=(playAttemptEpoch.get(el)||0)+1;
     playAttemptEpoch.set(el,epoch);
@@ -862,7 +871,7 @@
       .finally(()=>clearTimeout(timer));
   }
   async function playElement(el){
-    if(!el)return false;
+    if(credentialRevoked||!el)return false;
     if(state?.room?.paused)return true;
     el.volume=roomVolume();
     /* Try unmuted first (volume 0 when force_mute) so a covered/hidden window keeps
@@ -974,6 +983,7 @@
     else requestAnimationFrame(tick);
   }
   async function switchToIndex(targetIndex,{sync=false,force=false}={}){
+    if(credentialRevoked)return false;
     const startedAt=performance.now();
     const items=list(); if(!items.length){blankPlayer();return false;}
     const normalized=((targetIndex%items.length)+items.length)%items.length;
@@ -1107,7 +1117,7 @@
     const items=list();
     return items.length?(index+1)%items.length:0;
   }
-  function canAutoPlay(){return Boolean(state&&state.mode!=='closed'&&!state.room?.paused&&!emergencyPlaying&&list().length);}
+  function canAutoPlay(){return Boolean(!credentialRevoked&&state&&state.mode!=='closed'&&!state.room?.paused&&!emergencyPlaying&&list().length);}
   let playlistAdvanceBusy=false,advancePending=false;
   /* 다음 영상으로 진행: 정상 전환 → 실패 시 같은 영상 1회 재시도(슬롯 새로 로드) → 그래도 실패면 건너뛰기.
      진행 중에 들어온 ended 이벤트는 버리지 않고 끝난 뒤 다시 확인한다. */
@@ -1145,6 +1155,7 @@
     }
   }
   function blankPlayer(){
+    if(credentialRevoked)return;
     ensureSurface();
     cancelPreroll();
     switchToken++;
@@ -1152,7 +1163,7 @@
     queueHeartbeat(true);
   }
   async function renderFull({allowRecovery=true}={}){
-    if(!state)return;
+    if(credentialRevoked||!state)return;
     clearTimeout(recoveryTimer);clearTimeout(syncStartTimer);cancelPreroll();
     if(state.mode==='closed'){clearTimeout(offlineCacheTimer);offlineCacheSyncToken++;blankPlayer();root.classList.add('is-closed');qs('#playerBar')?.remove();return true;}
     root.classList.remove('is-closed');
@@ -1206,6 +1217,7 @@
       if(!Number.isFinite(index))index=0;
       updatePlayerTabTitle(state);scheduleExpiry();scheduleTransition();
       const rendered=await renderFull({allowRecovery:false});
+      if(credentialRevoked)return false;
       if(!rendered){
         if(emergencyPlaying) scheduleRecovery();
         rejectedSwitchSignature=playlistSignature(next);
@@ -1269,7 +1281,18 @@
   /* fromPoll=true only for the fallback timer. A fallback poll that finds nothing new must not
      rewrite synced_at or push a status write: that used to change the status fingerprint every
      poll, which turned the admin delta query into a full-table read and doubled DB writes. */
+  function stopRevokedPlayer(){
+    credentialRevoked=true;
+    if(!PREVIEW){try{localStorage.setItem(revokedKey,'1');[savedKey,OFFLINE_READY_KEY,OFFLINE_CACHE_META_KEY].forEach(k=>localStorage.removeItem(k));}catch(_){}}
+    clearPosition();clearPendingPlaylist();offlineCacheSyncToken++;switchToken++;
+    [recoveryTimer,expireTimer,transitionTimer,syncStartTimer,offlineCacheTimer,statePollTimer,foregroundResumeTimer].forEach(clearTimeout);
+    state=null;emergencyPlaying=false;cancelPreroll();
+    root.querySelectorAll('video').forEach(el=>{try{el.pause();el.removeAttribute('src');el.load();}catch(_){}});
+    slots=[];clearEmergencyObjectUrl();
+    root.innerHTML='<div class="player-message">기기 연결이 해제되었습니다. 관리자에게 새 TV 연결 주소를 요청하세요.</div>';
+  }
   async function fetchState(opts){
+    if(credentialRevoked){stopRevokedPlayer();return;}
     const fromPoll=opts?.fromPoll===true;
     if(fetchInFlight){ fetchQueued=true; if(!fromPoll)fetchQueuedUrgent=true; return; }
     if(!db)return;
@@ -1279,7 +1302,8 @@
       if(error&&stateRpc!=='player_get_state'&&Signage.isMissingFunction(error)){stateRpc='player_get_state';({data,error}=await db.rpc(stateRpc,{p_key:key}));}
       if(error)throw error;
       if(fromPoll)consecutivePollFailures=0;
-      if(!data){if(!state){root.innerHTML='<div class="player-message">등록되지 않은 플레이어 주소입니다. 관리자 화면에서 링크를 다시 복사하세요.</div>';slots=[];}return;}
+      if(data===null){stopRevokedPlayer();return;}
+      if(!data)return;
       updateServerClock(data.server_time,requestStarted,Date.now());
       if(lastNonce===null)lastNonce=data.room.reload_nonce;
       else if(data.room.reload_nonce!==lastNonce){clearPosition();intentionalNavigation=true;try{const u=new URL(location.href);u.searchParams.set('_remote_reload',String(Date.now()));location.replace(u.toString());}catch(_){location.reload();}return;}
@@ -1359,10 +1383,11 @@
     finally{fetchInFlight=false;scheduleStatePoll();if(fetchQueued){const urgent=fetchQueuedUrgent;fetchQueued=false;fetchQueuedUrgent=false;queueMicrotask(()=>fetchState({fromPoll:!urgent}));}}
   }
   async function loadSaved(){
+    if(credentialRevoked){stopRevokedPlayer();return;}
     try{
       const saved=readJsonStorage(savedKey),offline=await verifiedOfflineReadyState();
       const initial=(!navigator.onLine&&offline)||saved||offline;
-      if(initial?.playlist){state=initial;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(initial);lastStateSig=stateSignature(initial);index=restoredIndex(initial);renderFull();}
+      if(!credentialRevoked&&initial?.playlist){state=initial;updatePlayerTabTitle(state);lastPlaylistSig=playlistSignature(initial);lastStateSig=stateSignature(initial);index=restoredIndex(initial);renderFull();}
     }catch(_){}
   }
 
@@ -1376,10 +1401,11 @@
     await cache.put(url,response);const keys=await cache.keys();await Promise.all(keys.filter(r=>r.url!==new URL(url,location.href).href).map(r=>cache.delete(r)));return true;
   }
   async function playEmergencyCached(){
+    if(credentialRevoked)return false;
     const url=emergencyUrl();if(!url||!('caches' in window))return false;
     try{
       const cache=await caches.open(EMERGENCY_CACHE),response=await cache.match(url);if(!response)return false;
-      const blob=await response.blob();clearEmergencyObjectUrl();emergencyObjectUrl=URL.createObjectURL(blob);ensureSurface();
+      const blob=await response.blob();if(credentialRevoked)return false;clearEmergencyObjectUrl();emergencyObjectUrl=URL.createObjectURL(blob);ensureSurface();
       const target=inactiveSlotIndex(),nextEl=slots[target],currentEl=activeVideoEl();switchToken++;
       try{nextEl.pause();}catch(_){}nextEl.loop=true;nextEl.dataset.videoId=String(state?.emergency_video?.id||'emergency');nextEl.dataset.mediaUrl=emergencyObjectUrl;nextEl.src=emergencyObjectUrl;applyAudio(nextEl);nextEl.load();
       if(!(await waitUntilPlayable(nextEl,switchToken)))return false;
@@ -1392,7 +1418,7 @@
     try{const r=await fetch(url,{method:'GET',headers:{Range:'bytes=0-0'},cache:'no-store'});return r.ok||r.status===206;}
     catch(_){try{await fetch(url,{method:'HEAD',mode:'no-cors',cache:'no-store'});return true;}catch(__){return false;}}
   }
-  function scheduleRecovery(){clearTimeout(recoveryTimer);recoveryTimer=setTimeout(async()=>{
+  function scheduleRecovery(){if(credentialRevoked)return;clearTimeout(recoveryTimer);recoveryTimer=setTimeout(async()=>{
     await fetchState();
     // The active failure can be repaired by a newer staged manifest even if the
     // old media probe always fails (404, decode failure, removed R2 object).
@@ -1711,6 +1737,7 @@
   let consecutivePollFailures=0;
   function scheduleStatePoll(){
     clearTimeout(statePollTimer);
+    if(credentialRevoked)return;
     const base=state?.mode==='closed'?CLOSED_FALLBACK_MS:(realtimeControlReady?PLAYER_REALTIME_FALLBACK_MS:PLAYER_FALLBACK_MS);
     // Per-device jitter disperses startup/reconnect storms across 100 hospitals.
     // Failed requests back off (max 10min); successful polls reset the delay.
@@ -1765,6 +1792,7 @@
   }
 
   async function startPlayer(){
+    if(credentialRevoked){stopRevokedPlayer();return;}
     ensureSurface();
     // Offline media requests must be intercepted BEFORE <video> loads its source.
     // Without this ordering a reboot without network can show a blank player.
@@ -1781,7 +1809,7 @@
   window.addEventListener('online',()=>{fetchState();scheduleOfflinePlaylistCache(true);void checkForPlayerUpdate(true);});
   window.addEventListener('offline',()=>{clearPendingPlaylist();offlineCacheSyncToken++;void (async()=>{
     const cached=await verifiedOfflineReadyState();
-    if(state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)&&
+    if(!credentialRevoked&&state?.mode!=='closed'&&cached&&playlistSignature(cached)!==playlistSignature(state)&&
        (!activeVideoEl()?.dataset?.videoId||activeVideoEl()?.error)){
       state=cached;lastPlaylistSig=playlistSignature(cached);lastStateSig=stateSignature(cached);index=restoredIndex(cached);await renderFull();
     }

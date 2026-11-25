@@ -313,6 +313,68 @@
     if (age > LIVE_DELAY_MS) return 'delayed';
     return 'normal';
   }
+  // ---- TV 상태 공통 판정 (병원 관리자 대시보드·층별 화면·TV 상세·상태 필터·슈퍼어드민이 모두 이 함수만 사용) ----
+  // 상세 상태(key)와 다섯 가지 분류(cat) 중 하나를 돌려준다.
+  //   live 정상 송출 / standby 대기 중(운영시간 외·일시정지·재생 대기) / unpaired 미연결(한 번도 보고한 적 없음)
+  //   issue 확인 필요(오프라인·오류·지연·업데이트 문제) / manual 직접 관리(자동 판정 대상 아님 → 장애 집계에서 제외)
+  const TV_CATEGORY_LABEL = Object.freeze({ live: '정상 송출', standby: '대기 중', unpaired: '미연결', issue: '확인 필요', manual: '직접 관리' });
+  const TV_CATEGORY_ORDER = Object.freeze(['live', 'standby', 'unpaired', 'issue', 'manual']);
+  function tvEverReported(room) {
+    const st = room?.player_status || {};
+    return !!(room?.last_seen_at || st.reported_at || st.last_seen_at);
+  }
+  // 운영시간 판단 (DB의 signage_room_operating_window와 같은 규칙, 한국 시간 기준).
+  // 설정 정보가 없으면 null(모름)을 돌려주고, 그때는 꺼진 TV를 '확인 필요'로 둔다.
+  function tvOperatingOpen(settings, room, now = Date.now()) {
+    if (!settings || typeof settings !== 'object') return null;
+    const kst = new Date(now + 9 * 3600 * 1000);
+    const day = kst.getUTCDay(); // 0=일
+    const ymd = kst.toISOString().slice(0, 10);
+    const hhmm = kst.toISOString().slice(11, 16);
+    const key = day === 0 ? 'sunday' : day === 6 ? 'saturday' : 'weekday';
+    const def = { weekday: [true, '09:00', '20:00'], saturday: [true, '09:00', '17:00'], sunday: [false, '09:00', '17:00'] }[key];
+    let enabled, start, end;
+    if (room?.operating_override) {
+      enabled = room[`operating_${key}_enabled`]; start = room[`operating_${key}_start`]; end = room[`operating_${key}_end`];
+    } else {
+      const e = settings[`${key}_enabled`];
+      enabled = e === undefined || e === null || e === '' ? def[0] : (e === true || String(e) === 'true');
+      start = settings[`${key}_start`] || def[1]; end = settings[`${key}_end`] || def[2];
+    }
+    if (String(settings.early_closed_date || '') === ymd) return false;
+    start = String(start || '').slice(0, 5); end = String(end || '').slice(0, 5);
+    if (!enabled || !/^\d\d:\d\d$/.test(start) || !/^\d\d:\d\d$/.test(end) || end <= start) return false;
+    return hhmm >= start && hhmm < end;
+  }
+  function tvStatus(room, { now = Date.now(), ack = null, settings = null } = {}) {
+    const make = (cat, key, label) => ({ cat, key, label, catLabel: TV_CATEGORY_LABEL[cat] });
+    const mode = String(room?.display_control_mode || 'remote');
+    if (mode === 'manual') return room?.manual_check_status === 'checked' ? make('manual', 'manual', '수동 운영') : make('manual', 'manual-warn', '수동 확인 필요');
+    if (room?.player_status?.pairing_reset === true || !tvEverReported(room)) return make('unpaired', 'unpaired', '설치 전');
+    const h = roomHealth(room, now), st = room?.player_status || {}, play = String(st.playback_state || '').toLowerCase();
+    if (tvOperatingOpen(settings, room, now) === false) return make('standby', 'idle', '운영시간 외');
+    if (h === 'offline' || play === 'stopped') {
+      // 운영시간이 끝나 PC가 꺼진 것은 장애가 아니다
+      if (tvOperatingOpen(settings, room, now) === false) return make('standby', 'idle', '운영시간 외');
+      return make('issue', 'offline', mode === 'hybrid' ? '원격 연결 끊김' : '오프라인');
+    }
+    if (st.online === false) return make('issue', 'delayed', '네트워크 확인');
+    if (st.visibility_state === 'hidden') return make('issue', 'delayed', '탭 숨김');
+    const upd = playerUpdateState(st);
+    if (upd?.issue) return make('issue', 'update', upd.label);
+    if (ack?.status === 'error' || ack?.status === 'unconfirmed' || h === 'error' || h === 'recovering' || st.error || st.offline_cache_error || Number(st.failed_video_count || 0) > 0) return make('issue', 'error', '오류');
+    if (h === 'delayed') return make('issue', 'delayed', '상태 확인 지연');
+    if (st.mode === 'closed' || play === 'closed') return make('standby', 'idle', '운영시간 외');
+    if (room?.paused || play === 'paused') return make('standby', 'idle', '일시정지');
+    if (['playing', 'emergency'].includes(play)) return make('live', 'live', '영상 재생 중');
+    return make('standby', 'idle', '재생 대기');
+  }
+  function tvStatusCounts(rooms, opts) {
+    const out = { live: 0, standby: 0, unpaired: 0, issue: 0, manual: 0, total: 0 };
+    for (const r of rooms || []) { out[tvStatus(r, typeof opts === 'function' ? opts(r) : opts).cat] += 1; out.total += 1; }
+    return out;
+  }
+
   // Progress estimate from the server-stamped report time.
   function estimatedCurrentTime(room, now = Date.now()) {
     const st = room?.player_status || {};
@@ -342,5 +404,5 @@
     return null;
   }
 
-  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,isMissingFunction,createLiveMonitor,roomAgeMs,roomHealth,estimatedCurrentTime,fetchPlayerRelease,playerUpdateState,LIVE_DELAY_MS,LIVE_OFFLINE_MS,storePinSession,clearPinSession,getPinSession,getSession,requireAuth,signOut});
+  window.Signage=Object.freeze({cfg,db,configReady,configError,qs,qsa,esc,sleep,formatBytes,formatDuration,basename,titleFromPath,joinMediaUrl,isOnline,toast,getClientId,isMissingFunction,createLiveMonitor,roomAgeMs,roomHealth,estimatedCurrentTime,fetchPlayerRelease,playerUpdateState,tvStatus,tvStatusCounts,tvOperatingOpen,TV_CATEGORY_LABEL,TV_CATEGORY_ORDER,LIVE_DELAY_MS,LIVE_OFFLINE_MS,storePinSession,clearPinSession,getPinSession,getSession,requireAuth,signOut});
 })();
