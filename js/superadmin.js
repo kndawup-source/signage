@@ -21,12 +21,16 @@
 
   const siteSlug=(s)=>String(s?.code||s?.slug||s?.id||'').trim();
   const sitePath=(s)=>`/hospital.html?site=${encodeURIComponent(siteSlug(s))}`;
+  let siteSettingsById=new Map();
   const isManual=(r)=>String(r?.display_control_mode||'remote')==='manual';
   const isRemoteDisplay=(r)=>!isManual(r);
   const healthOf=(r)=>isManual(r)?(r.manual_check_status==='checked'?'manual-ok':'manual-issue'):Signage.roomHealth(r,monitor.serverNow());
   const isOffline=(r)=>isRemoteDisplay(r)&&healthOf(r)==='offline';
+  // 병원 관리자 화면과 같은 공통 판정(Signage.tvStatus). 직접 관리·대기 중·미연결 TV는 장애로 세지 않는다.
+  const tvStatusOf=(r)=>Signage.tvStatus(r,{now:monitor.serverNow(),settings:siteSettingsById.get(r.site_id)||(state.sites.find(s=>s.id===r.site_id)?.active===false?{weekday_enabled:false,saturday_enabled:false,sunday_enabled:false}:null)});
   const roomIssueReason=(r)=>{
-    if(isManual(r))return r.manual_check_status==='checked'?'':'현장 확인 필요';
+    const t=tvStatusOf(r);
+    if(t.cat!=='issue')return '';
     const h=healthOf(r),st=r.player_status||{};
     if(h==='offline')return '연결 안 됨';
     const upd=playerUpdateState(st);
@@ -97,13 +101,16 @@
   }
 
   async function load(){
-    const [sitesRes,rooms,groups,liveRes]=await Promise.all([
+    const [sitesRes,rooms,groups,liveRes,settingsRes]=await Promise.all([
       db.from('sites').select('*').order('created_at'),
-      fetchAllRows('rooms','id,site_id,group_id,name,display_control_mode,manual_check_status,last_seen_at,player_status'),
+      fetchAllRows('rooms','id,site_id,group_id,name,display_control_mode,manual_check_status,last_seen_at,player_status,operating_override,operating_weekday_enabled,operating_weekday_start,operating_weekday_end,operating_saturday_enabled,operating_saturday_start,operating_saturday_end,operating_sunday_enabled,operating_sunday_start,operating_sunday_end'),
       fetchAllRows('signage_groups','id,site_id,name,floor_number,sort_order'),
-      monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error}))
+      monitor.loadAll().then(data=>({data,error:null}),error=>({data:null,error})),
+      db.from('site_settings').select('site_id,operating_config').then(r=>r,error=>({data:null,error}))
     ]);
     if(sitesRes.error)throw sitesRes.error;
+    // 운영시간을 못 읽으면(권한·네트워크) 꺼진 TV를 보수적으로 '확인 필요'로 둔다
+    siteSettingsById=new Map((settingsRes?.error?[]:(settingsRes?.data||[])).map(x=>[x.site_id,x.operating_config||{}]));
     const live=new Map((liveRes.data?.rows||[]).map(x=>[x.room_id,x]));
     const mergedRooms=rooms.map(r=>{const x=live.get(r.id);return x?{...r,last_seen_at:x.last_seen_at||r.last_seen_at,player_status:x.player_status||r.player_status}:r;});
     state={sites:(sitesRes.data||[]),rooms:mergedRooms,groups};

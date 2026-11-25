@@ -2,7 +2,6 @@
   'use strict';
   const current = document.currentScript;
   const entry = String(current?.dataset?.entry || '').trim();
-  const uiRevision = ['hospital-entry', 'superadmin'].includes(entry) ? new URL(current.src, location.href).searchParams.get('ui') : null;
   const appVersion = String(current?.dataset?.version || '2.35.21').trim();
   const playerVersion = String(current?.dataset?.playerVersion || appVersion).trim();
   const supabaseVersion = '2.118.0';
@@ -27,7 +26,7 @@
       if (!window.CLINIC_SIGNAGE_CONFIG) await loadScript(`/js/config.js?v=${version}`);
       await loadScript(`/js/version.js?v=${playerVersion}`);
       await loadScript(`/js/common.js?v=${version}`);
-      if (entry) await loadScript(`/js/${entry}.js?v=${version}${uiRevision ? `&ui=${encodeURIComponent(uiRevision)}` : ''}`);
+      if (entry) await loadScript(`/js/${entry}.js?v=${version}`);
     } catch (error) {
       console.error('[Clinic Signage] boot failed', error);
       const root = document.querySelector('#adminRoot,#hospitalRoot,#playerRoot,.auth-panel');
