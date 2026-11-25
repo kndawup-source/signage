@@ -1,0 +1,9 @@
+# Local dependencies and build output
+node_modules/
+.vercel/
+.env
+.env.*
+!.env.example
+*.log
+desktop-player/dist/
+desktop-player/out/
