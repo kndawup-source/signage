@@ -1,0 +1,42 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const auth=require.resolve('../api/_lib/auth'),r2=require.resolve('../api/_lib/r2');
+const site='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
+const v1='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',v2='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const floorKey=`floorplans/${site}/02/${v1}.png`,foreign=`floorplans/${other}/02/${v1}.png`;
+let calls=[],metadata=foreign,mode='floor';
+require.cache[auth]={exports:{requireMember:async()=>({role:'staff',site_id:site}),requireAdmin:async()=>({role:'admin'}),json:(r,status,body)=>Object.assign(r,{status,body}),parseBody:r=>r.body,SUPABASE_URL:'https://test.invalid',SUPABASE_ANON_KEY:'fixture'}};
+require.cache[r2]={exports:{signedFetch:async(method,key)=>{calls.push({method,key});return {ok:true,status:204};}}};
+const jobs=[v1,v2].map(video_id=>({video_id,site_id:site,object_key:`sites/${site}/videos/${video_id}.mp4`,status:'pending'}));
+global.fetch=async(url,options)=>{
+ calls.push({url});const ok=(data)=>({ok:true,json:async()=>data});
+ if(mode==='floor')return ok([{floorplan_assets:{'2':{key:metadata}}}]);
+ if(url.includes('/rpc/video_delete_pending'))return ok(jobs);
+ if(url.includes('/rpc/video_delete_finish')){const data=JSON.parse(options.body);return data.p_video===v1?{ok:false,status:500,json:async()=>({message:'finish failed'})}:ok(null);}
+ if(url.includes('/rpc/admin_delete_site'))return ok(null);
+ if(url.includes('/site_settings?'))return ok([]);
+ if(url.includes('/floorplan_versions?'))return ok([]);
+ if(url.includes('/videos?'))return ok(jobs.map(j=>({source:'r2',storage_path:j.object_key})));
+ throw Error('unexpected request '+url);
+};
+(async()=>{
+ const f=require('../api/_lib/floorplan-auth');
+ assert.equal(await f.isRegisteredCurrentFloorplan({},site,2,foreign),false);assert.equal(calls.length,0);
+ assert.equal(await f.isRegisteredFloorplanVersion({},site,2,foreign),false);assert.equal(calls.length,0);
+ assert.equal(await f.isRegisteredCurrentFloorplan({},site,3,floorKey),false);
+ assert.equal(await f.isRegisteredCurrentFloorplan({},site,2,floorKey),false);
+ metadata=floorKey;assert.equal(await f.isRegisteredCurrentFloorplan({},site,2,floorKey),true);
+ assert.equal(f.siteFloorplanKeyOk(site,2,'floorplans/legacy.png'),false);
+ assert.equal(f.siteFloorplanKeyOk(site,2,`floorplans/${site}/02/../x.png`),false);
+ mode='video';calls=[];let res={};await require('../api/video-delete')({method:'POST',headers:{'x-signage-session':'test'},body:{action:'retry',siteId:site}},res);
+ assert.equal(res.status,200);assert.equal(res.body.results.length,2);assert.equal(res.body.results[0].cleanup_pending,true);assert.equal(res.body.results[1].physical_deleted,true);
+ calls=[];res={};await require('../api/site-delete')({method:'POST',headers:{'x-signage-session':'test'},body:{siteId:site,confirmName:'fixture'}},res);
+ assert.equal(res.status,200);assert.equal(res.body.deleted_video_assets,1);assert.equal(res.body.retained_video_assets,1);assert.equal(res.body.video_cleanup_deferred,true);
+ assert(calls.findIndex(x=>x.url?.includes('/rpc/admin_delete_site'))<calls.findIndex(x=>x.method==='DELETE'));
+ const sql=fs.readFileSync('supabase/v2.36.7-security-stability.sql','utf8'),schema=fs.readFileSync('supabase/schema.sql','utf8');
+ assert(schema.endsWith(sql));assert(sql.indexOf('signage_throttle_hit(v_client_key')<sql.indexOf('crypt(p_pin,v_account.pin_hash)'));
+ assert.match(sql,/d\.token_hash=digest\(v_client,'sha256'\).*d\.account_id=v_account\.id.*d\.pin_updated_at=v_account\.updated_at/);
+ assert.match(sql,/REVOKE ALL ON public\.pin_trusted_devices FROM PUBLIC,anon,authenticated/);
+ assert.match(sql,/NOT EXISTS\(SELECT 1 FROM public\.videos other/);
+ console.log('Security stability: floorplan isolation, retry continuation, site deletion queue API and SQL contract checks passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});

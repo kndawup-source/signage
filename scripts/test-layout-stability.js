@@ -1,0 +1,25 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const root=path.join(__dirname,'..'),src=fs.readFileSync(path.join(root,'js/hospital.js'),'utf8');
+const sql=fs.readFileSync(path.join(root,'supabase/v2.36.6-layout-stability.sql'),'utf8');
+const schema=fs.readFileSync(path.join(root,'supabase/schema.sql'),'utf8');
+const handlers={},elements={};
+for(const id of ['#layoutDraftActions','#layoutDraftCancel','#layoutDraftSave'])elements[id]={hidden:true,disabled:false,scrollIntoView(){},addEventListener(type,fn){handlers[id]=fn;}};
+const room={id:'r',group_id:'g',map_x_pct:10,map_y_pct:20,display_control_mode:'remote',floor_space_id:'s'};
+const space={id:'s',x_pct:0,y_pct:0,width_pct:50,height_pct:50};
+let response={error:null},renders=0,cancels=0;
+const ctx=vm.createContext({qs:id=>elements[id],toast(){},roomById:()=>room,displayControlMode:r=>r.display_control_mode,canonicalFloorGroupIdForRoom:r=>r.group_id,spaceContainingPoint:()=>space,displaySetupRpcMissing:()=>false,dbVersionMessage:()=>'',dbFeature:()=>true,targetSiteId:'site',db:{rpc:async()=>response},renderPreservingUi:()=>{renders++},document:{addEventListener(){}},window:{addEventListener(){}}});
+const funcs=src.slice(src.indexOf('  async function saveDisplaySetup('),src.indexOf('  const DISPLAY_GRID_STEP'));
+const draft=src.slice(src.indexOf('  document.addEventListener(\'click\',e=>{if((layoutDraft'),src.indexOf("    qs('#staffSaveSpaceName')"));
+vm.runInContext('let layoutDraft=null,layoutDraftSaving=false,layoutRevision=0;'+funcs+draft+'\n}\nbindDisplaySetup();',ctx);
+(async()=>{
+ response={error:{message:'offline'}};assert.equal(await ctx.saveDisplaySetup('r',30,40,'remote','s'),false);assert.equal(room.map_x_pct,10);
+ response={error:null};assert.equal(await ctx.saveDisplaySetup('r',30,40,'remote','s'),true);assert.equal(room.map_x_pct,30);
+ ctx.queueLayoutDraft(async()=>false,()=>{cancels++});await handlers['#layoutDraftSave']({currentTarget:elements['#layoutDraftSave']});assert.equal(vm.runInContext('!!layoutDraft',ctx),true);assert.equal(elements['#layoutDraftSave'].disabled,false);
+ handlers['#layoutDraftCancel']();assert.equal(cancels,1);assert.equal(vm.runInContext('layoutDraft',ctx),null);
+ let attempts=0;ctx.queueLayoutDraft(async()=>{if(++attempts===1)throw Error('offline');},()=>{cancels++});await handlers['#layoutDraftSave']({currentTarget:elements['#layoutDraftSave']});assert.equal(vm.runInContext('!!layoutDraft',ctx),true);await handlers['#layoutDraftSave']({currentTarget:elements['#layoutDraftSave']});assert.equal(vm.runInContext('layoutDraft',ctx),null);assert.equal(cancels,1);
+ response={data:{space:{x_pct:10},rooms:[{id:'r',map_x_pct:40}]},error:null};await ctx.saveSpaceGeometry(space,{x_pct:10});assert.equal(space.x_pct,10);assert.equal(room.map_x_pct,40);
+ assert.ok(schema.includes(sql));assert.match(sql,/WHERE r.site_id=p_site AND r.id=ANY\(p_rooms\)/);assert.doesNotMatch(sql,/signal_site_rooms_internal/);assert.match(sql,/FOR UPDATE/);assert.match(sql,/floor_space_id=p_space/);assert.match(sql,/hospital_create_placed_displays\(p_site,sp.id,names\)/);
+ assert.match(src,/loadRevision!==layoutRevision\|\|layoutDraft\|\|layoutDraftSaving/);assert.match(src,/if\(layoutDraft\|\|layoutDraftSaving\)return;\s*const root/);
+ console.log('Layout stability: save failure, retry, cancel, successful placement, geometry response and migration contract checks passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});

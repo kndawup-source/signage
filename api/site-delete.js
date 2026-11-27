@@ -1,15 +1,16 @@
 'use strict';
 const { requireAdmin, json, parseBody, SUPABASE_URL, SUPABASE_ANON_KEY } = require('./_lib/auth');
 const { signedFetch } = require('./_lib/r2');
+const {isAllowedObjectKey}=require('./_lib/video-keys');
 function collectAssetKeys(value,siteId,out=new Set()){
   if(!value)return out;
   if(Array.isArray(value)){for(const x of value)collectAssetKeys(x,siteId,out);return out;}
   if(typeof value==='object')for(const [k,v] of Object.entries(value)){if(k==='key'&&typeof v==='string'&&v.startsWith(`floorplans/${siteId}/`))out.add(v);else collectAssetKeys(v,siteId,out);}
   return out;
 }
-function collectVideoKey(row,out){
+function collectVideoKey(row,siteId,out){
   const key=String(row?.storage_path||row?.file_path||'').trim();
-  if(key.startsWith('videos/'))out.add(key);
+  if(key.startsWith('videos/')||key.startsWith(`sites/${siteId}/videos/`))out.add(key);
   return out;
 }
 async function supabase(path,token,options={}){
@@ -20,7 +21,7 @@ module.exports=async(req,res)=>{
   try{
     await requireAdmin(req);
     const token=String(req.headers['x-signage-session']||''),body=parseBody(req),siteId=String(body.siteId||''),confirmName=String(body.confirmName||'').trim();
-    if(!siteId||!confirmName)return json(res,400,{error:'INVALID_REQUEST'});
+    if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(siteId)||!confirmName)return json(res,400,{error:'INVALID_REQUEST'});
 
     // 1) DB 삭제 전에 R2 정리 대상을 모두 수집한다. 실제 R2 삭제는 DB 삭제 성공 후에만 수행한다.
     const [settingsRes,versionsRes,videosRes]=await Promise.all([
@@ -33,10 +34,9 @@ module.exports=async(req,res)=>{
     const keys=collectAssetKeys(rows?.[0]?.floorplan_assets,siteId);
     const buildingKey=String(rows?.[0]?.building_asset?.key||'');if(buildingKey.startsWith(`buildings/${siteId}/`))keys.add(buildingKey);
     for(const v of versions||[]){const k=String(v?.object_key||'');if(k.startsWith(`floorplans/${siteId}/`))keys.add(k);}
-    // Video keys are globally addressed (videos/YYYY/MM), not site-scoped.
-    // Removing a hospital must not delete media potentially referenced by other sites.
+    // Track both legacy global and scoped video paths; only DB-queued scoped keys are deleted.
     const retainedVideoKeys=new Set();
-    for(const v of videos||[]){if(String(v?.source||'')==='r2')collectVideoKey(v,retainedVideoKeys);}
+    for(const v of videos||[]){if(String(v?.source||'')==='r2')collectVideoKey(v,siteId,retainedVideoKeys);}
 
     // 2) 병원명 확인/비활성 상태/DB FK 정리를 먼저 통과시킨다.
     const rpc=await supabase('/rest/v1/rpc/admin_delete_site',token,{method:'POST',body:JSON.stringify({p_site:siteId,p_confirm_name:confirmName})});
@@ -45,6 +45,25 @@ module.exports=async(req,res)=>{
     // 3) DB 삭제 성공 후에만 R2 물리 파일을 정리한다. 실패 파일은 보고하되 이미 성공한 DB 삭제를 되돌리지는 않는다.
     const failed=[];
     for(const key of keys){try{const r=await signedFetch('DELETE',key);if(!r.ok&&r.status!==404)failed.push({key,status:r.status});}catch(e){failed.push({key,error:e.message||String(e)});}}
-    return json(res,200,{ok:true,deleted_assets:keys.size,retained_video_assets:retainedVideoKeys.size,video_cleanup_deferred:true,r2_cleanup_failed:failed});
+    // Drain up to one batch of durable, DB-authorized jobs. Remaining jobs stay available to the admin retry API.
+    let videoCleanupPending=true, videoCleaned=0;
+    try{
+      const pending=await supabase('/rest/v1/rpc/video_delete_pending',token,{method:'POST',body:JSON.stringify({p_site:siteId})});
+      if(!pending.ok)throw new Error('VIDEO_QUEUE_READ_FAILED');
+      const jobs=await pending.json();
+      if(!Array.isArray(jobs))throw new Error('VIDEO_QUEUE_INVALID');
+      for(const job of jobs){
+        if(job.site_id!==siteId)continue;
+        const key=job.object_key;
+        const safe=isAllowedObjectKey(key,siteId)&&(key.startsWith(`sites/${siteId}/videos/`)||key.startsWith(`videos/sites/${siteId}/`));
+        if(!safe){failed.push({key,error:'INVALID_SCOPED_VIDEO_KEY'});continue;}
+        let error=null;
+        try{const r=await signedFetch('DELETE',key);if(!r.ok&&r.status!==404)error='R2_DELETE_HTTP_'+r.status;}catch(e){error=String(e.message||e);}
+        const finish=await supabase('/rest/v1/rpc/video_delete_finish',token,{method:'POST',body:JSON.stringify({p_video:job.video_id,p_error:error})});
+        if(error||!finish.ok)failed.push({key,error:error||'VIDEO_QUEUE_FINISH_FAILED'});else videoCleaned++;
+      }
+      videoCleanupPending=jobs.length>=20||failed.length>0;
+    }catch(e){failed.push({error:String(e.message||e)});}
+    return json(res,200,{ok:true,deleted_video_assets:videoCleaned,deleted_assets:keys.size,retained_video_assets:Math.max(0,retainedVideoKeys.size-videoCleaned),video_cleanup_deferred:videoCleanupPending,r2_cleanup_failed:failed});
   }catch(e){return json(res,e.statusCode||500,{error:e.message||'SITE_DELETE_FAILED'});}
 };

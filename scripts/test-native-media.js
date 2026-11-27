@@ -12,4 +12,7 @@ assert.equal(mediaItem({...video,url_480p:'https://cdn.example.com/480p.mp4'}).s
 assert.equal(validUrl('http://cdn.example.com/a.mp4'),null);
 assert.equal(validUrl('https://127.0.0.1/a.mp4'),null);
 assert.equal(mediaItem({url:'invalid'}),null);
+assert.equal(mediaItem({...video,size_bytes:700*1024*1024}).bytes,700*1024*1024);
+assert.equal(mediaItem({...video,size_bytes:2*1024*1024*1024}).bytes,2*1024*1024*1024);
+assert.equal(mediaItem({...video,size_bytes:2*1024*1024*1024+1}).bytes,null);
 console.log('native media contract tests passed');

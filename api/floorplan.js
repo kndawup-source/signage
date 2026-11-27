@@ -13,9 +13,7 @@ module.exports = async (req, res) => {
     const key = String(req.query?.key || '').trim();
     if (!key) return json(res, 404, { error: 'FLOORPLAN_NOT_FOUND' });
 
-    // Do not infer ownership from an R2 path convention. Older production uploads used
-    // different key layouts. The authoritative check is the current floorplan pointer
-    // stored for this exact site + floor in site_settings.floorplan_assets.
+    // Scoped paths and the current registered metadata must both match.
     if (!(await isRegisteredCurrentFloorplan(req, siteId, floor, key))) {
       return json(res, 403, { error: 'FLOORPLAN_NOT_REGISTERED' });
     }

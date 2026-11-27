@@ -8859,3 +8859,172 @@ $$;
 INSERT INTO public.schema_version(version,applied_at) VALUES('2.36.1',clock_timestamp()) ON CONFLICT(version) DO UPDATE SET applied_at=excluded.applied_at;
 NOTIFY pgrst,'reload schema';
 COMMIT;
+BEGIN;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM public.schema_version WHERE version='2.36.1') THEN RAISE EXCEPTION 'Apply v2.36.1-video-delete-impact.sql first'; END IF;
+END $$;
+CREATE OR REPLACE FUNCTION public.hospital_reload_selected_players(p_site uuid,p_rooms uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_count integer;
+BEGIN
+ IF NOT public.can_manage_site(p_site) THEN RAISE EXCEPTION 'not allowed' USING ERRCODE='42501'; END IF;
+ WITH changed AS (
+ UPDATE public.rooms r SET reload_nonce=CASE WHEN r.reload_nonce>=2147483646 THEN 1 ELSE r.reload_nonce+1 END
+ WHERE r.site_id=p_site AND r.id=ANY(p_rooms) AND coalesce(r.display_control_mode,'remote') IN ('remote','hybrid') RETURNING r.id,r.site_id
+ ) INSERT INTO public.player_control_signals(room_id,site_id,revision,updated_at)
+ SELECT id,site_id,1,clock_timestamp() FROM changed
+ ON CONFLICT(room_id) DO UPDATE SET site_id=excluded.site_id,revision=public.player_control_signals.revision+1,updated_at=excluded.updated_at;
+ GET DIAGNOSTICS v_count=ROW_COUNT;
+ RETURN v_count;
+END $$;
+CREATE OR REPLACE FUNCTION public.hospital_save_space_geometry(p_site uuid,p_space uuid,p_before jsonb,p_patch jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE old_space public.floor_spaces%ROWTYPE; new_space public.floor_spaces%ROWTYPE; dx numeric; dy numeric; moved jsonb;
+BEGIN
+ IF NOT public.can_manage_site(p_site) THEN RAISE EXCEPTION 'not allowed' USING ERRCODE='42501'; END IF;
+ SELECT * INTO STRICT old_space FROM public.floor_spaces WHERE id=p_space AND site_id=p_site FOR UPDATE;
+ IF ROW(old_space.x_pct,old_space.y_pct,old_space.width_pct,old_space.height_pct) IS DISTINCT FROM ROW((p_before->>'x_pct')::numeric,(p_before->>'y_pct')::numeric,(p_before->>'width_pct')::numeric,(p_before->>'height_pct')::numeric) THEN RAISE EXCEPTION '공간이 다른 관리자에 의해 변경되었습니다. 취소 후 새로고침하세요.'; END IF;
+ UPDATE public.floor_spaces SET x_pct=coalesce((p_patch->>'x_pct')::numeric,x_pct),y_pct=coalesce((p_patch->>'y_pct')::numeric,y_pct),width_pct=coalesce((p_patch->>'width_pct')::numeric,width_pct),height_pct=coalesce((p_patch->>'height_pct')::numeric,height_pct),name=coalesce(nullif(trim(p_patch->>'name'),''),name),space_type=coalesce(p_patch->>'space_type',space_type) WHERE id=p_space AND site_id=p_site RETURNING * INTO new_space;
+ dx:=new_space.x_pct-old_space.x_pct; dy:=new_space.y_pct-old_space.y_pct;
+ PERFORM 1 FROM public.rooms WHERE site_id=p_site AND floor_space_id=p_space FOR UPDATE;
+ IF EXISTS(SELECT 1 FROM public.rooms WHERE site_id=p_site AND floor_space_id=p_space AND map_x_pct IS NOT NULL AND map_y_pct IS NOT NULL AND (map_x_pct+dx NOT BETWEEN new_space.x_pct AND new_space.x_pct+new_space.width_pct OR map_y_pct+dy NOT BETWEEN new_space.y_pct AND new_space.y_pct+new_space.height_pct)) THEN RAISE EXCEPTION '연결된 TV가 새 공간 영역을 벗어납니다. TV 위치 또는 공간 크기를 조정하세요.'; END IF;
+ WITH changed AS (UPDATE public.rooms SET map_x_pct=map_x_pct+dx,map_y_pct=map_y_pct+dy WHERE site_id=p_site AND floor_space_id=p_space AND map_x_pct IS NOT NULL AND map_y_pct IS NOT NULL RETURNING id,map_x_pct,map_y_pct)
+ SELECT coalesce(jsonb_agg(to_jsonb(changed)),'[]'::jsonb) INTO moved FROM changed;
+ RETURN jsonb_build_object('space',to_jsonb(new_space),'rooms',moved);
+END $$;
+CREATE OR REPLACE FUNCTION public.hospital_create_placed_displays(p_site uuid,p_space uuid,p_names text[])
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE sp public.floor_spaces%ROWTYPE; nm text; rid uuid; created public.rooms%ROWTYPE; result jsonb:='[]'::jsonb; n integer; i integer:=0;
+BEGIN
+ IF NOT public.can_manage_site(p_site) THEN RAISE EXCEPTION 'not allowed' USING ERRCODE='42501'; END IF;
+ n:=coalesce(cardinality(p_names),0); IF n<1 OR n>6 THEN RAISE EXCEPTION 'TV count must be 1–6'; END IF;
+ SELECT * INTO STRICT sp FROM public.floor_spaces WHERE id=p_space AND site_id=p_site FOR UPDATE;
+ PERFORM 1 FROM public.signage_groups WHERE id=sp.group_id AND site_id=p_site AND kind='floor' FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'invalid floor'; END IF;
+ FOREACH nm IN ARRAY p_names LOOP
+  IF nullif(trim(nm),'') IS NULL OR length(trim(nm))>40 THEN RAISE EXCEPTION 'TV 이름은 1~40자여야 합니다.'; END IF;
+  IF EXISTS(SELECT 1 FROM public.rooms WHERE site_id=p_site AND group_id=sp.group_id AND lower(trim(name))=lower(trim(nm))) THEN RAISE EXCEPTION '같은 층에 같은 이름의 TV가 있습니다.'; END IF;
+  i:=i+1;
+  rid:=public.hospital_create_display(p_site,sp.group_id,trim(nm),'remote');
+  UPDATE public.rooms SET floor_space_id=sp.id,map_x_pct=round(sp.x_pct+sp.width_pct*i/(n+1),2),map_y_pct=round(sp.y_pct+sp.height_pct/2,2) WHERE id=rid AND site_id=p_site RETURNING * INTO STRICT created;
+  result:=result||jsonb_build_array(jsonb_build_object('id',created.id,'site_id',created.site_id,'group_id',created.group_id,'name',created.name,'sort_order',created.sort_order,'floor_space_id',created.floor_space_id,'map_x_pct',created.map_x_pct,'map_y_pct',created.map_y_pct,'display_control_mode',created.display_control_mode,'manual_check_status',created.manual_check_status));
+ END LOOP;
+ RETURN result;
+END $$;
+CREATE OR REPLACE FUNCTION public.hospital_create_space_with_displays(p_site uuid,p_group uuid,p_name text,p_type text,p_x numeric,p_y numeric,p_width numeric,p_height numeric,p_count integer)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE sp public.floor_spaces%ROWTYPE; names text[]; result jsonb:='[]'::jsonb;
+BEGIN
+ IF NOT public.can_manage_site(p_site) THEN RAISE EXCEPTION 'not allowed' USING ERRCODE='42501'; END IF;
+ IF p_count IS NULL OR p_count NOT BETWEEN 0 AND 6 OR nullif(trim(p_name),'') IS NULL OR length(trim(p_name))>40 THEN RAISE EXCEPTION 'invalid space or TV count'; END IF;
+ PERFORM 1 FROM public.signage_groups WHERE id=p_group AND site_id=p_site AND kind='floor' FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'invalid floor'; END IF;
+ INSERT INTO public.floor_spaces(site_id,group_id,name,space_type,x_pct,y_pct,width_pct,height_pct,sort_order) VALUES(p_site,p_group,trim(p_name),p_type,p_x,p_y,p_width,p_height,(SELECT coalesce(max(sort_order),0)+10 FROM public.floor_spaces WHERE site_id=p_site AND group_id=p_group)) RETURNING * INTO sp;
+ IF p_count>0 THEN
+  SELECT array_agg(left(trim(p_name),34)||' TV'||CASE WHEN p_count>1 THEN ' '||i::text ELSE '' END ORDER BY i) INTO names FROM generate_series(1,p_count) i;
+  result:=public.hospital_create_placed_displays(p_site,sp.id,names);
+ END IF;
+ RETURN jsonb_build_object('space',to_jsonb(sp),'rooms',result);
+END $$;
+REVOKE ALL ON FUNCTION public.hospital_reload_selected_players(uuid,uuid[]),public.hospital_save_space_geometry(uuid,uuid,jsonb,jsonb),public.hospital_create_placed_displays(uuid,uuid,text[]),public.hospital_create_space_with_displays(uuid,uuid,text,text,numeric,numeric,numeric,numeric,integer) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.hospital_reload_selected_players(uuid,uuid[]),public.hospital_save_space_geometry(uuid,uuid,jsonb,jsonb),public.hospital_create_placed_displays(uuid,uuid,text[]),public.hospital_create_space_with_displays(uuid,uuid,text,text,numeric,numeric,numeric,numeric,integer) TO anon,authenticated;
+CREATE OR REPLACE FUNCTION public.app_db_version()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT jsonb_build_object('version','2.36.6','features',jsonb_build_array('pairing_v2','display_key_reset','pairing_v3','site_catalog_v1','video_delete_impact_v1','layout_atomic_v1','selected_reload_v1'))
+$$;
+INSERT INTO public.schema_version(version,applied_at) VALUES('2.36.6',clock_timestamp()) ON CONFLICT(version) DO UPDATE SET applied_at=excluded.applied_at;
+NOTIFY pgrst,'reload schema';
+COMMIT;
+
+BEGIN;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.schema_version WHERE version='2.36.6') THEN RAISE EXCEPTION 'Apply v2.36.6-layout-stability.sql first'; END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS public.pin_trusted_devices (
+ token_hash bytea PRIMARY KEY,
+ account_id bigint NOT NULL REFERENCES public.pin_accounts(id) ON DELETE CASCADE,
+ pin_updated_at timestamptz NOT NULL,
+ expires_at timestamptz NOT NULL
+);
+ALTER TABLE public.pin_trusted_devices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.pin_trusted_devices FROM PUBLIC,anon,authenticated;
+CREATE OR REPLACE FUNCTION public.pin_login(p_pin text,p_client_id text,p_site_code text default null)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,extensions AS $$
+DECLARE
+ v_client text:=coalesce(p_client_id,''); v_scope text:=lower(trim(coalesce(p_site_code,'')));
+ v_scope_key text; v_client_key text; v_ip_key text; v_trusted boolean:=false;
+ v_account public.pin_accounts%ROWTYPE; v_token text; v_device text; v_exp timestamptz; v_now timestamptz:=clock_timestamp();
+BEGIN
+ IF v_client !~ '^[A-Za-z0-9._:-]{8,100}$' OR p_pin IS NULL OR p_pin !~ '^[0-9]{4,6}$' OR (v_scope<>'' AND v_scope !~ '^[a-z0-9_-]{1,64}$') THEN RETURN jsonb_build_object('ok',false,'error','invalid_pin'); END IF;
+ v_scope_key:='login:v2:scope:'||CASE WHEN v_scope='' THEN 'admin' ELSE 'site:'||v_scope END;
+ v_ip_key:='login:v2:ip:'||coalesce(public.pin_request_ip(),'unknown');
+ IF v_scope='' THEN SELECT a.* INTO v_account FROM public.pin_accounts a WHERE a.enabled AND a.role='admin' ORDER BY a.id LIMIT 1;
+ ELSE SELECT a.* INTO v_account FROM public.pin_accounts a JOIN public.sites s ON s.id=a.site_id WHERE a.enabled AND a.role='staff' AND s.active AND s.code=v_scope ORDER BY a.id LIMIT 1; END IF;
+ -- Only a server-issued, unexpired secret tied to the account and current PIN may bypass the anonymous scope budget.
+ IF v_client ~ '^trusted\.[0-9a-f]{64}$' AND v_account.id IS NOT NULL THEN
+  SELECT EXISTS(SELECT 1 FROM public.pin_trusted_devices d WHERE d.token_hash=digest(v_client,'sha256') AND d.account_id=v_account.id AND d.pin_updated_at=v_account.updated_at AND d.expires_at>v_now) INTO v_trusted;
+ END IF;
+ v_client_key:='login:v2:client:'||encode(digest(v_client,'sha256'),'hex');
+ IF public.signage_throttle_count(v_client_key,interval '5 minutes')>=5 THEN RETURN jsonb_build_object('ok',false,'error','locked','retry_after_sec',300); END IF;
+ IF NOT v_trusted THEN
+  IF public.signage_throttle_count(v_ip_key,interval '15 minutes')>=20 OR public.signage_throttle_count(v_scope_key,interval '15 minutes')>=10 THEN RETURN jsonb_build_object('ok',false,'error','locked','retry_after_sec',900); END IF;
+  IF public.signage_throttle_hit(v_ip_key,interval '15 minutes')>20 THEN RETURN jsonb_build_object('ok',false,'error','locked','retry_after_sec',900); END IF;
+  IF public.signage_throttle_hit(v_scope_key,interval '15 minutes')>10 THEN RETURN jsonb_build_object('ok',false,'error','locked','retry_after_sec',900); END IF;
+ END IF;
+ IF public.signage_throttle_hit(v_client_key,interval '5 minutes')>5 THEN RETURN jsonb_build_object('ok',false,'error','locked','retry_after_sec',300); END IF;
+ IF v_account.id IS NULL OR crypt(p_pin,v_account.pin_hash) IS DISTINCT FROM v_account.pin_hash THEN RETURN jsonb_build_object('ok',false,'error','invalid_pin'); END IF;
+ PERFORM 1 FROM public.pin_accounts WHERE id=v_account.id AND enabled AND updated_at=v_account.updated_at FOR SHARE;
+ IF NOT FOUND THEN RETURN jsonb_build_object('ok',false,'error','invalid_pin'); END IF;
+ -- Do not clear anonymous budgets on success: another request may be waiting on their row locks.
+ DELETE FROM public.pin_login_throttle WHERE client_id=v_client_key;
+ DELETE FROM public.pin_sessions WHERE expires_at<=v_now;
+ DELETE FROM public.pin_trusted_devices WHERE expires_at<=v_now;
+ IF v_trusted THEN v_device:=v_client;
+ ELSE
+  v_device:='trusted.'||encode(gen_random_bytes(32),'hex');
+  INSERT INTO public.pin_trusted_devices(token_hash,account_id,pin_updated_at,expires_at) VALUES(digest(v_device,'sha256'),v_account.id,v_account.updated_at,v_now+interval '30 days');
+ END IF;
+ v_token:=encode(gen_random_bytes(32),'hex'); v_exp:=v_now+interval '12 hours';
+ INSERT INTO public.pin_sessions(account_id,token_hash,expires_at) VALUES(v_account.id,digest(v_token,'sha256'),v_exp);
+ RETURN jsonb_build_object('ok',true,'token',v_token,'role',v_account.role,'site_id',v_account.site_id,'expires_at',v_exp,'trusted_device',v_device);
+END $$;
+REVOKE ALL ON FUNCTION public.pin_login(text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.pin_login(text,text,text) TO anon,authenticated;
+create or replace function public.admin_delete_site(p_site uuid,p_confirm_name text)
+returns void
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare v_site public.sites; v_account_ids bigint[];
+begin
+  if not public.is_admin() then raise exception 'not allowed'; end if;
+  -- Keep the existing reference-write fence: arrays are not foreign keys.
+  PERFORM set_config('lock_timeout','3000',true);
+  LOCK TABLE public.app_settings,public.broadcast,public.broadcast_schedules,public.group_broadcasts,public.playlist_items,public.playlists,public.room_video_rules,public.rooms,public.signage_groups,public.site_broadcasts,public.site_settings,public.sites,public.videos IN SHARE ROW EXCLUSIVE MODE;
+  select * into v_site from public.sites where id=p_site for update;
+  if not found then raise exception 'site not found'; end if;
+  if v_site.active then raise exception '병원을 먼저 비활성화하세요'; end if;
+  if btrim(coalesce(p_confirm_name,''))<>btrim(v_site.name) then raise exception '병원명이 일치하지 않습니다'; end if;
+
+  INSERT INTO public.video_r2_delete_jobs(video_id,site_id,object_key)
+  SELECT v.id,p_site,v.storage_path FROM public.videos v
+  WHERE v.site_id=p_site AND v.source='r2' AND v.storage_path NOT LIKE '%..%' AND v.storage_path NOT LIKE '%//%'
+    AND (v.storage_path ~ ('^sites/'||p_site::text||'/videos/([0-9a-fA-F-]{36}\.mp4|[0-9]{4}/[0-9]{2}/[A-Za-z0-9가-힣._-]+)$')
+      OR v.storage_path ~ ('^videos/sites/'||p_site::text||'/[0-9a-fA-F-]{36}-[A-Za-z0-9가-힣._-]+$'))
+    AND NOT EXISTS(SELECT 1 FROM public.videos other WHERE other.id<>v.id AND (other.storage_path=v.storage_path OR (v.url IS NOT NULL AND other.url=v.url)))
+    AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(public.video_delete_impact(v.id,p_site)->'links') l WHERE l->>'site_id' IS DISTINCT FROM p_site::text)
+  ON CONFLICT(video_id) DO NOTHING;
+  select coalesce(array_agg(id),'{}'::bigint[]) into v_account_ids from public.pin_accounts where role='staff' and site_id=p_site;
+  delete from public.pin_sessions where account_id=any(v_account_ids);
+  delete from public.pin_accounts where role='staff' and site_id=p_site;
+  delete from public.rooms where site_id=p_site;
+  delete from public.sites where id=p_site;
+end $$;
+CREATE OR REPLACE FUNCTION public.app_db_version()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT jsonb_build_object('version','2.36.7','features',jsonb_build_array('pairing_v2','display_key_reset','pairing_v3','site_catalog_v1','video_delete_impact_v1','layout_atomic_v1','selected_reload_v1','security_v1'))
+$$;
+INSERT INTO public.schema_version(version,applied_at) VALUES('2.36.7',clock_timestamp()) ON CONFLICT(version) DO UPDATE SET applied_at=excluded.applied_at;
+NOTIFY pgrst,'reload schema';
+COMMIT;

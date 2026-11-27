@@ -1,26 +1,7 @@
  'use strict';
 const { requireMember, json, parseBody, SUPABASE_URL, SUPABASE_ANON_KEY } = require('./_lib/auth');
 const { signedFetch } = require('./_lib/r2');
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// Matches only keys created by the supported video-upload APIs (plus legacy global uploads).
-const UUID_PART = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
-const FILE_PART = '[a-zA-Z0-9가-힣._-]+';
-const SAFE_KEYS = [
-  new RegExp(`^sites/(${UUID_PART})/videos/${UUID_PART}\\.mp4$`, 'i'),
-  new RegExp(`^sites/(${UUID_PART})/videos/[0-9]{4}/[0-9]{2}/${FILE_PART}$`, 'i'),
-  new RegExp(`^videos/sites/(${UUID_PART})/${UUID_PART}-${FILE_PART}$`, 'i'),
-  new RegExp(`^videos/[0-9]{4}/[0-9]{2}/${FILE_PART}$`, 'i')
-];
-function isAllowedObjectKey(key, siteId) {
-  if (typeof key !== 'string' || key.includes('..') || key.includes('//')) return false;
-  for (const pattern of SAFE_KEYS) {
-    const match = pattern.exec(key);
-    if (!match) continue;
-    if (match[1]) return !!siteId && match[1].toLowerCase() === String(siteId).toLowerCase();
-    return true;
-  }
-  return false;
-}
+const {UUID,isAllowedObjectKey}=require('./_lib/video-keys');
 async function rpc(name,token,body){
   const response=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`,{
     method:'POST',headers:{apikey:SUPABASE_ANON_KEY,Authorization:`Bearer ${SUPABASE_ANON_KEY}`,'x-signage-session':token,'Content-Type':'application/json'},
@@ -58,7 +39,10 @@ module.exports=async(req,res)=>{
       const pending=await rpc('video_delete_pending',token,{p_site:siteId||null});
       const jobs=Array.isArray(pending)?pending:[];
       const results=[];
-      for(const job of jobs)results.push(await removeOne(job,token));
+      for(const job of jobs){
+        try{results.push(await removeOne(job,token));}
+        catch(e){results.push({video_id:job.video_id,physical_deleted:false,cleanup_pending:true,error:String(e.message||e)});}
+      }
       return json(res,200,{ok:true,retried:results.length,results});
     }
     if(body.action==='batch-confirm'){

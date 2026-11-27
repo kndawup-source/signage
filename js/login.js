@@ -41,12 +41,10 @@
     btn.disabled = true;
     pinInput.disabled = true;
     try {
-      const clientId = Signage.getClientId();
-      let result = await db.rpc('pin_login', { p_pin: pin, p_client_id: clientId, p_site_code: requestedSiteCode || null });
-      if (result.error && (result.error.code === 'PGRST202' || /Could not find the function|schema cache/i.test(String(result.error.message || '')))) {
-        // Temporary compatibility for an operating DB that has not yet received the 3-argument login migration.
-        result = await db.rpc('pin_login', { p_pin: pin, p_client_id: clientId });
-      }
+      const trustedKey = 'signage_trusted_device_v1:' + (requestedSiteCode || '@admin');
+      const cachedDevice = localStorage.getItem(trustedKey) || '';
+      const clientId = /^trusted\.[0-9a-f]{64}$/.test(cachedDevice) ? cachedDevice : Signage.getClientId();
+      const result = await db.rpc('pin_login', { p_pin: pin, p_client_id: clientId, p_site_code: requestedSiteCode || null });
       const { data, error } = result;
       if (error) throw error;
       if (!data?.ok) {
@@ -61,6 +59,7 @@
         pinInput.focus();
         return;
       }
+      if (/^trusted\.[0-9a-f]{64}$/.test(data.trusted_device || '')) localStorage.setItem(trustedKey, data.trusted_device);
       Signage.storePinSession(data);
       const next = nextTarget;
       const defaultPage = data.role === 'admin' ? '/admin.html' : '/hospital.html';

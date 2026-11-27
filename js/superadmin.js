@@ -126,7 +126,7 @@
 
     qs('#adminRoot').innerHTML=`
       <section class="superadmin-home">
-        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><div class="superadmin-head-actions"><button type="button" class="btn quiet" id="changeAdminPin">PIN 변경</button><button type="button" class="btn primary" id="openAddHospital">병원 추가</button></div></div>
+        <div class="hospital-overview-head"><div><span class="eyebrow">SUPER ADMIN</span><h1>전체 현황</h1><p>문제가 있는 병원을 먼저 확인하고, 필요한 경우에만 관리자 페이지로 들어갑니다.</p></div><div class="superadmin-head-actions"><button type="button" class="btn quiet" id="retryVideoCleanup">영상 파일 정리</button><button type="button" class="btn quiet" id="changeAdminPin">PIN 변경</button><button type="button" class="btn primary" id="openAddHospital">병원 추가</button></div></div>
         <div class="hospital-overview-summary superadmin-summary"><span><b>${activeRows.length}</b><small>활성 병원</small></span><span><b>${totalDisplays}</b><small>디스플레이</small></span><span class="${issues?'has-issue':''}"><b>${issues}</b><small>확인 필요</small></span><span class="${overallRisk.cls}"><b>${overallRisk.label}</b><small>송출 부하</small></span></div>
         <div class="superadmin-hospital-section">
           <div class="superadmin-list-head"><h2>병원 현황</h2><div class="superadmin-search"><input id="hospitalSearch" type="search" aria-label="병원명 검색" placeholder="병원명 검색" value="${esc(searchTerm)}"></div></div>
@@ -137,6 +137,7 @@
 
     qs('#openAddHospital')?.addEventListener('click',()=>qs('#addHospitalDialog')?.showModal());qs('#changeAdminPin')?.addEventListener('click',changeAdminPin);
     qs('#createHospital')?.addEventListener('click',createHospital);
+    qs('#retryVideoCleanup')?.addEventListener('click',retryVideoCleanup);
     qs('#hospitalSearch')?.addEventListener('input',e=>{searchTerm=String(e.target.value||'').trim().toLowerCase();render();requestAnimationFrame(()=>{const el=qs('#hospitalSearch');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}});});
     document.querySelectorAll('[data-site-summary]').forEach(el=>el.addEventListener('click',()=>{const id=el.dataset.siteSummary||null;selectedSiteId=selectedSiteId===id?null:id;render();}));
     qs('[data-save-site-pin]')?.addEventListener('click',saveSelectedSitePin);
@@ -181,7 +182,7 @@
     const response=await fetch('/api/site-delete',{method:'POST',headers:{'Content-Type':'application/json','x-signage-session':token},body:JSON.stringify({siteId,confirmName:typed.trim()})});
     const result=await response.json().catch(()=>({}));
     if(!response.ok)return toast(result.error||'병원을 삭제하지 못했습니다.','error');
-    selectedSiteId=null;if(Array.isArray(result.r2_cleanup_failed)&&result.r2_cleanup_failed.length)toast(`병원은 삭제됐지만 R2 파일 ${result.r2_cleanup_failed.length}개 정리가 남았습니다.`,'error');else toast('병원과 병원 전용 파일을 삭제했습니다.');await load();
+    selectedSiteId=null;if(Array.isArray(result.r2_cleanup_failed)&&result.r2_cleanup_failed.length)toast(`병원은 삭제됐지만 R2 파일 ${result.r2_cleanup_failed.length}개 정리가 남았습니다.`,'error');else if(result.video_cleanup_deferred)toast('병원 삭제 완료. 남은 영상 파일은 영상 파일 정리에서 재시도하세요.');else if(result.retained_video_assets>0)toast(`병원 삭제 완료. 공용 또는 소유권 확인이 필요한 영상 ${result.retained_video_assets}개는 보존했습니다.`);else toast('병원과 병원 전용 파일을 삭제했습니다.');await load();
   }
 
 
@@ -189,6 +190,19 @@
   async function saveSelectedSitePin(){const siteId=qs('[data-save-site-pin]')?.dataset.saveSitePin,pin=(qs('#selectedHospitalPin')?.value||'').replace(/\D/g,'');if(!siteId||pin.length<4||pin.length>6)return toast('PIN은 4~6자리 숫자로 입력하세요.','error');const {error}=await db.rpc('admin_set_site_staff_pin',{p_site:siteId,p_pin:pin});if(error)return toast(error.message,'error');qs('#selectedHospitalPin').value='';toast('병원 관리자 PIN을 변경했습니다.');}
   async function exportSelectedSite(){const siteId=qs('[data-export-site]')?.dataset.exportSite;if(!siteId)return;const {data,error}=await db.rpc('admin_export_site_config',{p_site:siteId});if(error)return toast(error.message,'error');const site=state.sites.find(x=>x.id===siteId),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`signage-${siteSlug(site)||siteId}-backup.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
   async function importSelectedSite(e){const file=e.target.files?.[0],siteId=e.target.dataset.importSite;e.target.value='';if(!file||!siteId)return;if(!confirm('이 병원의 설정을 백업 파일 기준으로 복원할까요?'))return;try{const config=JSON.parse(await file.text());if(String(config?.site?.id||'')!==String(siteId))throw new Error('선택한 병원과 백업 파일의 병원이 다릅니다.');const {error}=await db.rpc('admin_import_site_config',{p_config:config});if(error)throw error;toast('병원 설정을 복원했습니다.');await load();}catch(err){toast(err.message||'복원 파일을 확인하세요.','error');}}
+  let cleanupRunning=false;
+  async function retryVideoCleanup(){
+    if(cleanupRunning)return;
+    if(!confirm('모든 병원의 대기 중인 영상 파일 삭제를 최대 20건 재시도합니다. 계속할까요?'))return;
+    cleanupRunning=true;
+    try{
+      const token=Signage.getPinSession?.()?.token||'';
+      const response=await fetch('/api/video-delete',{method:'POST',headers:{'Content-Type':'application/json','x-signage-session':token},body:JSON.stringify({action:'retry'})});
+      const result=await response.json();if(!response.ok)throw Error(result.error||'영상 파일 정리 실패');
+      const rows=Array.isArray(result.results)?result.results:[],failed=rows.filter(r=>r.cleanup_pending).length;
+      toast(rows.length?`정리 ${rows.length-failed}건 · 재시도 필요 ${failed}건${rows.length>=20?' · 추가 작업이 있을 수 있습니다.':''}`:'대기 중인 영상 파일이 없습니다.',failed?'error':'info');
+    }catch(e){toast(e.message||'영상 파일 정리 실패','error');}finally{cleanupRunning=false;}
+  }
   async function pruneLogs(){if(!confirm('30일이 지난 플레이어 이벤트를 정리할까요?'))return;const {data,error}=await db.rpc('admin_prune_player_events',{p_days:30});if(error)return toast(error.message,'error');toast(`오래된 로그 ${Number(data||0)}건을 정리했습니다.`);}
   async function createHospital(){
     const name=(qs('#newHospitalName')?.value||'').trim(),code=(qs('#newHospitalSlug')?.value||'').trim().toLowerCase(),pin=(qs('#newHospitalPin')?.value||'').trim();

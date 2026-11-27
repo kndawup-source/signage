@@ -1,8 +1,8 @@
-CLINIC SIGNAGE v2.36.0 · CANONICAL SETUP
-웹 2.36.0 / DB 2.36.0 / 설치형 1.2.1. 기존 DB 2.35.87에는 v2.36.0-site-catalog.sql만 실행.
+CLINIC SIGNAGE v2.36.7 · CANONICAL SETUP
+웹 2.36.7 / DB 2.36.7 / 설치형 1.2.1. 기존 DB 2.36.1 이상은 v2.36.6-layout-stability.sql → v2.36.7-security-stability.sql 순서로 실행 (이미 2.36.6이면 후자만).
 
 [신규 Supabase 설치]
-1. supabase/schema.sql 전체 실행 (v2.36.0까지 모든 변경 포함 — 이 파일 하나로 완료)
+1. supabase/schema.sql 전체 실행 (v2.36.7까지 모든 변경 포함 — 이 파일 하나로 완료)
 1a. SQL Editor에서 public.configure_signage_pins(관리자 PIN, 초기 병원 PIN)를 실제 문자열 인자로 실행해 초기 로그인 계정을 설정합니다.
 2. Vercel 환경변수 설정 (SUPABASE_URL, SUPABASE_ANON_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
    R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL)
@@ -13,7 +13,7 @@ CLINIC SIGNAGE v2.36.0 · CANONICAL SETUP
 
 [기존 운영 DB 업그레이드]
 - 먼저 운영 DB 백업 및 테스트 DB에서 마이그레이션/격리 테스트를 실행합니다.
-- 운영 DB가 2.35.87이면 supabase/v2.36.0-site-catalog.sql만 실행합니다.
+- 운영 DB가 2.35.87이면 supabase/v2.36.0-site-catalog.sql부터 실행합니다.
 - 먼저 현재 버전 확인: select version from public.schema_version order by applied_at desc limit 3;
 - 2.35.86이 이미 있으면: supabase/v2.35.87-pairing-hardening.sql → v2.36.0-site-catalog.sql
 - 2.35.85-db-sync까지 있으면: v2.35.86-pairing-hardening.sql → v2.35.87-pairing-hardening.sql → v2.36.0-site-catalog.sql
@@ -21,11 +21,12 @@ CLINIC SIGNAGE v2.36.0 · CANONICAL SETUP
   v2.35.84-login-hardening.sql → v2.35.85-tv-pairing.sql → v2.35.85-db-sync.sql → v2.35.86 → v2.35.87 → v2.36.0
 - 그보다 오래된 DB: supabase/archive/ 의 해당 버전 이후 파일을 순서대로 실행한 뒤 위 순서 적용
 - v2.35.87 파일은 2.35.86이 없으면 아무것도 바꾸지 않고 멈춥니다 (안내 메시지 표시).
+- v2.36.0 이후: v2.36.1-video-delete-impact.sql → v2.36.6-layout-stability.sql → v2.36.7-security-stability.sql (2.36.5 선택 새로고침 SQL은 새 파일에 포함되어 별도 실행 불필요).
 - 기존 DB에 schema.sql 전체를 덮어 실행하지 않습니다.
 - 마이그레이션은 병원·TV·영상·재생목록·통계 데이터를 지우지 않습니다. 기존 TV 연결 주소(키)는 바꾸지 않습니다.
-- 확인: select public.app_db_version();  → version 2.36.0 및 site_catalog_v1
+- 확인: select public.app_db_version();  → version 2.36.7 및 layout_atomic_v1, selected_reload_v1, security_v1
          scripts/db-check.sql 실행 → 0행이면 검사 대상 DB 구조 일치
-- DB가 2.36.0보다 낮으면 병원 관리자 화면 위에 실행할 파일 안내가 뜨고
+- DB가 2.36.7보다 낮으면 병원 관리자 화면 위에 실행할 파일 안내가 뜨고
   설치형 플레이어 연결·기기 연결 해제와 신규 분류 설정이 제한됩니다. DB 2.35.87에서는 연결·해제는 유지됩니다. TV 송출은 유지됩니다.
 
 [배포 절차]
@@ -80,3 +81,5 @@ player-release.json, vercel.json)과 api/ 만 올라갑니다.
 - 슈퍼어드민 병원 추가: 병원명, 코드, 건물명, 초기 층 수(0~30), PIN을 한 번에 등록합니다.
 - 테스트 DB 전용: scripts/test-site-catalog-db.sql 실행 후 ROLLBACK.
 - 운영 배포 전에 node scripts/test-site-catalog.js, node scripts/check-release.js 및 DB 점검을 실행하세요.
+
+2.36.7 주의: 기존 병원 범위가 없는 도면 키는 접근이 차단됩니다. 배포 전 기존 도면을 해당 병원/층 경로로 재업로드 또는 관리자 검증 후 이전하세요. 신규 기기 로그인은 범위 제한이 남으며, 성공한 브라우저는 30일간 서버 발급 기기 비밀값으로 별도 제한을 적용합니다. 공유 PC에서는 브라우저 데이터를 지워 주세요.

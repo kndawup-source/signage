@@ -7,6 +7,10 @@ function basicFloorplanKeyOk(key){
   if(!/^floorplans\/[A-Za-z0-9._\/-]+\.(?:png|jpe?g|webp)$/i.test(value))return false;
   return true;
 }
+function siteFloorplanKeyOk(siteId,floor,key){
+  const n=Number(floor),site=String(siteId||'');
+  return basicFloorplanKeyOk(key)&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(site)&&Number.isInteger(n)&&n>=1&&n<=99&&String(key).trim().startsWith(`floorplans/${site}/${String(n).padStart(2,'0')}/`);
+}
 function assetKey(meta){
   if(typeof meta==='string')return meta.trim();
   if(meta&&typeof meta==='object')return String(meta.key||meta.object_key||meta.path||'').trim();
@@ -23,16 +27,16 @@ async function readCurrentAssets(req,siteId){
   return rows?.[0]?.floorplan_assets&&typeof rows[0].floorplan_assets==='object'?rows[0].floorplan_assets:{};
 }
 async function isRegisteredCurrentFloorplan(req,siteId,floor,key){
-  if(!basicFloorplanKeyOk(key))return false;
+  if(!siteFloorplanKeyOk(siteId,floor,key))return false;
   const assets=await readCurrentAssets(req,siteId),registered=assetKey(assets?.[String(Math.trunc(Number(floor)))]);
   return !!registered&&registered===String(key).trim();
 }
 async function isRegisteredFloorplanVersion(req,siteId,floor,key){
-  if(!basicFloorplanKeyOk(key))return false;
+  if(!siteFloorplanKeyOk(siteId,floor,key))return false;
   if(await isRegisteredCurrentFloorplan(req,siteId,floor,key))return true;
   const url=`${SUPABASE_URL}/rest/v1/floorplan_versions?site_id=eq.${encodeURIComponent(siteId)}&floor_number=eq.${encodeURIComponent(String(Math.trunc(Number(floor))))}&object_key=eq.${encodeURIComponent(String(key).trim())}&select=id&limit=1`;
   const response=await fetch(url,{headers:headers(req)});
   if(!response.ok){const text=await response.text().catch(()=> '');throw Object.assign(new Error(`FLOORPLAN_VERSION_METADATA_${response.status}${text?`:${text.slice(0,120)}`:''}`),{statusCode:502});}
   const rows=await response.json();return Array.isArray(rows)&&rows.length>0;
 }
-module.exports={basicFloorplanKeyOk,assetKey,isRegisteredCurrentFloorplan,isRegisteredFloorplanVersion};
+module.exports={basicFloorplanKeyOk,siteFloorplanKeyOk,assetKey,isRegisteredCurrentFloorplan,isRegisteredFloorplanVersion};

@@ -659,13 +659,13 @@
   const patientForRoom=(id)=>{if(lookupCache.patients!==state.patients){lookupCache.patients=state.patients;lookupCache.patientMap=new Map();for(const p of activePatients()){if(p.room_id&&!lookupCache.patientMap.has(p.room_id))lookupCache.patientMap.set(p.room_id,p);}}return lookupCache.patientMap.get(id)||null;};
   const isQuickSession=(r)=>!!r.session_treatment&&!patientForRoom(r.id);
 
-  let lastLoadStartedAt=0;
+  let lastLoadStartedAt=0,layoutRevision=0;
   // ---- DB 버전 확인: 화면이 필요로 하는 DB 기능이 없으면 해당 버튼만 막고 구체적으로 안내한다 (TV 송출과 무관) ----
-  const REQUIRED_DB_VERSION='2.36.1';
+  const REQUIRED_DB_VERSION='2.36.7';
   let dbInfo={checked:false,version:null,features:[],error:null};
   const dbVersionCmp=(a,b)=>{const pa=String(a||'0').split('.').map(Number),pb=String(b||'0').split('.').map(Number);for(let i=0;i<3;i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d;}return 0;};
   const dbFeature=(f)=>dbInfo.features.includes('pairing_v3')&&dbInfo.features.includes(f);
-  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1')||!dbInfo.features.includes('video_delete_impact_v1'));
+  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1')||!dbInfo.features.includes('video_delete_impact_v1')||!dbFeature('layout_atomic_v1')||!dbFeature('selected_reload_v1')||!dbFeature('security_v1'));
   function dbVersionMessage(){
     if(dbInfo.error==='network')return 'DB 버전을 확인하지 못했습니다. 새로고침 후 다시 시도하세요.';
     const files=[];
@@ -673,6 +673,8 @@
     if(dbVersionCmp(dbInfo.version,'2.35.87')<0||!dbInfo.features.includes('pairing_v3'))files.push('v2.35.87-pairing-hardening.sql');
     if(!dbInfo.features.includes('site_catalog_v1'))files.push('v2.36.0-site-catalog.sql');
     if(!dbInfo.features.includes('video_delete_impact_v1'))files.push('v2.36.1-video-delete-impact.sql');
+    if(!dbFeature('layout_atomic_v1')||!dbFeature('selected_reload_v1')||dbVersionCmp(dbInfo.version,'2.36.6')<0)files.push('v2.36.6-layout-stability.sql');
+    if(!dbFeature('security_v1')||dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0)files.push('v2.36.7-security-stability.sql');
     return `Supabase SQL Editor에서 ${files.map(f=>'supabase/'+f).join(' → ')}${files.length>1?' 순서로':''} 실행하세요. (현재 DB ${dbInfo.version||'2.35.85 이하'} · 필요 ${REQUIRED_DB_VERSION})`;
   }
   async function checkDbVersion(){
@@ -686,6 +688,7 @@
   }
   const dbVersionBanner=()=>dbOutdated()?`<div class="db-version-banner" role="alert"><b>DB 업데이트 필요</b><span>${esc(dbVersionMessage())}</span><small>${dbFeature('pairing_v3')?'새 관리 기능은 DB 업데이트 후 사용할 수 있습니다. 기존 송출과 기기 연결 기능은 유지됩니다.':'DB 업데이트 전까지 신규 병원별 설정과 설치형 플레이어 연결·해제는 제한됩니다. 기존 TV 송출은 계속됩니다.'}</small></div>`:'';
   async function load({background=false}={}){
+    const loadRevision=layoutRevision;
     lastLoadStartedAt=Date.now();
     if(!dbInfo.checked||dbInfo.error==='network'||dbOutdated())await checkDbVersion();
     const [reception,building,overlayLookup]=await Promise.all([db.rpc('hospital_reception_state',{p_site:targetSiteId}),db.rpc('hospital_building_asset',{p_site:targetSiteId}),db.rpc('hospital_get_room_overlays',{p_site:targetSiteId})]);
@@ -703,15 +706,15 @@
       if(seenSpaceKeys.has(key))continue;
       seenSpaceIds.add(sp.id);seenSpaceKeys.add(key);floorSpaces.push(sp);
     }
+    if(loadRevision!==layoutRevision||layoutDraft||layoutDraftSaving||(background&&isInteracting()))return;
     state={site:data.site||null,siteSettings:{...(data.site_settings||{}),building_asset:building.data||{},floorplan_assets:data.floorplan_assets||{}},buildingAsset:building.data||{},floorplanAssets:data.floorplan_assets||{},floorSpaces,floorplanVersions:data.floorplan_versions||[],patients:data.patients||[],rooms,groups:data.groups||[],playlists:data.playlists||[],videos:data.videos||[],playlistItems:data.playlist_items||[],roomRules:data.room_video_rules||[],broadcast:data.broadcast||{active:false}};
     const actualSlug=String(state.site?.code||'').trim();
     if(actualSlug){const expected=`/hospital.html?site=${encodeURIComponent(actualSlug)}`;if(location.pathname!=='/hospital.html'||new URLSearchParams(location.search).get('site')!==actualSlug)history.replaceState(null,'',expected);}
-    if(background&&isInteracting())return;
     renderPreservingUi(background);
   }
   let layoutDraft=null,layoutDraftSaving=false;
   function isInteracting(){
-    if(layoutPanelOpen||layoutDraftSaving||floorBulkBusy||qs('#floorTvSearch')?.value||qs('#floorTvFilter')?.value||qs('[data-floor-tv-select]:checked'))return true;
+    if(layoutPanelOpen||layoutDraft||layoutDraftSaving||floorBulkBusy||qs('#floorTvSearch')?.value||qs('#floorTvFilter')?.value||qs('[data-floor-tv-select]:checked'))return true;
     if(catalogDirty||catalogSaving||deletingHospitalVideo||videoUsageBusy||tab==='videos'&&(mediaDirty||mediaSaving))return true;
     const a=document.activeElement,root=qs('#hospitalRoot');
     if(root?.querySelector('.floor-inline-video-panel'))return true;
@@ -722,7 +725,7 @@
     return `${card}|${el.className}`;
   }
   function renderPreservingUi(keepInputs=true){
-    if(layoutDraft&&!layoutDraftSaving){layoutDraft.cancel();layoutDraft=null;}
+    if(layoutDraft||layoutDraftSaving)return;
     const root=qs('#hospitalRoot');
     const openDetails=new Set(qsa('details[open]',root).map(uiKey));
     const openQuick=keepInputs?qsa('[data-quick-panel]:not(.hidden)',root).map(x=>x.dataset.quickPanel):[];
@@ -1297,7 +1300,7 @@
         <label><span>공간명</span><input id="staffSpaceName" maxlength="40" placeholder="예: 진료실 1" value="${editing?esc(editing.name):''}"></label>
         <label hidden><span>유형</span><select id="staffSpaceType">${catalogEntries('space_types',editing?.space_type).map(([v,l])=>`<option value="${esc(v)}" ${editing?.space_type===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
         ${!editing?`<label><span>함께 추가할 TV</span><select id="staffCombinedTvCount"><option value="0" ${combinedCreateMode==='space'?'selected':''}>공간만</option>${[1,2,3,4,5,6].map(n=>`<option value="${n}" ${combinedCreateMode!=='space'&&n===1?'selected':''}>${n}대 · 이름 자동 생성</option>`).join('')}</select></label>`:''}
-        <div class="floor-layout-space-instruction"><b>${editing?'도면 빈 곳에서 새 영역을 드래그하세요':'공간 이름을 입력하고 도면에서 영역을 그리세요'}</b><span>${editing?'기존 TV 위치는 유지됩니다.':'공간을 만든 뒤 TV를 함께 선택했다면 도면을 클릭해 위치를 차례대로 지정합니다. 이름은 공간명 + TV 번호로 자동 생성됩니다.'}</span></div>
+        <div class="floor-layout-space-instruction"><b>${editing?'도면 빈 곳에서 새 영역을 드래그하세요':'공간 이름을 입력하고 도면에서 영역을 그리세요'}</b><span>${editing?'연결된 TV도 함께 이동하며, 영역을 벗어나면 저장되지 않습니다.':'공간과 TV를 함께 저장하고 초기 위치를 자동 지정합니다. 저장 후 TV 위치를 직접 옮길 수 있습니다.'}</span></div>
         ${editing?`<button class="btn small primary" id="staffSaveSpaceName" type="button">이름 저장</button>`:''}<button class="btn small" id="staffCancelSpaceRedraw" type="button">취소</button>
       </div>`:`<div class="floor-layout-display-pick">
         <div class="floor-layout-display-pick-head"><span><b>위치를 정하지 않은 TV</b><small>${unplaced.length?`${unplaced.length}개 · 이름을 누른 뒤 도면을 클릭하세요.`:'모든 TV의 위치가 정해졌습니다.'}</small></span>${pending?`<em>${esc(pending.name)} 위치를 찍어주세요</em>`:''}</div>
@@ -1348,37 +1351,16 @@
     }catch(error){toast(error.message||'층을 삭제하지 못했습니다.','error');if(button)button.disabled=false;}
   }
   async function createHospitalDisplay(){const group=qs('#staffNewDisplayGroup')?.value,name=(qs('#staffNewDisplayName')?.value||'').trim(),mode=qs('#staffNewDisplayMode')?.value||'remote';if(!group||!name)return toast('층과 디스플레이 이름을 입력하세요.','error');const {error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:group,p_name:name,p_mode:mode});if(error)return toast(error.message,'error');toast('디스플레이를 추가했습니다.');await load();startRealtime();}
-  // A guided workflow uses the existing hospital_create_display RPC; it does not
-  // change any room schema or existing placement. Record partial failures visibly.
   async function addTvToSelectedSpace(space,name){
     if(name.length>40)return toast('TV 이름은 40자 이내로 입력하세요.','error');
-    const before=new Set(state.rooms.map(r=>r.id));
-    const {error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:space.group_id,p_name:name,p_mode:'remote'});if(error)return toast(error.message,'error');
-    await load();const room=state.rooms.find(r=>r.group_id===space.group_id&&!before.has(r.id)&&r.name===name);if(!room)return toast('등록된 TV를 미배치 목록에서 선택하세요.','error');
-    combinedSourceSpaceId=space.id;combinedPlacementQueue=[room.id];layoutPlacementRoomId=room.id;renderPreservingUi(false);toast('도면에서 TV 위치를 선택하고 저장하세요.');
-  }
-  async function createDisplaysForSpace(space,count){
-    const group=space.group_id, names=Array.from({length:count},(_,i)=>`${space.name} TV${count>1?` ${i+1}`:''}`);
-    const existing=new Set(state.rooms.filter(r=>r.group_id===group).map(r=>String(r.name||'').trim().toLowerCase()));
-    if(names.some(n=>existing.has(n.toLowerCase())))return toast('같은 이름의 TV가 있습니다. 공간은 저장됐습니다. TV 이름을 확인한 뒤 개별 추가하세요.','error');
-    const created=[];
-    for(const name of names){
-      const before=new Set(state.rooms.map(r=>r.id));
-      const {error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:group,p_name:name,p_mode:'remote'});
-      if(error){toast(`공간은 저장됐지만 TV ${created.length}/${count}대만 등록됐습니다. 나머지는 추가해 주세요. ${error.message}`,'error');break;}
-      // Reload only after each successful insert to obtain its server-generated ID.
-      await load();
-      const room=state.rooms.find(r=>r.group_id===group&&!before.has(r.id)&&r.name===name);
-      if(!room){toast(`${name}을 등록했으나 ID를 확인하지 못했습니다. 미배치 TV에서 선택해 주세요.`,'error');break;}
-      created.push(room.id);
-    }
-    if(!created.length)return;
-    combinedPlacementQueue=[...created];combinedSourceSpaceId=space.id;
-    spaceEditorGroupId=group;selectedFloorId=group;layoutPanelOpen=true;layoutEditMode='display';
-    layoutPlacementRoomId=combinedPlacementQueue[0];
-    renderPreservingUi(false);
-    toast(`TV ${created.length}대를 등록했습니다. 도면을 클릭해 ${created.length}대의 위치를 차례로 지정하세요.`);
-    requestAnimationFrame(()=>qs('[data-staff-map-stage]')?.scrollIntoView({behavior:'smooth',block:'center'}));
+    if(!dbFeature('layout_atomic_v1'))return toast(dbVersionMessage(),'error');
+    if(!confirm('선택한 공간 안에 TV를 등록하고 초기 위치를 지정할까요? 등록 후 도면에서 위치를 옮길 수 있습니다.'))return;
+    try{
+      const {data,error}=await db.rpc('hospital_create_placed_displays',{p_site:targetSiteId,p_space:space.id,p_names:[name]});
+      if(error)throw error;
+      layoutRevision++;state.rooms=[...state.rooms,...(data||[])];
+      renderPreservingUi(false);toast('TV를 공간에 등록했습니다. 도면에서 위치를 옮길 수 있습니다.');
+    }catch(error){toast(error.message||'TV 등록 실패','error');}
   }
   function syncMediaTargetFromMap(roomId){
     const r=roomById(roomId);if(!r)return false;
@@ -1404,12 +1386,11 @@
     if(state.rooms.some(r=>r.group_id===group&&r.name?.trim().toLowerCase()===name.toLowerCase()))return toast('같은 층에 같은 이름이 있습니다.','error');
     const button=qs('#staffQuickCreateDisplay');if(button)button.disabled=true;
     try{
-      const before=new Set(state.rooms.map(r=>r.id));
-      const {error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:group,p_name:name,p_mode:mode});
+      const {data:createdId,error}=await db.rpc('hospital_create_display',{p_site:targetSiteId,p_group:group,p_name:name,p_mode:mode});
       if(error)throw error;
       // load() returns the canonical room ID; no guessed identifiers or local-only record.
       await load();
-      const created=state.rooms.find(r=>r.group_id===group&&!before.has(r.id)&&r.name===name);
+      const created=state.rooms.find(r=>r.id===createdId);
       layoutPanelOpen=true;spaceEditorGroupId=group;selectedFloorId=group;layoutEditMode='display';
       layoutPlacementRoomId=created?.id||null;
       renderPreservingUi(false);
@@ -1945,11 +1926,28 @@
     const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:displayControlMode(r),p_x:r.map_x_pct??null,p_y:r.map_y_pct??null,p_note:note||null,p_space:r.floor_space_id||null,p_group:canonicalFloorGroupIdForRoom(r)||r.group_id});
     if(error)return toast(error.message,'error');r.display_note=note||null;toast('송출 목적을 저장했습니다.');renderPreservingUi(true);
   }
-  async function saveDisplaySetup(roomId,x,y,mode,spaceId){const r=state.rooms.find(x=>x.id===roomId);if(!r)return;const prev={x:r.map_x_pct,y:r.map_y_pct,mode:r.display_control_mode,space:r.floor_space_id,check:r.manual_check_status};const useMode=mode||displayControlMode(r),gid=canonicalFloorGroupIdForRoom(r)||r.group_id;let resolvedSpace=spaceId===undefined?r.floor_space_id||null:spaceId||null;if(spaceId===null||spaceId==='auto')resolvedSpace=(x===null||x===undefined||y===null||y===undefined)?null:spaceContainingPoint(gid,x,y)?.id||null;
-    r.map_x_pct=x;r.map_y_pct=y;r.display_control_mode=useMode;r.floor_space_id=resolvedSpace;if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';renderPreservingUi(true);
-    let {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null,p_space:resolvedSpace,p_group:gid}),legacy=false;if(error&&displaySetupRpcMissing(error)){const retry=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null});error=retry.error;legacy=!error;}
-    if(error){r.map_x_pct=prev.x;r.map_y_pct=prev.y;r.display_control_mode=prev.mode;r.floor_space_id=prev.space;r.manual_check_status=prev.check;renderPreservingUi(true);toast(error.message,'error');return false;}
-    if(legacy)r.floor_space_id=prev.space;if(legacy)toast('TV 위치를 저장했습니다. 공간 연결은 DB 업데이트 후 함께 저장됩니다.');renderPreservingUi(true);return true;}
+  async function saveDisplaySetup(roomId,x,y,mode,spaceId){
+    const r=roomById(roomId);if(!r){toast('TV를 찾을 수 없습니다.','error');return false;}
+    const useMode=mode||displayControlMode(r),gid=canonicalFloorGroupIdForRoom(r)||r.group_id;
+    let resolvedSpace=spaceId===undefined?r.floor_space_id||null:spaceId||null;
+    if(spaceId===null||spaceId==='auto')resolvedSpace=x==null||y==null?null:spaceContainingPoint(gid,x,y)?.id||null;
+    try{
+      const {error}=await db.rpc('staff_set_display_setup',{p_room:roomId,p_mode:useMode,p_x:x,p_y:y,p_note:r.display_note||null,p_space:resolvedSpace,p_group:gid});
+      if(error)throw error;
+      Object.assign(r,{group_id:gid,map_x_pct:x,map_y_pct:y,display_control_mode:useMode,floor_space_id:resolvedSpace});
+      if(useMode==='manual'&&r.manual_check_status==='not_required')r.manual_check_status='needs_check';
+      if(useMode!=='manual')r.manual_check_status='not_required';
+      renderPreservingUi(true);return true;
+    }catch(error){toast(displaySetupRpcMissing(error)?dbVersionMessage():error.message||'TV 위치 저장 실패','error');return false;}
+  }
+  async function saveSpaceGeometry(space,patch){
+    if(!dbFeature('layout_atomic_v1'))throw new Error(dbVersionMessage());
+    const before={x_pct:space.x_pct,y_pct:space.y_pct,width_pct:space.width_pct,height_pct:space.height_pct};
+    const {data,error}=await db.rpc('hospital_save_space_geometry',{p_site:targetSiteId,p_space:space.id,p_before:before,p_patch:patch});
+    if(error)throw error;
+    Object.assign(space,data.space);
+    for(const moved of data.rooms||[]){const r=roomById(moved.id);if(r)Object.assign(r,moved);}
+  }
   const DISPLAY_GRID_STEP=1,DISPLAY_ALIGN_THRESHOLD=1;
   const clampPct=v=>Math.max(0,Math.min(100,Number(v)||0));
   function snapLayoutPoint(raw,targets=[]){
@@ -1984,14 +1982,16 @@
     if(point?.guideY!==null&&point?.guideY!==undefined){const g=document.createElement('i');g.className='display-snap-guide is-horizontal';g.style.top=`${point.guideY}%`;stage.appendChild(g);}
   }
   function clearDisplaySnapGuides(stage){stage?.querySelectorAll('.display-snap-guide').forEach(x=>x.remove());}
+  document.addEventListener('click',e=>{if((layoutDraft||layoutDraftSaving)&&!e.target.closest('#layoutDraftActions')){e.preventDefault();e.stopImmediatePropagation();toast('먼저 변경 내용을 저장하거나 취소하세요.');}},true);
+  window.addEventListener('beforeunload',e=>{if(layoutDraft||layoutDraftSaving){e.preventDefault();e.returnValue='';}});
   function queueLayoutDraft(save,cancel){
     if(layoutDraft||layoutDraftSaving){cancel();return;}
-    layoutDraft={save,cancel};const bar=qs('#layoutDraftActions');if(bar){bar.hidden=false;bar.scrollIntoView({block:'nearest'});}
+    layoutRevision++;layoutDraft={save,cancel};const bar=qs('#layoutDraftActions');if(bar){bar.hidden=false;bar.scrollIntoView({block:'nearest'});}
   }
   function bindDisplaySetup(){
-    qs('#hospitalLayoutWorkspace')?.addEventListener('click',e=>{if((layoutDraft||layoutDraftSaving)&&!e.target.closest('#layoutDraftActions,[data-ops-layout-toggle]')){e.preventDefault();e.stopImmediatePropagation();toast('먼저 변경 내용을 저장하거나 취소하세요.');}},true);
-    qs('#layoutDraftCancel')?.addEventListener('click',()=>{const d=layoutDraft;layoutDraft=null;d?.cancel();qs('#layoutDraftActions').hidden=true;});
-    qs('#layoutDraftSave')?.addEventListener('click',async e=>{if(!layoutDraft||layoutDraftSaving)return;const d=layoutDraft;layoutDraftSaving=true;layoutDraft=null;e.currentTarget.disabled=true;try{await d.save();}catch(err){d.cancel();toast(err.message||'저장 실패','error');}finally{layoutDraftSaving=false;const bar=qs('#layoutDraftActions');if(bar)bar.hidden=true;if(e.target.isConnected)e.target.disabled=false;}});
+
+    qs('#layoutDraftCancel')?.addEventListener('click',()=>{if(layoutDraftSaving)return;const d=layoutDraft;layoutDraft=null;d?.cancel();renderPreservingUi(true);});
+    qs('#layoutDraftSave')?.addEventListener('click',async e=>{if(!layoutDraft||layoutDraftSaving)return;const d=layoutDraft;layoutDraftSaving=true;const saveButton=e.currentTarget,cancelButton=qs('#layoutDraftCancel');saveButton.disabled=true;if(cancelButton)cancelButton.disabled=true;try{if(await d.save()!==false){layoutRevision++;layoutDraft=null;}}catch(err){toast(err.message||'저장 실패','error');}finally{layoutDraftSaving=false;if(!layoutDraft)renderPreservingUi(true);else{saveButton.disabled=false;if(cancelButton)cancelButton.disabled=false;}}});
     qs('#staffSaveSpaceName')?.addEventListener('click',async()=>{const sp=state.floorSpaces.find(x=>x.id===spaceRedrawId),name=(qs('#staffSpaceName')?.value||'').trim();if(!sp||!name)return toast('공간명을 입력하세요.','error');const {error}=await db.from('floor_spaces').update({name}).eq('id',sp.id).eq('site_id',targetSiteId);if(error)return toast(error.message,'error');sp.name=name;spaceRedrawId=null;layoutEditMode='display';renderPreservingUi(false);toast('저장했습니다.');});
     qs('#staffLayoutCopyToggle')?.addEventListener('click',()=>{layoutCopyOpen=!layoutCopyOpen;renderPreservingUi(true);});
     qs('#staffLayoutCopyClose')?.addEventListener('click',()=>{layoutCopyOpen=false;renderPreservingUi(true);});
@@ -2011,7 +2011,7 @@
     qsa('[data-delete-display]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();deleteHospitalDisplay(b.dataset.deleteDisplay);}));
     qsa('[data-unplace-display]').forEach(b=>b.addEventListener('click',()=>{const r=roomById(b.dataset.unplaceDisplay);if(r)saveDisplaySetup(r.id,null,null,displayControlMode(r),null);}));
     qsa('[data-save-display-purpose]').forEach(b=>b.addEventListener('click',()=>saveDisplayPurpose(b.dataset.saveDisplayPurpose)));
-    qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',async e=>{if(layoutDraft||layoutDraftSaving||layoutEditMode!=='display'||!layoutPlacementRoomId)return;if(e.target.closest('[data-display-marker]'))return;const roomId=layoutPlacementRoomId,r=roomById(roomId);if(!r)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);const source=state.floorSpaces.find(sp=>sp.id===combinedSourceSpaceId);if(source&&(p.x<Number(source.x_pct)||p.x>Number(source.x_pct)+Number(source.width_pct)||p.y<Number(source.y_pct)||p.y>Number(source.y_pct)+Number(source.height_pct)))return toast('선택한 공간 안에 TV 위치를 지정하세요.','error');const draftPin=document.createElement('span');draftPin.className='layout-draft-pin';Object.assign(draftPin.style,{left:`${p.x}%`,top:`${p.y}%`});stage.appendChild(draftPin);queueLayoutDraft(async()=>{draftPin.remove();if(!await saveDisplaySetup(roomId,p.x,p.y,displayControlMode(r),combinedSourceSpaceId||'auto'))return;
+    qsa('[data-staff-map-stage]').forEach(stage=>stage.addEventListener('click',async e=>{if(layoutDraft||layoutDraftSaving||layoutEditMode!=='display'||!layoutPlacementRoomId)return;if(e.target.closest('[data-display-marker]'))return;const roomId=layoutPlacementRoomId,r=roomById(roomId);if(!r)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapDisplayPoint(stage,roomId,rawX,rawY);const source=state.floorSpaces.find(sp=>sp.id===combinedSourceSpaceId);if(source&&(p.x<Number(source.x_pct)||p.x>Number(source.x_pct)+Number(source.width_pct)||p.y<Number(source.y_pct)||p.y>Number(source.y_pct)+Number(source.height_pct)))return toast('선택한 공간 안에 TV 위치를 지정하세요.','error');const draftPin=document.createElement('span');draftPin.className='layout-draft-pin';Object.assign(draftPin.style,{left:`${p.x}%`,top:`${p.y}%`});stage.appendChild(draftPin);queueLayoutDraft(async()=>{if(!await saveDisplaySetup(roomId,p.x,p.y,displayControlMode(r),combinedSourceSpaceId||'auto'))return false;draftPin.remove();
       if(combinedPlacementQueue[0]===roomId&&roomMapPlaced(roomById(roomId))){
         combinedPlacementQueue.shift();layoutPlacementRoomId=combinedPlacementQueue[0]||null;
         if(combinedPlacementQueue.length)toast(`다음 TV 위치를 클릭하세요. 남은 TV ${combinedPlacementQueue.length}대`);
@@ -2030,14 +2030,14 @@
     toast(`${sp.name} 문구를 저장했습니다.`);
   }
   function bindFloorSpaceManager(){
-    qs('#staffSpaceFloor')?.addEventListener('change',e=>{spaceEditorGroupId=e.target.value;selectedFloorId=e.target.value;spaceRedrawId=null;layoutPlacementRoomId=null;combinedPlacementQueue=[];combinedSourceSpaceId=null;layoutEditMode='display';layoutCopyOpen=false;renderPreservingUi(false);});
+    qs('#staffSpaceFloor')?.addEventListener('change',e=>{if(layoutDraft||layoutDraftSaving){e.target.value=spaceEditorGroupId;return;}spaceEditorGroupId=e.target.value;selectedFloorId=e.target.value;spaceRedrawId=null;layoutPlacementRoomId=null;combinedPlacementQueue=[];combinedSourceSpaceId=null;layoutEditMode='display';layoutCopyOpen=false;renderPreservingUi(false);});
     qsa('.floor-layout-stage [data-floor-space]').forEach(b=>{
       b.addEventListener('pointerdown',e=>{if(layoutDraft||layoutDraftSaving||layoutEditMode!=='space')return;const space=state.floorSpaces.find(x=>x.id===b.dataset.floorSpace);if(!space)return;e.preventDefault();e.stopPropagation();const stage=b.closest('[data-staff-space-stage]');if(!stage)return;const rect=stage.getBoundingClientRect(),sx=e.clientX,sy=e.clientY,oldX=Number(space.x_pct),oldY=Number(space.y_pct);let moved=false;
         b.setPointerCapture?.(e.pointerId);
         const move=ev=>{if(ev.pointerId!==e.pointerId)return;const dx=(ev.clientX-sx)/rect.width*100,dy=(ev.clientY-sy)/rect.height*100;if(Math.hypot(ev.clientX-sx,ev.clientY-sy)>5)moved=true;if(!moved)return;const x=Math.max(0,Math.min(100-Number(space.width_pct),Math.round(oldX+dx))),y=Math.max(0,Math.min(100-Number(space.height_pct),Math.round(oldY+dy)));b.style.left=`${x}%`;b.style.top=`${y}%`;};
         const cleanup=()=>{b.removeEventListener('pointermove',move);b.removeEventListener('pointerup',up);b.removeEventListener('pointercancel',cancel);};
         const cancel=()=>{cleanup();b.style.left=`${oldX}%`;b.style.top=`${oldY}%`;};
-        const up=async ev=>{cleanup();if(!moved)return;const dx=(ev.clientX-sx)/rect.width*100,dy=(ev.clientY-sy)/rect.height*100,x=Math.max(0,Math.min(100-Number(space.width_pct),Math.round(oldX+dx))),y=Math.max(0,Math.min(100-Number(space.height_pct),Math.round(oldY+dy)));b.dataset.justMoved='1';queueLayoutDraft(async()=>{try{const {error}=await db.from('floor_spaces').update({x_pct:x,y_pct:y}).eq('id',space.id).eq('site_id',state.site.id);if(error)throw error;space.x_pct=x;space.y_pct=y;toast('공간 위치를 저장했습니다.');}catch(err){toast(err.message||'공간 위치 저장 실패','error');}renderPreservingUi(false);},cancel);};
+        const up=async ev=>{cleanup();if(!moved)return;const dx=(ev.clientX-sx)/rect.width*100,dy=(ev.clientY-sy)/rect.height*100,x=Math.max(0,Math.min(100-Number(space.width_pct),Math.round(oldX+dx))),y=Math.max(0,Math.min(100-Number(space.height_pct),Math.round(oldY+dy)));b.dataset.justMoved='1';queueLayoutDraft(async()=>{await saveSpaceGeometry(space,{x_pct:x,y_pct:y});toast('공간과 연결 TV 위치를 저장했습니다.');},cancel);};
         b.addEventListener('pointermove',move);b.addEventListener('pointerup',up);b.addEventListener('pointercancel',cancel);
       });
       b.addEventListener('click',e=>{if(layoutPlacementRoomId&&layoutEditMode==='display')return;e.preventDefault();e.stopPropagation();if(b.dataset.justMoved){delete b.dataset.justMoved;return;}if(layoutDraft||layoutDraftSaving)return;const space=state.floorSpaces.find(x=>x.id===b.dataset.floorSpace);if(!space)return;layoutEditMode='space';spaceEditorGroupId=space.group_id;spaceRedrawId=space.id;layoutPlacementRoomId=null;renderPreservingUi(false);requestAnimationFrame(()=>qs('#staffSpaceName')?.focus({preventScroll:true}));});
@@ -2050,8 +2050,15 @@
     stage.addEventListener('pointerdown',e=>{if(layoutDraft||layoutDraftSaving||layoutEditMode!=='space')return;if(e.target.closest('[data-floor-space]'))return;const name=(qs('#staffSpaceName')?.value||'').trim();if(!name)return toast('공간명을 먼저 입력하세요.','error');e.preventDefault();const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId);start={x:p.x,y:p.y,id:e.pointerId};preview=document.createElement('div');preview.className='floor-space-draft';stage.appendChild(preview);showDisplaySnapGuides(stage,p);stage.setPointerCapture?.(e.pointerId);});
     stage.addEventListener('pointermove',e=>{if(!start||e.pointerId!==start.id||!preview)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);Object.assign(preview.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});showDisplaySnapGuides(stage,p);});
     stage.addEventListener('pointerup',async e=>{if(!start||e.pointerId!==start.id)return;const rect=stage.getBoundingClientRect(),rawX=(e.clientX-rect.left)/rect.width*100,rawY=(e.clientY-rect.top)/rect.height*100,p=snapSpacePoint(stage,rawX,rawY,spaceRedrawId),l=Math.min(start.x,p.x),t=Math.min(start.y,p.y),w=Math.abs(p.x-start.x),h=Math.abs(p.y-start.y);preview?.remove();preview=null;start=null;clearDisplaySnapGuides(stage);if(w<2||h<2)return toast('공간 영역을 조금 더 크게 드래그하세요.','error');const name=(qs('#staffSpaceName')?.value||'').trim(),type=qs('#staffSpaceType')?.value||'other',groupId=stage.dataset.staffSpaceStage;
-      const draftBox=document.createElement('div');draftBox.className='floor-space-draft';Object.assign(draftBox.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});stage.appendChild(draftBox);queueLayoutDraft(async()=>{draftBox.remove();if(spaceRedrawId){const id=spaceRedrawId,{error}=await db.from('floor_spaces').update({name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h}).eq('id',id).eq('site_id',state.site.id);if(error)return toast(error.message,'error');const item=state.floorSpaces.find(x=>x.id===id);if(item)Object.assign(item,{name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h});spaceRedrawId=null;layoutEditMode='display';toast('공간을 다시 그렸습니다.');renderPreservingUi(true);return;}
-      const count=Math.max(0,Math.min(6,Number(qs('#staffCombinedTvCount')?.value||0)));const nextOrder=Math.max(0,...state.floorSpaces.filter(x=>x.group_id===groupId).map(x=>Number(x.sort_order||0)))+10;const {data,error}=await db.from('floor_spaces').insert({site_id:state.site.id,group_id:groupId,name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h,sort_order:nextOrder}).select('*').single();if(error)return toast(error.message,'error');if(data)state.floorSpaces.push(data);layoutEditMode='display';if(data&&count){await createDisplaysForSpace(data,count);}else{toast('공간을 저장했습니다.');renderPreservingUi(true);}},()=>draftBox.remove());
+      const draftBox=document.createElement('div');draftBox.className='floor-space-draft';Object.assign(draftBox.style,{left:`${l}%`,top:`${t}%`,width:`${w}%`,height:`${h}%`});stage.appendChild(draftBox);const tvCount=Math.max(0,Math.min(6,Number(qs('#staffCombinedTvCount')?.value||0)));queueLayoutDraft(async()=>{
+        if(!dbFeature('layout_atomic_v1'))throw new Error(dbVersionMessage());
+        if(spaceRedrawId){const item=state.floorSpaces.find(x=>x.id===spaceRedrawId);if(!item)throw new Error('공간을 찾을 수 없습니다.');await saveSpaceGeometry(item,{name,space_type:type,x_pct:l,y_pct:t,width_pct:w,height_pct:h});spaceRedrawId=null;layoutEditMode='display';toast('공간을 다시 그렸습니다.');return;}
+        const count=tvCount;
+        const {data,error}=await db.rpc('hospital_create_space_with_displays',{p_site:targetSiteId,p_group:groupId,p_name:name,p_type:type,p_x:l,p_y:t,p_width:w,p_height:h,p_count:count});
+        if(error)throw error;
+        state.floorSpaces=[...state.floorSpaces,data.space];state.rooms=[...state.rooms,...(data.rooms||[])];
+        layoutEditMode='display';toast(count?`공간과 TV ${count}대를 저장했습니다. TV 위치는 도면에서 조정할 수 있습니다.`:'공간을 저장했습니다.');
+      },()=>draftBox.remove());
     });
     stage.addEventListener('pointercancel',()=>{preview?.remove();preview=null;start=null;clearDisplaySnapGuides(stage);});
   }
@@ -2132,7 +2139,7 @@
     qs('#floorTvSelectAll')?.addEventListener('change',e=>cards.filter(el=>!el.hidden).forEach(el=>{qs('[data-floor-tv-select]',el).checked=e.target.checked;}));
     cards.forEach(el=>{qs('[data-floor-tv-select]',el)?.addEventListener('click',e=>e.stopPropagation());qs('summary',el)?.addEventListener('click',e=>{if(e.target.closest('input,button'))return;qs(`[data-staff-floor-room="${el.dataset.tvId}"]`)?.click();});});
     const selected=()=>cards.filter(el=>!el.hidden&&qs('[data-floor-tv-select]',el)?.checked).map(el=>roomById(el.dataset.tvId)).filter(Boolean);
-    const run=async(reload)=>{if(floorBulkBusy)return;const rooms=selected().filter(r=>!reload||displayControlMode(r)!=='manual'),playlist=qs('#floorTvBulkPlaylist')?.value;if(!rooms.length||(!reload&&!playlist))return toast('TV와 필요한 재생목록을 선택하세요.','error');if(!confirm(`${rooms.length}대 TV에 ${reload?'새로고침 명령을 전송':'재생목록을 적용'}할까요?`))return;floorBulkBusy=true;let ok=0,failed=0;try{if(reload){const {data,error}=await db.rpc('hospital_reload_selected_players',{p_site:targetSiteId,p_rooms:rooms.map(r=>r.id)});if(error)throw error;ok=Number(data)||0;failed=rooms.length-ok;}else{for(const r of rooms){try{const {error}=await db.rpc('staff_set_room_playlist',{p_room:r.id,p_playlist:playlist});if(error)throw error;ok++;if(displayControlMode(r)!=='manual')await signalRoom(r.id);}catch(e){failed++;}}}toast(`${ok}대 처리 · ${failed}대 실패`,failed?'error':undefined);await load();}catch(e){toast(e.message||'처리 실패','error');}finally{floorBulkBusy=false;}};
+    const run=async(reload)=>{if(floorBulkBusy)return;const rooms=selected().filter(r=>!reload||displayControlMode(r)!=='manual'),playlist=qs('#floorTvBulkPlaylist')?.value;if(!rooms.length||(!reload&&!playlist))return toast('TV와 필요한 재생목록을 선택하세요.','error');if(!confirm(`${rooms.length}대 TV에 ${reload?'새로고침 명령을 전송':'재생목록을 적용'}할까요?`))return;floorBulkBusy=true;let ok=0,failed=0;try{if(reload){if(!dbFeature('selected_reload_v1'))throw new Error(dbVersionMessage());const {data,error}=await db.rpc('hospital_reload_selected_players',{p_site:targetSiteId,p_rooms:rooms.map(r=>r.id)});if(error)throw error;ok=Number(data)||0;failed=rooms.length-ok;}else{for(const r of rooms){try{const {error}=await db.rpc('staff_set_room_playlist',{p_room:r.id,p_playlist:playlist});if(error)throw error;ok++;if(displayControlMode(r)!=='manual')await signalRoom(r.id);}catch(e){failed++;}}}toast(reload?`${ok}대 명령 등록 · ${failed}대 실패 (실제 TV 적용 여부는 별도 확인)`:`${ok}대 재생목록 저장 · ${failed}대 실패`,failed?'error':undefined);await load();}catch(e){toast(e.message||'처리 실패','error');}finally{floorBulkBusy=false;}};
     qs('#floorTvApply')?.addEventListener('click',()=>void run(false));qs('#floorTvReload')?.addEventListener('click',()=>void run(true));
   }
   function bind(){

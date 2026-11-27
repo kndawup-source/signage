@@ -2,7 +2,8 @@
 
 // Native player representation selector. Never invent converted variants: use
 // only explicit, previously published media metadata from the database RPC.
-const MAX_VIDEO_BYTES = 650 * 1024 * 1024;
+// Metadata size limit matches the largest permitted upload; cache policy is separate.
+const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_VIDEO_COUNT = 200;
 
 function validUrl(input) {
