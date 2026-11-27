@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const sql=fs.readFileSync('supabase/v2.36.8-auth-stability.sql','utf8');
+assert(fs.readFileSync('supabase/schema.sql','utf8').endsWith(sql));
+assert(sql.indexOf('signage_throttle_hit(v_client_key')<sql.indexOf('SELECT EXISTS(SELECT 1 FROM public.pin_trusted_devices'));
+assert(sql.indexOf('signage_throttle_hit(v_client_key')<sql.indexOf('crypt(p_pin,v_account.pin_hash)'));
+assert.match(sql,/crypt\(p_pin,v_account.pin_hash\).*THEN\s+IF v_trusted THEN DELETE FROM public.pin_trusted_devices WHERE token_hash=digest\(v_client,'sha256'\)/);
+assert.match(sql,/updated_at < v_now - interval '1 day'[\s\S]*LIMIT 500 FOR UPDATE SKIP LOCKED/);
+assert.match(sql,/trusted_revoke_v1/);
+console.log('Auth stability SQL source contract checks passed (not PostgreSQL execution)');

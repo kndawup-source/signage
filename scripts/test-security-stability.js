@@ -34,7 +34,7 @@ global.fetch=async(url,options)=>{
  assert.equal(res.status,200);assert.equal(res.body.deleted_video_assets,1);assert.equal(res.body.retained_video_assets,1);assert.equal(res.body.video_cleanup_deferred,true);
  assert(calls.findIndex(x=>x.url?.includes('/rpc/admin_delete_site'))<calls.findIndex(x=>x.method==='DELETE'));
  const sql=fs.readFileSync('supabase/v2.36.7-security-stability.sql','utf8'),schema=fs.readFileSync('supabase/schema.sql','utf8');
- assert(schema.endsWith(sql));assert(sql.indexOf('signage_throttle_hit(v_client_key')<sql.indexOf('crypt(p_pin,v_account.pin_hash)'));
+ assert(schema.includes(sql));assert(sql.indexOf('signage_throttle_hit(v_client_key')<sql.indexOf('crypt(p_pin,v_account.pin_hash)'));
  assert.match(sql,/d\.token_hash=digest\(v_client,'sha256'\).*d\.account_id=v_account\.id.*d\.pin_updated_at=v_account\.updated_at/);
  assert.match(sql,/REVOKE ALL ON public\.pin_trusted_devices FROM PUBLIC,anon,authenticated/);
  assert.match(sql,/NOT EXISTS\(SELECT 1 FROM public\.videos other/);

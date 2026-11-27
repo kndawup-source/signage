@@ -60,6 +60,6 @@ if(!fs.existsSync(ignorePath)){
   if(rules.includes('api/')||rules.includes('api/_private/')) errors.push('api private server resources excluded');
 }
 
-for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql','supabase/v2.36.1-video-delete-impact.sql','supabase/v2.36.6-layout-stability.sql','scripts/test-layout-stability.js','supabase/v2.36.7-security-stability.sql','scripts/test-security-stability.js']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
+for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql','supabase/v2.36.1-video-delete-impact.sql','supabase/v2.36.6-layout-stability.sql','scripts/test-layout-stability.js','supabase/v2.36.7-security-stability.sql','scripts/test-security-stability.js','supabase/v2.36.8-auth-stability.sql','scripts/test-auth-stability.js','scripts/check-legacy-floorplans.sql']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
 if(errors.length){console.error('Deployment consistency FAILED:\n'+errors.join('\n'));process.exit(1);}
 console.log(`Deployment consistency OK: ${version}`);
