@@ -41,3 +41,6 @@ floorzones/
 node_modules/
 .vercel/
 .gitignore
+
+# Unused legacy raster floorplans (no runtime references)
+api/_private/floorplans/
