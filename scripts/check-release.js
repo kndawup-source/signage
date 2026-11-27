@@ -53,13 +53,13 @@ if(!fs.existsSync(ignorePath)){
 } else {
   const rules=fs.readFileSync(ignorePath,'utf8').split(/\r?\n/).map(x=>x.trim())
     .filter(x=>x && !x.startsWith('#'));
-  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/','floorplans_clean/','floorplans_svg/','floorzones/','desktop-player/','*.md','*.txt']){
+  for(const p of ['supabase/','sql/','server/','scripts/','floorplans_source/','floorplans_clean/','floorplans_svg/','floorzones/','desktop-player/','api/_private/floorplans/','*.md','*.txt']){
     if(!rules.includes(p))errors.push(`not ignored: ${p}`);
   }
   // Critical: serverless functions still need their private assets at build time.
   if(rules.includes('api/')||rules.includes('api/_private/')) errors.push('api private server resources excluded');
 }
 
-for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql','supabase/v2.36.1-video-delete-impact.sql','supabase/v2.36.6-layout-stability.sql','scripts/test-layout-stability.js','supabase/v2.36.7-security-stability.sql','scripts/test-security-stability.js','supabase/v2.36.8-auth-stability.sql','scripts/test-auth-stability.js','scripts/check-legacy-floorplans.sql']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
+for(const f of ['.gitignore','js/site-catalog.js','supabase/v2.36.0-site-catalog.sql','scripts/test-site-catalog.js','scripts/test-site-catalog-db.sql','supabase/v2.36.1-video-delete-impact.sql','supabase/v2.36.6-layout-stability.sql','scripts/test-layout-stability.js','supabase/v2.36.7-security-stability.sql','scripts/test-security-stability.js','supabase/v2.36.8-auth-stability.sql','scripts/test-auth-stability.js','scripts/check-legacy-floorplans.sql','supabase/v2.36.9-video-delete-scoped.sql','scripts/test-video-delete-scoped.js','scripts/test-video-delete-db.sql']){if(!fs.existsSync(path.join(root,f)))errors.push('Missing required release file: '+f);}
 if(errors.length){console.error('Deployment consistency FAILED:\n'+errors.join('\n'));process.exit(1);}
 console.log(`Deployment consistency OK: ${version}`);

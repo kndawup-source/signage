@@ -661,11 +661,11 @@
 
   let lastLoadStartedAt=0,layoutRevision=0;
   // ---- DB 버전 확인: 화면이 필요로 하는 DB 기능이 없으면 해당 버튼만 막고 구체적으로 안내한다 (TV 송출과 무관) ----
-  const REQUIRED_DB_VERSION='2.36.8';
+  const REQUIRED_DB_VERSION='2.36.9';
   let dbInfo={checked:false,version:null,features:[],error:null};
   const dbVersionCmp=(a,b)=>{const pa=String(a||'0').split('.').map(Number),pb=String(b||'0').split('.').map(Number);for(let i=0;i<3;i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d;}return 0;};
   const dbFeature=(f)=>dbInfo.features.includes('pairing_v3')&&dbInfo.features.includes(f);
-  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1')||!dbInfo.features.includes('video_delete_impact_v1')||!dbFeature('layout_atomic_v1')||!dbFeature('selected_reload_v1')||!dbFeature('security_v1')||!dbFeature('trusted_revoke_v1'));
+  const dbOutdated=()=>dbInfo.checked&&dbInfo.error!=='network'&&(dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0||!dbFeature('site_catalog_v1')||!dbInfo.features.includes('video_delete_impact_v1')||!dbFeature('layout_atomic_v1')||!dbFeature('selected_reload_v1')||!dbFeature('security_v1')||!dbFeature('trusted_revoke_v1')||!dbFeature('video_delete_scoped_v1'));
   function dbVersionMessage(){
     if(dbInfo.error==='network')return 'DB 버전을 확인하지 못했습니다. 새로고침 후 다시 시도하세요.';
     const files=[];
@@ -675,7 +675,8 @@
     if(!dbInfo.features.includes('video_delete_impact_v1'))files.push('v2.36.1-video-delete-impact.sql');
     if(!dbFeature('layout_atomic_v1')||!dbFeature('selected_reload_v1')||dbVersionCmp(dbInfo.version,'2.36.6')<0)files.push('v2.36.6-layout-stability.sql');
     if(!dbFeature('security_v1')||dbVersionCmp(dbInfo.version,'2.36.7')<0)files.push('v2.36.7-security-stability.sql');
-    if(!dbFeature('trusted_revoke_v1')||dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0)files.push('v2.36.8-auth-stability.sql');
+    if(!dbFeature('trusted_revoke_v1')||dbVersionCmp(dbInfo.version,'2.36.8')<0)files.push('v2.36.8-auth-stability.sql');
+    if(!dbFeature('video_delete_scoped_v1')||dbVersionCmp(dbInfo.version,REQUIRED_DB_VERSION)<0)files.push('v2.36.9-video-delete-scoped.sql');
     return `Supabase SQL Editor에서 ${files.map(f=>'supabase/'+f).join(' → ')}${files.length>1?' 순서로':''} 실행하세요. (현재 DB ${dbInfo.version||'2.35.85 이하'} · 필요 ${REQUIRED_DB_VERSION})`;
   }
   async function checkDbVersion(){
